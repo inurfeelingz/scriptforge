@@ -1,0 +1,109 @@
+// backend/src/routes/session/transcribe.js
+// Receives audio chunks from the companion app and transcribes with Whisper.
+// Attached to the session router at POST /:id/transcribe
+// Called every 10 seconds while recording.
+
+// This is a standalone handler file — imported by routes/session.js
+
+const multer = require('multer')
+const Anthropic = require('@anthropic-ai/sdk')
+const { supabase } = require('../../utils/supabase')
+
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } })
+const client = new Anthropic.Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+
+/**
+ * POST /api/session/:id/transcribe
+ * Receives a 10s audio blob from the companion PWA.
+ * Uses Whisper (via Anthropic API) to transcribe.
+ * Saves result as a speech entry in the session.
+ */
+async function handleTranscribe(req, res) {
+  if (!req.file) return res.status(400).json({ error: 'Audio file required' })
+
+  const timestampMs = parseInt(req.body.timestampMs) || 0
+
+  try {
+    // Verify session belongs to user
+    const { data: session } = await supabase
+      .from('session_journals')
+      .select('id, entries')
+      .eq('id', req.params.id)
+      .eq('user_id', req.user.id)
+      .single()
+
+    if (!session) return res.status(404).json({ error: 'Session not found' })
+
+    // Use Whisper via Anthropic API
+    // Note: Anthropic doesn't directly expose Whisper — use OpenAI Whisper API
+    // or run it client-side via Transformers.js in the worker.
+    // This is the server-side fallback path.
+
+    let text = ''
+    let whisperConfidence = null
+
+    if (process.env.OPENAI_API_KEY) {
+      // OpenAI Whisper API fallback
+      const FormData = require('form-data')
+      const axios    = require('axios')
+      const form     = new FormData()
+
+      form.append('file', req.file.buffer, {
+        filename:    'audio.webm',
+        contentType: req.file.mimetype || 'audio/webm',
+      })
+      form.append('model', 'whisper-1')
+      form.append('language', 'en')
+      form.append('response_format', 'verbose_json')
+      form.append('timestamp_granularities[]', 'word')
+
+      const response = await axios.post(
+        'https://api.openai.com/v1/audio/transcriptions',
+        form,
+        {
+          headers: {
+            ...form.getHeaders(),
+            Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+          },
+        }
+      )
+      text = response.data?.text || ''
+      const segs       = response.data?.segments || []
+      const avgLogprob = segs.length ? segs.reduce((s,seg) => s + (seg.avg_logprob||0), 0) / segs.length : null
+      // avgLogprob: -0.5 = high confidence, -1.0 = medium, < -1.2 = low
+      whisperConfidence = avgLogprob !== null ? Math.min(1, Math.max(0, (avgLogprob + 1.5) / 1.5)) : null
+    } else {
+      // If no OpenAI key: return empty — client-side Whisper in the worker handles this
+      return res.json({ text: '', entries: [], clientSideRequired: true })
+    }
+
+    if (!text.trim()) return res.json({ text: '', entries: [] })
+
+    // Create an entry for this transcribed chunk
+    const entry = {
+      id:           `speech-${Date.now()}`,
+      timestamp_ms: timestampMs,
+      type:         'speech',
+      text:         text.trim(),
+      energy:       0.5,
+      confidence:   whisperConfidence,
+    }
+
+    // Append to session entries
+    const entries = [...(session.entries || []), entry]
+    await supabase
+      .from('session_journals')
+      .update({ entries, updated_at: new Date().toISOString() })
+      .eq('id', req.params.id)
+      .eq('user_id', req.user.id)
+
+    res.json({ text, entries: [entry] })
+
+  } catch (err) {
+    console.error('[session/transcribe]', err.message)
+    // Don't fail hard — companion continues recording even if transcription fails
+    res.json({ text: '', entries: [], error: err.message })
+  }
+}
+
+module.exports = { handleTranscribe, upload }

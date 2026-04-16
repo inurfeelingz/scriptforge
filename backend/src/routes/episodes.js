@@ -1,0 +1,481 @@
+// backend/src/routes/episodes.js
+const express   = require('express');
+const Anthropic  = require('@anthropic-ai/sdk');
+const { supabase }         = require('../utils/supabase');
+const { assembleContext }  = require('../services/contextAssembler');
+const tierGate             = require('../middleware/tier');
+
+const router = express.Router();
+const client = new Anthropic.Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+
+// ─── GENERATE EPISODE (SSE) ──────────────────────────────────────────────────
+
+/**
+ * POST /api/episodes/generate
+ * Body: { categoryId, episodeNumber, trackContext, voiceMemoText, clipInventory }
+ * Returns: SSE stream — progress → reasoning → chunks → done
+ */
+router.post('/generate', tierGate('generate_episode'), async (req, res) => {
+  const {
+    categoryId, episodeNumber, trackContext,
+    voiceMemoText, clipInventory = [],
+  } = req.body;
+
+  if (!categoryId || !trackContext?.name) {
+    return res.status(400).json({ error: 'categoryId and trackContext.name are required' });
+  }
+
+  // Prevent concurrent generation of same episode number (race condition guard)
+  const { data: inProgress } = await supabase
+    .from('episodes')
+    .select('id, status')
+    .eq('user_id', req.user.id)
+    .eq('category_id', categoryId)
+    .eq('episode_number', episodeNumber)
+    .eq('status', 'generating')
+    .maybeSingle();
+
+  if (inProgress) {
+    return res.status(409).json({
+      error: `Episode ${episodeNumber} is already generating — wait for it to complete.`,
+      episodeId: inProgress.id,
+    });
+  }
+
+  // SSE setup
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.flushHeaders();
+
+  const send = (event, data) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+
+  try {
+    send('progress', { step: 'context', message: 'Loading your creative context...', pct: 5 });
+
+    // Assemble full context
+    const systemContext = await assembleContext(req.user.id, categoryId, {
+      mode: 'generate',
+      episodeCtx: { ...trackContext, episodeNumber, voiceMemoText },
+    });
+
+    send('progress', { step: 'context', message: 'Context loaded', pct: 15 });
+
+    // Build clip list string
+    const clipList = clipInventory.length
+      ? clipInventory.map(c => `${c.type.toUpperCase()}: ${c.filename}`).join('\n')
+      : 'No clip inventory provided — use approximate timings';
+
+    send('progress', { step: 'generating', message: 'Claude is structuring your episode...', pct: 20 });
+
+    // Calculate target word count from episode duration
+    const targetMinutes = trackContext.targetDurationMinutes || 8
+    const targetWords   = Math.round(targetMinutes * 130)  // ~130 wpm natural speaking pace
+
+    const userPrompt = `Generate a complete episode package.
+
+EPISODE: ${episodeNumber}
+TRACK: "${trackContext.name}"
+MOOD: ${trackContext.mood || ''}
+GENRE: ${trackContext.genre || ''}
+BPM: ${trackContext.bpm || ''}
+PLATFORM LINK: ${trackContext.platformLink || 'coming soon'}
+TARGET DURATION: ${targetMinutes} minutes
+TARGET VO WORD COUNT: approximately ${targetWords} words (${targetMinutes} min × 130 wpm natural pace)
+
+FOOTAGE AVAILABLE:
+${clipList}
+
+VOICE MEMO:
+"${voiceMemoText || 'No voice memo provided — use track context to infer the story'}"
+
+Before writing, think out loud: explain your hook choice, your opening clip decision, which trending angle you're using and why, and your intercut rhythm decision. Then generate the full package in the required format.
+
+Return using these exact section markers:
+===REASONING===
+[Your structural thinking — 3-5 sentences]
+
+===ENERGY_CURVE===
+[Minute-by-minute energy/mood score 1-10 with one-line annotation per minute]
+
+===VO_SCRIPT===
+[Full timestamped voiceover script.
+CRITICAL FORMATTING RULES:
+- Write exactly ~${targetWords} words total (${targetMinutes} min at 130 wpm)
+- Use SHORT paragraphs of 2-4 sentences maximum — each paragraph = one visual beat
+- Leave a blank line between paragraphs — these are B-roll breathing points for the editor
+- Begin each paragraph with [0:00] style timecode marker at natural speaking pace
+- Do NOT write a wall of text — the editor needs visual cut points throughout
+- Vary sentence length: punchy short sentences after longer build-up ones
+- Write in the creator's natural voice as defined in the system context]
+
+===EDL_CLIP_MAP===
+[Ordered clip list: CLIP_01 | filename | IN: tc | OUT: tc | TRACK: V1/V2 | NOTE: ...]
+
+===SHORTFORM_MOMENTS===
+[2-3 short-form cuts: MOMENT_01 | clip | timecode | hook text | platform]
+
+===METADATA===
+YOUTUBE_TITLE:
+YOUTUBE_DESCRIPTION:
+YOUTUBE_TAGS:
+YOUTUBE_CHAPTERS:
+TIKTOK_CAPTION:
+PLATFORM_CTA:`;
+
+    // Stream with visible reasoning
+    let fullResponse = '';
+    let reasoningDone = false;
+
+    // Hard cap: if generation hasn't finished in 3 minutes, close cleanly
+    const generationTimeout = setTimeout(() => {
+      if (!res.writableEnded) {
+        send('error', { message: 'Generation timed out after 3 minutes — try again' })
+        res.end()
+      }
+    }, 3 * 60 * 1000)
+
+    const stream = await client.messages.stream({
+      model:      process.env.CLAUDE_MODEL || 'claude-sonnet-4-20250514',
+      max_tokens: parseInt(process.env.MAX_TOKENS) || 8000,
+      system:     systemContext,
+      messages:   [{ role: 'user', content: userPrompt }],
+    });
+
+    for await (const chunk of stream) {
+      if (chunk.type === 'content_block_delta' && chunk.delta.type === 'text_delta') {
+        const text = chunk.delta.text;
+        fullResponse += text;
+
+        // Stream reasoning section separately for UI display
+        if (!reasoningDone) {
+          if (fullResponse.includes('===VO_SCRIPT===')) {
+            reasoningDone = true;
+            send('progress', { step: 'writing', message: 'Writing your VO script...', pct: 50 });
+          } else if (fullResponse.includes('===REASONING===')) {
+            send('reasoning', { text });
+          }
+        } else {
+          send('chunk', { text });
+        }
+      }
+    }
+
+    // Token usage for cost tracking (~$0.003/1K input, $0.015/1K output for Sonnet)
+    const usage = stream.finalMessage?.usage || {}
+    const inputTokens  = usage.input_tokens  || 0
+    const outputTokens = usage.output_tokens || 0
+    const estimatedCostUsd = (inputTokens * 0.000003) + (outputTokens * 0.000015)
+
+    send('progress', { step: 'saving', message: 'Saving episode package...', pct: 85, tokens: { inputTokens, outputTokens, estimatedCostUsd: parseFloat(estimatedCostUsd.toFixed(4)) } });
+
+    // Parse output sections
+    const extract = (tag) => {
+      const regex = new RegExp(`===\\s*${tag}\\s*===\\s*([\\s\\S]*?)(?:===|$)`);
+      const match = fullResponse.match(regex);
+      return match ? match[1].trim() : null;
+    };
+
+    const parsed = {
+      reasoning:      extract('REASONING'),
+      energyCurve:    extract('ENERGY_CURVE'),
+      voScript:       extract('VO_SCRIPT'),
+      edlClipMap:     extract('EDL_CLIP_MAP'),
+      shortformMoments: extract('SHORTFORM_MOMENTS'),
+      metadata:       extract('METADATA'),
+    };
+
+    // Parse metadata block
+    const metadataBlock = {};
+    if (parsed.metadata) {
+      parsed.metadata.split('\n').forEach(line => {
+        const [key, ...val] = line.split(':');
+        if (key && val.length) metadataBlock[key.trim()] = val.join(':').trim();
+      });
+    }
+
+    // Save to Supabase
+    const slug = trackContext.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 40);
+
+    const { data: episode, error: epError } = await supabase
+      .from('episodes')
+      .upsert({
+        user_id:         req.user.id,
+        category_id:     categoryId,
+        episode_number:  episodeNumber,
+        slug,
+        status:          'ready',
+        track_name:      trackContext.name,
+        track_mood:      trackContext.mood,
+        track_genre:     trackContext.genre,
+        track_bpm:       trackContext.bpm,
+        track_platform_link: trackContext.platformLink,
+        voice_memo_text: voiceMemoText,
+        vo_script:       parsed.voScript,
+        edl_clip_map:    parsed.edlClipMap,
+        metadata_block:  metadataBlock,
+        short_form_moments: parsed.shortformMoments,
+        retention_curve: parsed.energyCurve,
+        generation_decisions: {
+          reasoning:     parsed.reasoning,
+          clipInventory,
+          inputTokens,
+          outputTokens,
+          estimatedCostUsd,
+        },
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'user_id,category_id,episode_number' })
+      .select()
+      .single();
+
+    if (epError) throw new Error(`DB save failed: ${epError.message}`);
+
+    // Auto-save hooks to vault
+    if (parsed.voScript) {
+      const firstLines = parsed.voScript.split('\n')
+        .filter(l => l.trim() && !l.match(/^\[(?:CAM|DAW)/i))
+        .slice(0, 3);
+
+      for (const [i, line] of firstLines.entries()) {
+        await supabase.from('vault_entries').insert({
+          user_id:     req.user.id,
+          category_id: categoryId,
+          episode_id:  episode.id,
+          type:        'hook',
+          title:       `Hook ${String.fromCharCode(65+i)} — ${trackContext.name}`,
+          content:     line,
+          tags:        [trackContext.genre, trackContext.mood].filter(Boolean),
+        });
+      }
+    }
+
+    // Log generation decisions
+    await supabase.from('generation_log').insert({
+      user_id:      req.user.id,
+      category_id:  categoryId,
+      episode_id:   episode.id,
+      episode_slug: slug,
+      episode_number: episodeNumber,
+      track_context: trackContext,
+      decisions: {
+        reasoning:    parsed.reasoning,
+        hookType:     detectHookType(parsed.voScript),
+        openingClip:  clipInventory[0]?.type || 'unknown',
+      },
+    });
+
+    // Add to series memory
+    await supabase.from('series_memory').upsert({
+      user_id:       req.user.id,
+      category_id:   categoryId,
+      episode_id:    episode.id,
+      episode_number: episodeNumber,
+      episode_slug:  slug,
+      track_name:    trackContext.name,
+      track_context: trackContext,
+    }, { onConflict: 'user_id,category_id,episode_number' });
+
+    // Increment usage counter
+    await supabase.rpc('increment_episodes_this_month', { p_user_id: req.user.id });
+
+    send('progress', { step: 'complete', message: 'Episode package ready', pct: 100 });
+    clearTimeout(generationTimeout)
+    send('done', { episodeId: episode.id, slug, parsed });
+    res.end();
+
+  } catch (err) {
+    clearTimeout(generationTimeout)
+    console.error('[episodes/generate]', err.message);
+    send('error', { message: err.message });
+    res.end();
+  }
+});
+
+// ─── DUPLICATE EPISODE ───────────────────────────────────────────────────────
+// Clone an existing episode as a starting point — copies track context and
+// voice memo into a new draft at the next episode number.
+
+router.post('/:id/duplicate', async (req, res) => {
+  const { data: source, error } = await supabase
+    .from('episodes')
+    .select('*')
+    .eq('id', req.params.id)
+    .eq('user_id', req.user.id)
+    .single()
+
+  if (error || !source) return res.status(404).json({ error: 'Episode not found' })
+
+  // Find the highest episode number to auto-assign the next one
+  const { data: latest } = await supabase
+    .from('episodes')
+    .select('episode_number')
+    .eq('user_id', req.user.id)
+    .eq('category_id', source.category_id)
+    .order('episode_number', { ascending: false })
+    .limit(1)
+    .single()
+
+  const nextNumber = (latest?.episode_number || source.episode_number) + 1
+  const slug       = `${source.slug}-copy-${nextNumber}`
+
+  const { data: clone, error: cloneError } = await supabase
+    .from('episodes')
+    .insert({
+      user_id:          req.user.id,
+      category_id:      source.category_id,
+      episode_number:   nextNumber,
+      slug,
+      status:           'draft',
+      track_name:       source.track_name     + ' (copy)',
+      track_mood:       source.track_mood,
+      track_genre:      source.track_genre,
+      track_bpm:        source.track_bpm,
+      track_platform_link: source.track_platform_link,
+      voice_memo_text:  source.voice_memo_text,
+    })
+    .select()
+    .single()
+
+  if (cloneError) return res.status(500).json({ error: cloneError.message })
+  res.status(201).json({ episode: clone })
+})
+
+// ─── USAGE STATS ─────────────────────────────────────────────────────────────
+// Returns token cost totals for the current month — displayed in Settings
+
+router.get('/usage', async (req, res) => {
+  const now      = new Date()
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString()
+
+  const { data, error } = await supabase
+    .from('episodes')
+    .select('generation_decisions, created_at')
+    .eq('user_id', req.user.id)
+    .gte('created_at', monthStart)
+    .not('generation_decisions', 'is', null)
+
+  if (error) return res.status(500).json({ error: error.message })
+
+  const episodes = data || []
+  let totalInput  = 0
+  let totalOutput = 0
+  let totalCost   = 0
+
+  for (const ep of episodes) {
+    const d = ep.generation_decisions || {}
+    totalInput  += d.inputTokens        || 0
+    totalOutput += d.outputTokens       || 0
+    totalCost   += d.estimatedCostUsd   || 0
+  }
+
+  res.json({
+    episodesThisMonth: episodes.length,
+    inputTokens:       totalInput,
+    outputTokens:      totalOutput,
+    estimatedCostUsd:  parseFloat(totalCost.toFixed(4)),
+    monthStart,
+  })
+})
+
+// ─── LIST EPISODES ───────────────────────────────────────────────────────────
+
+router.get('/', async (req, res) => {
+  const { categoryId, status, limit = 20, offset = 0 } = req.query;
+
+  let query = supabase
+    .from('episodes')
+    .select('id, episode_number, slug, status, track_name, track_mood, track_genre, yt_retention_score, published_at, created_at')
+    .eq('user_id', req.user.id)
+    .order('episode_number', { ascending: false })
+    .range(offset, offset + limit - 1);
+
+  if (categoryId) query = query.eq('category_id', categoryId);
+  if (status)     query = query.eq('status', status);
+
+  const { data, error } = await query;
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ episodes: data });
+});
+
+// ─── GET SINGLE EPISODE ───────────────────────────────────────────────────────
+
+router.get('/:id', async (req, res) => {
+  const { data, error } = await supabase
+    .from('episodes')
+    .select('*')
+    .eq('id', req.params.id)
+    .eq('user_id', req.user.id)
+    .single();
+
+  if (error || !data) return res.status(404).json({ error: 'Episode not found' });
+  res.json({ episode: data });
+});
+
+// ─── UPDATE EPISODE STATUS ────────────────────────────────────────────────────
+
+router.patch('/:id/status', async (req, res) => {
+  const { status, publishedAt } = req.body;
+
+  const { data, error } = await supabase
+    .from('episodes')
+    .update({ status, published_at: publishedAt, updated_at: new Date().toISOString() })
+    .eq('id', req.params.id)
+    .eq('user_id', req.user.id)
+    .select()
+    .single();
+
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ episode: data });
+});
+
+// ─── LOG PERFORMANCE ─────────────────────────────────────────────────────────
+
+router.patch('/:id/performance', async (req, res) => {
+  const { ytViewCount, ytAvgViewPct, ttViewCount, ttFullWatchRate } = req.body;
+
+  const ytScore = ytAvgViewPct
+    ? Math.round(ytAvgViewPct * 0.5 + Math.min(Math.log10(ytViewCount || 1) / 6, 1) * 50)
+    : null;
+
+  const { data, error } = await supabase
+    .from('episodes')
+    .update({
+      yt_view_count:       ytViewCount,
+      yt_avg_view_pct:     ytAvgViewPct,
+      yt_retention_score:  ytScore,
+      tt_view_count:       ttViewCount,
+      tt_full_watch_rate:  ttFullWatchRate,
+      performance_logged_at: new Date().toISOString(),
+    })
+    .eq('id', req.params.id)
+    .eq('user_id', req.user.id)
+    .select()
+    .single();
+
+  if (error) return res.status(500).json({ error: error.message });
+
+  // Also update series memory and generation log
+  await supabase.from('series_memory')
+    .update({ performance: { ytScore, ytViewCount, ttViewCount } })
+    .eq('episode_id', req.params.id);
+
+  await supabase.from('generation_log')
+    .update({ performance: { ytScore, ytViewCount, ttViewCount }, performance_logged_at: new Date().toISOString() })
+    .eq('episode_id', req.params.id);
+
+  res.json({ episode: data });
+});
+
+// ─── HELPERS ─────────────────────────────────────────────────────────────────
+
+function detectHookType(voScript) {
+  if (!voScript) return 'unknown';
+  const firstLine = voScript.split('\n').find(l => l.trim() && !l.match(/^\[/)) || '';
+  if (firstLine.includes('?')) return 'question';
+  if (firstLine.match(/^I /i)) return 'personal';
+  if (firstLine.match(/^(There|It|That|This)/i)) return 'scene-setting';
+  return 'in-media-res';
+}
+
+module.exports = router;

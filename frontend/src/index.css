@@ -1,0 +1,68 @@
+/* frontend/src/index.css */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: #080808;
+    color: #f0ede8;
+    font-family: 'DM Mono', 'Courier New', monospace;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  .font-serif { font-family: 'DM Serif Display', Georgia, serif; }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 4px; height: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #222; border-radius: 2px; }
+  ::-webkit-scrollbar-thumb:hover { background: #333; }
+
+  /* Selection */
+  ::selection { background: rgba(200,184,154,0.2); }
+}
+
+@layer utilities {
+  .line-clamp-2 {
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+  }
+  .line-clamp-4 {
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-line-clamp: 4;
+    -webkit-box-orient: vertical;
+  }
+  .animate-in {
+    animation: slideIn 0.2s ease-out;
+  }
+  @keyframes slideIn {
+    from { opacity: 0; transform: translateX(8px); }
+    to   { opacity: 1; transform: translateX(0); }
+  }
+}
+
+/* ─── LIGHT MODE (opt-in via Settings) ─────────────────────────────────── */
+[data-theme="light"] {
+  background: #f8f6f2;
+  color: #1a1a1a;
+}
+[data-theme="light"] .bg-\[\#080808\],
+[data-theme="light"] .bg-\[\#0a0a0a\],
+[data-theme="light"] .bg-\[\#0d0d0d\] { background: #fff !important; }
+[data-theme="light"] .border-\[\#1a1a1a\],
+[data-theme="light"] .border-\[\#111\]  { border-color: #ddd !important; }
+[data-theme="light"] .text-\[\#f0ede8\] { color: #1a1a1a !important; }
+[data-theme="light"] .text-\[\#ccc\],
+[data-theme="light"] .text-\[\#aaa\]    { color: #333 !important; }
+[data-theme="light"] .text-\[\#666\],
+[data-theme="light"] .text-\[\#555\],
+[data-theme="light"] .text-\[\#444\]    { color: #666 !important; }
+[data-theme="light"] .text-\[\#333\]    { color: #888 !important; }
