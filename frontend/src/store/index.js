@@ -10,7 +10,6 @@ export const useStore = create((set, get) => ({
   })(),
   setTheme: (theme) => {
     try { localStorage.setItem('sf_theme', theme) } catch {}
-    // Apply immediately to root element
     document.documentElement.setAttribute('data-theme', theme)
     document.body.setAttribute('data-theme', theme)
     if (theme === 'light') {
@@ -43,9 +42,7 @@ export const useStore = create((set, get) => ({
 
   setActiveCategory: async (id) => {
     set({ activeCategoryId: id })
-    // Persist choice
     localStorage.setItem('sf_active_category', id)
-    // Trigger staleness check + background refresh if needed
     try {
       const { stale, refreshing } = await catApi.switch(id)
       if (refreshing) {
@@ -54,7 +51,6 @@ export const useStore = create((set, get) => ({
             c.id === id ? { ...c, _refreshing: true } : c
           )
         }))
-        // Poll until refresh done
         const poll = setInterval(async () => {
           const { category } = await catApi.get(id)
           set(s => ({
@@ -72,7 +68,6 @@ export const useStore = create((set, get) => ({
       const { categories } = await catApi.list()
       set({ categories, categoryLoading: false })
 
-      // Restore last active category
       const saved = localStorage.getItem('sf_active_category')
       const valid = categories.find(c => c.id === saved)
       if (valid) {
@@ -110,6 +105,41 @@ export const useStore = create((set, get) => ({
     }, duration)
   },
 
+  // ── Load profile — tries backend API first, falls back to direct Supabase ──
+  loadProfile: async () => {
+    // Try the backend API first (Railway)
+    try {
+      const { profile } = await usersApi.profile()
+      if (profile) {
+        console.log('[store] profile loaded via API, tier:', profile.tier)
+        set({ profile })
+        return
+      }
+    } catch (err) {
+      console.warn('[store] Backend /users/profile failed, trying Supabase direct:', err.message)
+    }
+
+    // Fallback: query Supabase directly with the user's JWT
+    // Works even when the Railway backend is unreachable
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.user?.id) return
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', session.user.id)
+        .single()
+      if (error) {
+        console.error('[store] Supabase direct profile fetch failed:', error.message)
+        return
+      }
+      console.log('[store] profile loaded via Supabase direct, tier:', data?.tier)
+      set({ profile: data })
+    } catch (err) {
+      console.error('[store] loadProfile completely failed:', err.message)
+    }
+  },
+
   // ── Init ──────────────────────────────────────────────────
   initialized: false,
 
@@ -122,11 +152,8 @@ export const useStore = create((set, get) => ({
     const { data: { session } } = await supabase.auth.getSession()
     if (session) {
       set({ session, user: session.user })
-      try {
-        const { profile } = await usersApi.profile()
-        set({ profile })
-        await get().loadCategories()
-      } catch {}
+      await get().loadProfile()
+      await get().loadCategories()
     }
     set({ initialized: true })
 
@@ -134,11 +161,8 @@ export const useStore = create((set, get) => ({
     supabase.auth.onAuthStateChange(async (event, session) => {
       set({ session, user: session?.user || null })
       if (session) {
-        try {
-          const { profile } = await usersApi.profile()
-          set({ profile })
-          await get().loadCategories()
-        } catch {}
+        await get().loadProfile()
+        await get().loadCategories()
       } else {
         set({ profile: null, categories: [], activeCategoryId: null })
       }
