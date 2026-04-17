@@ -308,20 +308,24 @@ export default function SettingsPage() {
         <div className="flex items-center justify-between">
           <div>
             <div className="text-sm text-[#ccc]">Theme</div>
-            <div className="text-xs text-[#444] mt-0.5">Dark is recommended for low-light studio use</div>
+            <div className="text-xs text-[#444] mt-0.5">Dim is recommended for most environments</div>
           </div>
           <div className="flex gap-2">
-            {['dark', 'light'].map(t => (
+            {[
+              { key: 'dark', label: 'Dark' },
+              { key: 'dim',  label: 'Dim'  },
+              { key: 'light',label: 'Light' },
+            ].map(({ key, label }) => (
               <button
-                key={t}
-                onClick={() => setTheme(t)}
+                key={key}
+                onClick={() => setTheme(key)}
                 className={`px-4 py-1.5 rounded border text-xs capitalize transition-all ${
-                  theme === t
+                  theme === key
                     ? 'border-[#c8b89a]/40 text-[#c8b89a] bg-[#c8b89a]/5'
                     : 'border-[#1a1a1a] text-[#555] hover:border-[#333] hover:text-[#888]'
                 }`}
               >
-                {t}
+                {label}
               </button>
             ))}
           </div>

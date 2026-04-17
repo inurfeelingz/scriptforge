@@ -28,6 +28,7 @@ import {
   ChevronLeft, ChevronRight, Trash2, Check, Loader2,
   Volume2, Radio, Clock, Bookmark
 } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
 import { useStore } from '../store'
 import { api } from '../lib/api'
 import { getSession, supabase } from '../lib/supabase'
@@ -93,6 +94,7 @@ const pad = n => String(n).padStart(2, '0')
 export default function Companion() {
   const { activeCategoryId, activeCategory } = useStore()
   const cat = activeCategory?.()
+  const navigate = useNavigate()
 
   const [state, dispatch] = useReducer(reducer, initialState)
   const set = payload => dispatch({ type: 'SET', payload })
@@ -494,6 +496,8 @@ export default function Companion() {
   // ── SWIPE GESTURE HANDLERS ─────────────────────────────────────────────────
 
   function onTouchStart(e) {
+    // Don't track swipe gestures when touch originates on an input/textarea
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return
     const t = e.touches[0]
     touchStart.current   = { x: t.clientX, y: t.clientY, t: Date.now() }
     touchCurrent.current = { x: t.clientX, y: t.clientY }
@@ -501,6 +505,10 @@ export default function Companion() {
   }
 
   function onTouchMove(e) {
+    // Don't intercept touch events when user is typing in an input or textarea
+    const tag = e.target.tagName
+    if (tag === 'INPUT' || tag === 'TEXTAREA') return
+
     const t     = e.touches[0]
     const dx    = t.clientX - touchStart.current.x
     const dy    = t.clientY - touchStart.current.y
@@ -596,6 +604,27 @@ export default function Companion() {
       {/* ── STATUS BAR ──────────────────────────────────────────────────────── */}
       <header className="companion-header">
         <div className="companion-brand">
+          {/* Home button — only show when not recording so it's not accidentally tapped */}
+          {!state.recording && (
+            <button
+              onClick={() => navigate('/')}
+              style={{
+                background: 'none',
+                border: 'none',
+                color: '#555',
+                fontSize: '11px',
+                letterSpacing: '0.5px',
+                cursor: 'pointer',
+                padding: '4px 6px 4px 0',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+                lineHeight: 1,
+              }}
+            >
+              ← Home
+            </button>
+          )}
           <span className="brand-word">SF</span>
           {cat && <span className="brand-cat">{cat.name}</span>}
         </div>

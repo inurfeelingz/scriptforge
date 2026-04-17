@@ -12,9 +12,13 @@ export const useStore = create((set, get) => ({
     try { localStorage.setItem('sf_theme', theme) } catch {}
     // Apply immediately to root element
     document.documentElement.setAttribute('data-theme', theme)
+    document.body.setAttribute('data-theme', theme)
     if (theme === 'light') {
-      document.documentElement.style.setProperty('--sf-bg',   '#f8f6f2')
+      document.documentElement.style.setProperty('--sf-bg',   '#f5f3ef')
       document.documentElement.style.setProperty('--sf-text', '#1a1a1a')
+    } else if (theme === 'dim') {
+      document.documentElement.style.setProperty('--sf-bg',   '#181c22')
+      document.documentElement.style.setProperty('--sf-text', '#e8eaf0')
     } else {
       document.documentElement.style.removeProperty('--sf-bg')
       document.documentElement.style.removeProperty('--sf-text')
@@ -110,6 +114,11 @@ export const useStore = create((set, get) => ({
   initialized: false,
 
   init: async () => {
+    // Apply saved theme immediately on boot
+    const savedTheme = (() => { try { return localStorage.getItem('sf_theme') || 'dark' } catch { return 'dark' } })()
+    document.documentElement.setAttribute('data-theme', savedTheme)
+    document.body.setAttribute('data-theme', savedTheme)
+
     const { data: { session } } = await supabase.auth.getSession()
     if (session) {
       set({ session, user: session.user })
