@@ -100,7 +100,7 @@ export default function ClipLibrary({ project, computeSearchVectors }) {
           <Search size={12} className="text-[#444] shrink-0"/>
           <input
             value={query} onChange={e => setQuery(e.target.value)}
-            placeholder="Search clips by meaning: "close-up, smiling, quiet""
+            placeholder="Search clips by meaning: close-up, smiling, quiet"
             className="bg-transparent text-sm text-[#ddd] placeholder-[#333] outline-none flex-1"
           />
           {searching && <div className="w-3 h-3 border border-[#c8b89a] border-t-transparent rounded-full animate-spin shrink-0"/>}
