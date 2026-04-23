@@ -71,7 +71,7 @@ export default function AppLayout() {
         {/* Logo */}
         <div className={`h-14 flex items-center border-b border-[#1a1a1a] px-4 ${sidebarCollapsed ? 'justify-center' : 'gap-3'}`}>
           {!sidebarCollapsed && (
-            <span className="text-[#c8b89a] font-serif text-lg tracking-widest">SF</span>
+            <span className="text-[#c8b89a] font-serif text-lg tracking-widest">WC</span>
           )}
           <button
             onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
