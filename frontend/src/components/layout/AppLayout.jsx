@@ -306,19 +306,23 @@ export default function AppLayout() {
           )}
 
           {activeCategory && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ width: 8, height: 8, borderRadius: '50%', background: activeCategory.color, flexShrink: 0 }}/>
-              <span style={{ fontSize: '0.9375rem', color: 'var(--text2)' }}>{activeCategory.name}</span>
-              {activeCategory.niche && (
-                <span style={{ fontSize: '0.875rem', color: 'var(--text3)' }}>· {activeCategory.niche}</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, flex: 1, overflow: 'hidden' }}>
+              <span style={{ width: 7, height: 7, borderRadius: '50%', background: activeCategory.color, flexShrink: 0 }}/>
+              <span style={{ fontSize: isMobile ? '0.875rem' : '0.9375rem', color: 'var(--text2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {activeCategory.name}
+              </span>
+              {!isMobile && activeCategory.niche && (
+                <span style={{ fontSize: '0.875rem', color: 'var(--text3)', flexShrink: 0 }}>· {activeCategory.niche}</span>
               )}
             </div>
           )}
 
-          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10 }}>
-            <span style={{ fontSize: '0.9375rem', color: 'var(--text2)' }}>{profile?.display_name}</span>
+          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+            {!isMobile && (
+              <span style={{ fontSize: '0.9375rem', color: 'var(--text2)' }}>{profile?.display_name}</span>
+            )}
             <span style={{
-              fontSize: '0.8125rem', padding: '2px 9px', borderRadius: 99,
+              fontSize: '0.8125rem', padding: '2px 8px', borderRadius: 99,
               border: profile?.tier === 'studio' ? '1px solid var(--accent-mid)' : profile?.tier === 'pro' ? '1px solid rgba(96,165,250,0.4)' : '1px solid var(--border2)',
               color: profile?.tier === 'studio' ? 'var(--accent)' : profile?.tier === 'pro' ? '#60a5fa' : 'var(--text3)',
             }}>
@@ -327,8 +331,8 @@ export default function AppLayout() {
             <button
               onClick={() => setChatOpen(!chatOpen)}
               style={{
-                display: 'flex', alignItems: 'center', gap: 6,
-                padding: '6px 14px', borderRadius: 8, cursor: 'pointer',
+                display: 'flex', alignItems: 'center', gap: 5,
+                padding: isMobile ? '6px 10px' : '6px 14px', borderRadius: 8, cursor: 'pointer',
                 fontSize: '0.9375rem', fontFamily: 'inherit',
                 border: chatOpen ? '1px solid var(--accent-mid)' : '1px solid var(--border2)',
                 background: chatOpen ? 'var(--accent-lo)' : 'transparent',

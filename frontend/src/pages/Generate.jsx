@@ -396,6 +396,14 @@ export default function Generate() {
         {cat && <p className="text-sm text-[#555] mt-1">{cat.name} · {cat.niche}</p>}
       </div>
 
+      {/* No category selected */}
+      {!activeCategoryId && (
+        <div style={{ border: '1px dashed var(--border2)', borderRadius: 'var(--r)', padding: '3rem 2rem', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
+          <div style={{ fontSize: '1rem', color: 'var(--text2)' }}>Select a workspace first</div>
+          <div style={{ fontSize: '0.875rem', color: 'var(--text3)' }}>Open the menu and choose or create a workspace to start generating episodes</div>
+        </div>
+      )}
+
       {/* Session source banner — shown when a session was loaded */}
       {sessionSource && (
         <div className="flex items-center gap-3 px-4 py-3 bg-[#c8b89a]/5 border border-[#c8b89a]/20 rounded">
