@@ -254,28 +254,49 @@ export default function Companion() {
   // Each brand gets the optimal constraints (sample rate, processing, stereo).
 
   async function getBestMicStream() {
+    // First request permission with basic constraints — this populates device labels
+    // Without this, enumerateDevices returns devices with empty labels on first visit
+    let stream
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+    } catch (err) {
+      if (err.name === 'NotAllowedError') {
+        throw new Error('Microphone access denied — tap Allow when your browser asks')
+      }
+      throw err
+    }
+
+    // Stop the initial stream — we'll get a better one with proper constraints
+    stream.getTracks().forEach(t => t.stop())
+
+    // Now enumerate with labels available
     const devices    = await navigator.mediaDevices.enumerateDevices()
     const detection  = detectMic(devices)
     const constraints = buildConstraints(detection)
-    const stream     = await navigator.mediaDevices.getUserMedia(constraints)
 
-    // Confirm actual settings the browser negotiated
-    const activeTrack  = stream.getAudioTracks()[0]
-    const settings     = activeTrack?.getSettings?.() || {}
-    const isStereo     = needsStereoSum(detection) || settings.channelCount === 2
-    const bitrate      = getRecordingBitrate(detection)
-    const isDJI        = /dji/i.test(detection.match?.brand || '')
-    const isExternal   = detection.isExternal
+    try {
+      stream = await navigator.mediaDevices.getUserMedia(constraints)
+    } catch {
+      // Fall back to simplest possible constraint if advanced ones fail
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+    }
+
+    const activeTrack = stream.getAudioTracks()[0]
+    const settings    = activeTrack?.getSettings?.() || {}
+    const isStereo    = needsStereoSum(detection) || settings.channelCount === 2
+    const bitrate     = getRecordingBitrate(detection)
+    const isDJI       = /dji/i.test(detection.match?.brand || '')
+    const isExternal  = detection.isExternal
 
     return {
       stream,
-      label:        detection.displayLabel,
+      label:      detection.displayLabel || activeTrack?.label || 'Microphone',
       isDJI,
       isExternal,
       isStereo,
       bitrate,
-      sampleRate:   settings.sampleRate || detection.match?.sampleRate || 44100,
-      micInfo:      describeMic(detection),
+      sampleRate: settings.sampleRate || 44100,
+      micInfo:    describeMic(detection),
       detection,
     }
   }
@@ -364,11 +385,16 @@ export default function Companion() {
       navigator.vibrate?.([50])
 
     } catch (err) {
+      console.error('[Companion] startSession error:', err)
       set({
         status: 'error',
         error:  err.name === 'NotAllowedError'
-          ? 'Microphone blocked — allow access in browser settings'
-          : err.message
+          ? 'Mic blocked — allow access in browser settings'
+          : err.name === 'NotFoundError'
+          ? 'No microphone found'
+          : err.message?.includes('fetch') || err.message?.includes('Failed to fetch')
+          ? 'Could not connect to server — check your connection'
+          : err.message || 'Something went wrong',
       })
     }
   }
@@ -565,6 +591,10 @@ export default function Companion() {
   // ── LONG PRESS — record button ─────────────────────────────────────────────
 
   function onRecordPressStart() {
+    // If in error state, reset immediately so next press starts fresh
+    if (state.status === 'error') {
+      dispatch({ type: 'RESET_SESSION' })
+    }
     longPressRef.current = setTimeout(() => {
       if (!state.recording) startSession()
       else stopSession()
@@ -646,7 +676,10 @@ export default function Companion() {
       {/* ── STATUS BAR ──────────────────────────────────────────────────────── */}
       <header className="companion-header">
         <div className="companion-brand">
-          <img src="/icon-mark.svg" alt="WhispaCuts" style={{ width: 22, height: 22 }}/>
+          <img src="/icon-mark.svg" alt="WhispaCuts" style={{ width: 26, height: 26 }}/>
+          <span style={{ fontFamily: 'Syne, sans-serif', fontWeight: 800, fontSize: 16, letterSpacing: '-0.3px', color: '#e8eaed' }}>
+            Whispa<span style={{ color: '#d4a853' }}>Cuts</span>
+          </span>
           {cat && <span className="brand-cat">{cat.name}</span>}
         </div>
 
@@ -836,13 +869,14 @@ export default function Companion() {
               onPressEnd={onRecordPressEnd}
             />
 
-            <p className="record-hint">
+            <p className="record-hint" onClick={state.status === 'error' ? () => { dispatch({ type: 'RESET_SESSION' }); startSession() } : undefined}
+               style={state.status === 'error' ? { cursor: 'pointer', textDecoration: 'underline' } : {}}>
               {state.status === 'starting'  && 'Connecting mic...'}
               {state.status === 'stopping'  && 'Saving session...'}
               {state.status === 'recording' && `${state.entries.filter(e=>e.type!=='marker').length} utterances · ${state.entries.filter(e=>e.type==='marker').length} marks`}
               {state.status === 'idle'      && 'Hold 0.6s to start'}
               {state.status === 'ready'     && `Session ready — swipe → to review`}
-              {state.status === 'error'     && 'Tap to retry'}
+              {state.status === 'error'     && `Tap to retry${state.error ? ` — ${state.error}` : ''}`}
             </p>
           </div>
 
