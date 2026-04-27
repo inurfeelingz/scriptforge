@@ -73,12 +73,24 @@ export default function AppLayout() {
 
         {/* Logo */}
         <div className={`h-14 flex items-center border-b border-[#1a1a1a] px-4 ${sidebarCollapsed ? 'justify-center' : 'gap-3'}`}>
-          {!sidebarCollapsed && (
-            <span className="text-[#c8b89a] font-serif text-lg tracking-widest">WC</span>
-          )}
+        {!sidebarCollapsed ? (
+          <div className="flex items-center gap-2.5">
+            <img src="/icon-mark.svg" alt="WhispaCuts" style={{ width: 28, height: 28, flexShrink: 0 }}/>
+            <div>
+              <div style={{ fontFamily: 'Syne, sans-serif', fontWeight: 800, fontSize: 15, letterSpacing: '-0.3px', color: 'var(--text, #edeaf4)', lineHeight: 1.1 }}>
+                Whispa<span style={{ color: 'var(--accent, #d4a853)' }}>Cuts</span>
+              </div>
+              <div style={{ fontSize: 10, color: 'var(--text3, #4e4c63)', letterSpacing: '0.12em', textTransform: 'uppercase', marginTop: 2 }}>
+                AI Content Studio
+              </div>
+            </div>
+          </div>
+        ) : (
+          <img src="/icon-mark.svg" alt="WC" style={{ width: 26, height: 26 }}/>
+        )}
           <button
             onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-            className="ml-auto text-[#444] hover:text-[#c8b89a] transition-colors"
+            className="ml-auto text-[#444] hover:text-white transition-colors"
           >
             {sidebarCollapsed ? <ChevronRight size={16}/> : <ChevronLeft size={16}/>}
           </button>
@@ -95,8 +107,8 @@ export default function AppLayout() {
                   onClick={() => handleCategorySwitch(cat.id)}
                   className={`w-full flex items-center gap-2 px-2 py-1.5 rounded text-sm transition-all ${
                     cat.id === activeCategoryId
-                      ? 'bg-[#c8b89a]/10 text-[#c8b89a]'
-                      : 'text-[#666] hover:text-[#c8b89a] hover:bg-[#111]'
+                      ? 'bg-white/8 text-white'
+                      : 'text-[#666] hover:text-white hover:bg-[#111]'
                   }`}
                 >
                   <span
@@ -105,13 +117,13 @@ export default function AppLayout() {
                   />
                   <span className="truncate">{cat.name}</span>
                   {cat._refreshing && (
-                    <RefreshCw size={10} className="ml-auto animate-spin text-[#c8b89a]/50"/>
+                    <RefreshCw size={10} className="ml-auto animate-spin text-white/30"/>
                   )}
                 </button>
               ))}
               <button
                 onClick={() => setShowNewCat(true)}
-                className="w-full flex items-center gap-2 px-2 py-1.5 text-[#444] hover:text-[#c8b89a] transition-colors text-sm"
+                className="w-full flex items-center gap-2 px-2 py-1.5 text-[#444] hover:text-white transition-colors text-sm"
               >
                 <Plus size={12}/> New category
               </button>
@@ -130,8 +142,8 @@ export default function AppLayout() {
               className={({ isActive }) => `
                 flex items-center gap-3 px-3 py-2 rounded transition-all
                 ${isActive
-                  ? 'bg-[#c8b89a]/10 text-[#c8b89a]'
-                  : 'text-[#555] hover:text-[#c8b89a] hover:bg-[#111]'
+                  ? 'bg-white/8 text-white'
+                  : 'text-[#555] hover:text-white hover:bg-[#111]'
                 }
                 ${sidebarCollapsed ? 'justify-center' : ''}
               `}
@@ -149,7 +161,7 @@ export default function AppLayout() {
           {activeCategory && !sidebarCollapsed && (
             <button
               onClick={handleManualRefresh}
-              className="w-full flex items-center gap-2 px-3 py-2 text-xs text-[#444] hover:text-[#c8b89a] transition-colors"
+              className="w-full flex items-center gap-2 px-3 py-2 text-xs text-[#444] hover:text-white transition-colors"
             >
               <RefreshCw size={12}/>
               Refresh trends
@@ -160,7 +172,7 @@ export default function AppLayout() {
             href="/companion"
             target="_blank"
             rel="noopener noreferrer"
-            className={`flex items-center gap-3 px-3 py-2 rounded text-[#555] hover:text-[#c8b89a] hover:bg-[#111] transition-all ${sidebarCollapsed ? 'justify-center' : ''}`}
+            className={`flex items-center gap-3 px-3 py-2 rounded text-[#555] hover:text-white hover:bg-[#111] transition-all ${sidebarCollapsed ? 'justify-center' : ''}`}
             title={sidebarCollapsed ? 'Companion' : undefined}
           >
             <Smartphone size={16} className="shrink-0"/>
@@ -170,7 +182,7 @@ export default function AppLayout() {
             to="/settings"
             className={({ isActive }) => `
               flex items-center gap-3 px-3 py-2 rounded transition-all
-              ${isActive ? 'text-[#c8b89a]' : 'text-[#555] hover:text-[#c8b89a] hover:bg-[#111]'}
+              ${isActive ? 'text-white' : 'text-[#555] hover:text-white hover:bg-[#111]'}
               ${sidebarCollapsed ? 'justify-center' : ''}
             `}
           >

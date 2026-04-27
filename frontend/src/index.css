@@ -1,4 +1,4 @@
-/* frontend/src/index.css — WhispaCuts UI */
+/* frontend/src/index.css — WhispaCuts */
 @import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=Figtree:ital,wght@0,300;0,400;0,500;0,600;1,400&display=swap');
 
 @tailwind base;
@@ -7,26 +7,40 @@
 
 /* ── Design tokens ─────────────────────────────────────────────────────────── */
 :root {
-  --bg:        #09090f;
-  --surface:   #111118;
-  --surface2:  #16161e;
-  --surface3:  #1c1c26;
-  --border:    rgba(255,255,255,0.07);
-  --border2:   rgba(255,255,255,0.13);
+  /* Backgrounds */
+  --bg:        #080c10;
+  --surface:   #0f1318;
+  --surface2:  #151a20;
+  --surface3:  #1c2028;
+
+  /* Borders */
+  --border:    rgba(255,255,255,0.06);
+  --border2:   rgba(255,255,255,0.11);
+
+  /* Text */
+  --text:      #e8eaed;
+  --text2:     #8a8f9a;
+  --text3:     #454a54;
+
+  /* Accent — gold, used ONLY for logo + primary CTA + tier badges */
   --accent:    #d4a853;
-  --accent-lo: rgba(212,168,83,0.12);
-  --accent-mid:rgba(212,168,83,0.35);
-  --text:      #edeaf4;
-  --text2:     #8e8ba8;
-  --text3:     #4e4c63;
-  --green:     #4ade80;
-  --red:       #f87171;
-  --blue:      #60a5fa;
-  --r:         10px;
-  --r-sm:      6px;
+  --accent-lo: rgba(212,168,83,0.10);
+  --accent-mid:rgba(212,168,83,0.30);
+
+  /* Active/selected state — cool white, not brown */
+  --active-bg:   rgba(255,255,255,0.07);
+  --active-text: #ffffff;
+
+  /* Semantic */
+  --green:  #4ade80;
+  --red:    #f87171;
+  --blue:   #60a5fa;
+
+  --r:    10px;
+  --r-sm:  6px;
 }
 
-/* ── Base reset ────────────────────────────────────────────────────────────── */
+/* ── Base ──────────────────────────────────────────────────────────────────── */
 @layer base {
   *, *::before, *::after { box-sizing: border-box; }
 
@@ -46,7 +60,6 @@
     -moz-osx-font-smoothing: grayscale;
   }
 
-  /* Override the old DM Serif / DM Mono defaults everywhere */
   h1, h2, h3, h4, h5, h6 {
     font-family: 'Syne', system-ui, sans-serif;
     font-weight: 700;
@@ -58,85 +71,95 @@
   h2 { font-size: 1.375rem; }
   h3 { font-size: 1.125rem; }
 
-  /* Inputs */
   input, textarea, select, button {
     font-family: 'Figtree', system-ui, sans-serif;
     font-size: 0.9375rem;
   }
 
-  /* Scrollbar */
   ::-webkit-scrollbar       { width: 4px; height: 4px; }
   ::-webkit-scrollbar-track { background: transparent; }
   ::-webkit-scrollbar-thumb { background: var(--surface3); border-radius: 99px; }
 
-  /* Selection */
-  ::selection { background: rgba(212,168,83,0.2); }
+  ::selection { background: rgba(255,255,255,0.12); }
 
-  /* Force Figtree everywhere — overrides any inline font-serif Tailwind class */
-  .font-serif { font-family: 'Syne', system-ui, sans-serif !important; }
-  .font-sans  { font-family: 'Figtree', system-ui, sans-serif !important; }
-  .font-mono  { font-family: 'ui-monospace', 'SFMono-Regular', monospace !important; }
+  /* Override Tailwind's font-serif to use Syne not DM Serif */
+  .font-serif  { font-family: 'Syne', system-ui, sans-serif !important; }
+  .font-sans   { font-family: 'Figtree', system-ui, sans-serif !important; }
 }
 
-/* ── Global overrides — fixes hardcoded colours throughout the app ─────────── */
+/* ── Colour overrides — remap hardcoded Tailwind values to design tokens ───── */
 @layer base {
 
-  /* Background colours that should match the dark theme */
-  .bg-\[\#080808\], .bg-\[\#0a0a0a\], .bg-\[\#060606\] {
+  /* Backgrounds */
+  .bg-\[\#080808\], .bg-\[\#080c10\], .bg-\[\#060606\], .bg-\[\#0a0a0a\] {
     background-color: var(--bg) !important;
   }
-  .bg-\[\#0d0d0d\], .bg-\[\#111\], .bg-\[\#111111\] {
+  .bg-\[\#0d0d0d\], .bg-\[\#111\], .bg-\[\#111111\], .bg-\[\#0f1318\] {
     background-color: var(--surface) !important;
   }
-  .bg-\[\#1a1a1a\], .bg-\[\#151515\] {
+  .bg-\[\#1a1a1a\], .bg-\[\#151515\], .bg-\[\#151a20\] {
     background-color: var(--surface2) !important;
   }
 
-  /* Text colours */
-  .text-\[\#f0ede8\], .text-\[\#eeeaf2\], .text-\[\#f0f0f0\] {
+  /* Text — brown references become white or grey */
+  .text-\[\#f0ede8\], .text-\[\#eeeaf2\], .text-\[\#e8eaed\] {
     color: var(--text) !important;
   }
-  .text-\[\#888\], .text-\[\#aaa\], .text-\[\#999\] {
+  .text-\[\#888\], .text-\[\#aaa\], .text-\[\#999\], .text-\[\#8a8f9a\] {
     color: var(--text2) !important;
   }
   .text-\[\#555\], .text-\[\#666\], .text-\[\#444\], .text-\[\#333\] {
     color: var(--text3) !important;
   }
-  .text-\[\#c8b89a\], .text-\[\#d4a853\] {
-    color: var(--accent) !important;
-  }
 
-  /* Border colours */
+  /* Brown text → white (not gold) in UI contexts */
+  .text-\[\#c8b89a\] { color: var(--active-text) !important; }
+  .text-\[\#d4a853\] { color: var(--active-text) !important; }
+
+  /* Brown borders → standard dark borders */
+  .border-\[\#c8b89a\]\/20, .border-\[\#c8b89a\]\/15,
+  .border-\[\#c8b89a\]\/10, .border-\[\#c8b89a\]\/30 {
+    border-color: var(--border2) !important;
+  }
   .border-\[\#1a1a1a\], .border-\[\#222\], .border-\[\#111\] {
     border-color: var(--border) !important;
   }
-  .border-\[\#333\], .border-\[\#2a2a2a\] {
-    border-color: var(--border2) !important;
-  }
 
-  /* Accent backgrounds */
-  .bg-\[\#c8b89a\]\/10, .bg-\[\#d4a853\]\/10 {
+  /* Brown backgrounds → subtle white tint */
+  .bg-\[\#c8b89a\]\/5, .bg-\[\#c8b89a\]\/8, .bg-\[\#c8b89a\]\/10 {
+    background-color: var(--active-bg) !important;
+  }
+  .bg-\[\#d4a853\]\/10 {
     background-color: var(--accent-lo) !important;
   }
 
-  /* Hover backgrounds */
-  .hover\:bg-\[\#111\]:hover, .hover\:bg-\[\#0d0d0d\]:hover {
-    background-color: var(--surface2) !important;
+  /* Brown hover → white hover */
+  .hover\:text-\[\#c8b89a\]:hover { color: var(--active-text) !important; }
+  .hover\:border-\[\#c8b89a\]\/30:hover { border-color: var(--border2) !important; }
+  .hover\:bg-\[\#c8b89a\]\/5:hover,
+  .hover\:bg-\[\#c8b89a\]\/20:hover { background-color: var(--active-bg) !important; }
+  .hover\:bg-\[\#111\]:hover { background-color: var(--surface2) !important; }
+
+  /* Primary CTA button — keep gold, it's intentional */
+  .bg-\[\#c8b89a\].text-\[\#080808\],
+  button.bg-\[\#c8b89a\] {
+    background-color: var(--accent) !important;
+    color: #080c10 !important;
+  }
+  .hover\:bg-\[\#e8c87a\]:hover {
+    background-color: color-mix(in srgb, var(--accent) 85%, white) !important;
   }
 }
 
-/* ── Component layer ───────────────────────────────────────────────────────── */
+/* ── Components ────────────────────────────────────────────────────────────── */
 @layer components {
 
-  /* Card / surface */
-  .wc-card {
-    background:    var(--surface);
-    border:        1px solid var(--border);
-    border-radius: var(--r);
-    padding:       1.25rem;
-    transition:    border-color 0.15s;
+  /* Nav active state — white, not brown */
+  .wc-nav-active {
+    background: var(--active-bg);
+    color:      var(--active-text);
+    font-weight: 500;
   }
-  .wc-card:hover { border-color: var(--border2); }
 
   /* Input */
   .wc-input {
@@ -152,91 +175,56 @@
   }
   .wc-input::placeholder { color: var(--text3); }
   .wc-input:focus {
-    border-color: var(--accent-mid);
+    border-color: rgba(255,255,255,0.2);
     background:   var(--surface3);
   }
 
-  /* Primary button */
-  .wc-btn {
-    display:         inline-flex;
-    align-items:     center;
-    justify-content: center;
-    gap:             0.5rem;
-    padding:         0.625rem 1.25rem;
-    border-radius:   var(--r-sm);
-    font-size:       0.9375rem;
-    font-weight:     500;
-    cursor:          pointer;
-    transition:      all 0.15s;
-    border:          1px solid transparent;
-  }
+  /* Primary button — gold fill, dark text */
   .wc-btn-primary {
     background: var(--accent);
-    color:      #09090f;
+    color:      #080c10;
+    border:     none;
+    font-weight: 600;
   }
-  .wc-btn-primary:hover:not(:disabled) { filter: brightness(1.1); }
+  .wc-btn-primary:hover:not(:disabled) {
+    filter: brightness(1.08);
+  }
+
+  /* Ghost button — white stroke */
   .wc-btn-ghost {
     background:   transparent;
     color:        var(--text2);
-    border-color: var(--border);
+    border:       1px solid var(--border2);
   }
   .wc-btn-ghost:hover:not(:disabled) {
-    background:   var(--surface2);
-    color:        var(--text);
-    border-color: var(--border2);
+    background: var(--active-bg);
+    color:      var(--text);
   }
 
-  /* Nav item */
-  .wc-nav {
-    display:     flex;
-    align-items: center;
-    gap:         0.625rem;
-    padding:     0.5rem 0.75rem;
-    border-radius: var(--r-sm);
-    font-size:   0.9375rem;
-    color:       var(--text3);
-    cursor:      pointer;
-    transition:  all 0.15s;
-    text-decoration: none;
+  /* Progress / loading bars — white, not brown */
+  .wc-progress {
+    background: rgba(255,255,255,0.15);
   }
-  .wc-nav:hover        { background: var(--surface2); color: var(--text); }
-  .wc-nav.active       { background: var(--accent-lo); color: var(--accent); }
 
-  /* Tier badge */
+  /* Tier badges — gold only for studio */
   .wc-tier-free   { color: var(--text3); border: 1px solid var(--border2); }
-  .wc-tier-pro    { color: var(--blue);  border: 1px solid rgba(96,165,250,0.3); background: rgba(96,165,250,0.08); }
-  .wc-tier-studio { color: var(--accent);border: 1px solid var(--accent-mid);   background: var(--accent-lo); }
+  .wc-tier-pro    { color: var(--blue);  border: 1px solid rgba(96,165,250,0.35); background: rgba(96,165,250,0.08); }
+  .wc-tier-studio { color: var(--accent);border: 1px solid var(--accent-mid); background: var(--accent-lo); }
 
-  /* Label */
-  .wc-label {
-    display:    block;
-    font-size:  0.8125rem;
-    font-weight:500;
-    color:      var(--text2);
-    margin-bottom: 0.375rem;
+  /* Card */
+  .wc-card {
+    background:    var(--surface);
+    border:        1px solid var(--border);
+    border-radius: var(--r);
+    padding:       1.25rem;
+    transition:    border-color 0.15s;
   }
-
-  /* Section title */
-  .wc-section-title {
-    font-family:    'Syne', sans-serif;
-    font-size:      0.75rem;
-    font-weight:    600;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color:          var(--text3);
-    margin-bottom:  0.75rem;
-  }
+  .wc-card:hover { border-color: var(--border2); }
 
   /* Toast */
-  .wc-toast {
-    padding:       0.75rem 1rem;
-    border-radius: var(--r-sm);
-    font-size:     0.875rem;
-    font-weight:   500;
-    animation:     toastIn 0.2s ease;
-  }
-  .wc-toast.success { background: rgba(74,222,128,0.1); color: var(--green); border: 1px solid rgba(74,222,128,0.25); }
-  .wc-toast.error   { background: rgba(248,113,113,0.1); color: var(--red);   border: 1px solid rgba(248,113,113,0.25); }
+  .wc-toast { padding: 0.75rem 1rem; border-radius: var(--r-sm); font-size: 0.875rem; font-weight: 500; }
+  .wc-toast.success { background: rgba(74,222,128,0.1);  color: var(--green); border: 1px solid rgba(74,222,128,0.2); }
+  .wc-toast.error   { background: rgba(248,113,113,0.1); color: var(--red);   border: 1px solid rgba(248,113,113,0.2); }
   .wc-toast.info    { background: var(--surface2); color: var(--text2); border: 1px solid var(--border); }
 
   @keyframes toastIn {
@@ -245,9 +233,27 @@
   }
 }
 
+/* ── Light mode ────────────────────────────────────────────────────────────── */
+[data-theme="light"] {
+  --bg:          #f2f3f5;
+  --surface:     #ffffff;
+  --surface2:    #ecedf0;
+  --surface3:    #e0e2e6;
+  --border:      rgba(0,0,0,0.08);
+  --border2:     rgba(0,0,0,0.14);
+  --text:        #12151a;
+  --text2:       #555a66;
+  --text3:       #9098a8;
+  --active-bg:   rgba(0,0,0,0.06);
+  --active-text: #12151a;
+  --accent:      #b8882a;
+  --accent-lo:   rgba(184,136,42,0.10);
+  --accent-mid:  rgba(184,136,42,0.35);
+}
+
 /* ── Mobile ────────────────────────────────────────────────────────────────── */
 @media (max-width: 768px) {
   body { font-size: 0.9375rem; }
   h1   { font-size: 1.5rem; }
-  h2   { font-size: 1.2rem; }
+  h2   { font-size: 1.25rem; }
 }
