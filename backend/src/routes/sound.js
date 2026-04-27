@@ -294,7 +294,7 @@ router.post('/episodes/:episodeId/design', async (req, res) => {
 
   try {
     const response = await client.messages.create({
-      model:      process.env.CLAUDE_MODEL || 'claude-sonnet-4-5-20251001',
+      model:      process.env.CLAUDE_MODEL || 'claude-sonnet-4-5',
       max_tokens: 2000,
       system:     context,
       messages: [{

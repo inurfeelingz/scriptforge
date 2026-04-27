@@ -125,7 +125,7 @@ async function narrativeValidation(timeline, voScript, categoryContext) {
     .join('\n')
 
   const response = await client.messages.create({
-    model:      process.env.CLAUDE_MODEL || 'claude-sonnet-4-5-20251001',
+    model:      process.env.CLAUDE_MODEL || 'claude-sonnet-4-5',
     max_tokens: 600,
     messages: [{
       role: 'user',

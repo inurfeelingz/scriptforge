@@ -115,7 +115,7 @@ router.post('/youtube/pull', async (req, res) => {
     ).join('\n')
 
     const insightRes = await client.messages.create({
-      model:      process.env.CLAUDE_MODEL || 'claude-sonnet-4-5-20251001',
+      model:      process.env.CLAUDE_MODEL || 'claude-sonnet-4-5',
       max_tokens: 600,
       system:     context,
       messages: [{
@@ -303,7 +303,7 @@ router.post('/upload', upload.single('file'), async (req, res) => {
     ).join('\n');
 
     const insightRes = await client.messages.create({
-      model:      process.env.CLAUDE_MODEL || 'claude-sonnet-4-5-20251001',
+      model:      process.env.CLAUDE_MODEL || 'claude-sonnet-4-5',
       max_tokens: 600,
       system:     context,
       messages: [{

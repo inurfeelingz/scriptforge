@@ -72,7 +72,7 @@ async function weeklyAnalyticsPull() {
       ).join('\n')
 
       const insightRes = await client.messages.create({
-        model: process.env.CLAUDE_MODEL || 'claude-sonnet-4-5-20251001',
+        model: process.env.CLAUDE_MODEL || 'claude-sonnet-4-5',
         max_tokens: 300,
         system: context,
         messages: [{ role: 'user', content: `Weekly analytics update. Top 5:\n${topTitles}\n\nOne-sentence key insight for this creator.` }],
