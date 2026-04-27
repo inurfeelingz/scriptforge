@@ -94,13 +94,14 @@ export default function AppLayout() {
       <>
         {/* Logo */}
         <div style={{
-          height: 64, display: 'flex', alignItems: 'center', padding: '0 16px',
-          borderBottom: '1px solid var(--border)', gap: 10, flexShrink: 0,
+          height: 64, display: 'flex', alignItems: 'center', padding: '0 12px',
+          borderBottom: '1px solid var(--border)', gap: 8, flexShrink: 0,
           justifyContent: (!showLabels && !isMobile) ? 'center' : 'flex-start',
+          overflow: 'hidden',
         }}>
-          <img src="/icon-mark.svg" alt="WhispaCuts" style={{ width: 34, height: 34, flexShrink: 0 }}/>
+          <img src="/icon-mark.svg" alt="WhispaCuts" style={{ width: 30, height: 30, flexShrink: 0 }}/>
           {showLabels && (
-            <span style={{ fontFamily: 'Syne, sans-serif', fontWeight: 800, fontSize: 19, letterSpacing: '-0.4px', color: 'var(--text)' }}>
+            <span style={{ fontFamily: 'Syne, sans-serif', fontWeight: 800, fontSize: 17, letterSpacing: '-0.3px', color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
               Whispa<span style={{ color: 'var(--accent)' }}>Cuts</span>
             </span>
           )}

@@ -229,14 +229,19 @@ export default function Companion() {
       const bars  = []
       const step  = Math.floor(data.length / WAVEFORM_BARS)
       let   total = 0
+      let   peak  = 0
 
       for (let i = 0; i < WAVEFORM_BARS; i++) {
         const val = data[i * step] / 255
         bars.push(val)
         total += val
+        if (val > peak) peak = val
       }
 
-      dispatch({ type: 'SET_WAVEFORM', data: bars, level: total / WAVEFORM_BARS })
+      // Use a blend of peak and average — more sensitive than average alone
+      const level = (peak * 0.65 + (total / WAVEFORM_BARS) * 0.35)
+
+      dispatch({ type: 'SET_WAVEFORM', data: bars, level })
       rafRef.current = requestAnimationFrame(draw)
     }
     draw()
@@ -518,14 +523,29 @@ export default function Companion() {
 
   async function processSession() {
     if (!sessionIdRef.current) return
-    set({ processing: true, orbMood: 'processing' })
+    set({ processing: true, orbMood: 'processing', error: null })
     try {
       const result = await api.post(`/session/${sessionIdRef.current}/process`)
-      set({ processed: result, processing: false, orbMood: 'idle' })
-      set({ screen: 2 })  // auto-navigate to memo screen
+      // Backend returns { voiceMemoText, keyMoments, transcript }
+      // If voiceMemoText is missing the API returned an unexpected shape
+      if (!result?.voiceMemoText && !result?.voice_memo_text) {
+        throw new Error('No memo generated — make sure you spoke during the recording')
+      }
+      // Normalise field names (backend may return snake_case)
+      const normalised = {
+        voiceMemoText: result.voiceMemoText || result.voice_memo_text || '',
+        keyMoments:    result.keyMoments    || result.key_moments    || [],
+        transcript:    result.transcript    || '',
+      }
+      set({ processed: normalised, processing: false, orbMood: 'idle' })
+      set({ screen: 2 })
       navigator.vibrate?.([100, 50, 100, 50, 200])
     } catch (err) {
-      set({ processing: false, error: err.message })
+      const msg = err.message?.includes('No entries')
+        ? 'No speech was transcribed — speak clearly during recording, or check that OPENAI_API_KEY is set in Railway'
+        : err.message || 'Processing failed'
+      set({ processing: false, error: msg, orbMood: 'idle' })
+      set({ screen: 2 })  // still navigate so user sees the error
     }
   }
 
@@ -956,12 +976,29 @@ export default function Companion() {
 
           {!state.processed && !state.processing && (
             <div className="empty-memo">
-              <Clock size={28} className="text-[#2a2a2a]"/>
-              <p>
-                {state.status === 'ready'
-                  ? 'Go back and generate your memo'
-                  : 'Record a session first'}
-              </p>
+              {state.error ? (
+                <>
+                  <div style={{ fontSize: 13, color: '#f87171', textAlign: 'center', lineHeight: 1.5, padding: '0 8px' }}>
+                    {state.error}
+                  </div>
+                  <button
+                    onClick={() => { dispatch({ type: 'RESET_SESSION' }) }}
+                    className="new-session-btn"
+                    style={{ marginTop: 12 }}
+                  >
+                    Start new session
+                  </button>
+                </>
+              ) : (
+                <>
+                  <Clock size={28} style={{ color: 'rgba(255,255,255,0.1)' }}/>
+                  <p>
+                    {state.status === 'ready'
+                      ? 'Go back and generate your memo'
+                      : 'Record a session first'}
+                  </p>
+                </>
+              )}
             </div>
           )}
 

@@ -16,22 +16,51 @@
 
 import { useEffect, useRef } from 'react'
 
-const MOODS = {
-  idle:       { r: 52,  speed: 0.008, rgb: [200, 184, 154], bloom: 0.12, wobble: 0.28, pulse: 0.035 },
-  listening:  { r: 58,  speed: 0.020, rgb: [200, 184, 154], bloom: 0.42, wobble: 0.65, pulse: 0.14  },
-  discovery:  { r: 66,  speed: 0.034, rgb: [232, 200, 122], bloom: 0.92, wobble: 1.25, pulse: 0.24  },
-  marking:    { r: 62,  speed: 0.026, rgb: [200, 184, 154], bloom: 1.00, wobble: 0.52, pulse: 0.32  },
-  processing: { r: 56,  speed: 0.024, rgb: [160, 200, 255], bloom: 0.50, wobble: 0.80, pulse: 0.08  },
-  offline:    { r: 42,  speed: 0.004, rgb: [80,  78,  70],  bloom: 0.04, wobble: 0.10, pulse: 0.01  },
+// Read a CSS variable as [r,g,b] at runtime so the orb respects the active theme.
+// Falls back to the dark-mode values if the variable isn't set.
+function cssVarRgb(varName, fallback) {
+  try {
+    const raw = getComputedStyle(document.documentElement)
+      .getPropertyValue(varName).trim()
+    // Handle both "r g b" and "#rrggbb" formats
+    if (raw.startsWith('#')) {
+      const h = raw.slice(1)
+      return [
+        parseInt(h.slice(0,2), 16),
+        parseInt(h.slice(2,4), 16),
+        parseInt(h.slice(4,6), 16),
+      ]
+    }
+    const parts = raw.split(/[\s,]+/).map(Number).filter(n => !isNaN(n))
+    if (parts.length === 3) return parts
+    return fallback
+  } catch { return fallback }
 }
+
+// Theme-aware colour palettes.
+// Dark mode: cool blue-grey tones. Light mode: the same hues but richer/warmer.
+// Gold accent always stays gold (it's brand, not UI chrome).
+function getMoods() {
+  const isDark = document.documentElement.getAttribute('data-theme') !== 'light'
+  return {
+    idle:       { r: 52,  speed: 0.008, rgb: isDark ? [100, 115, 155] : [130, 140, 180], bloom: 0.15, wobble: 0.20, pulse: 0.030 },
+    listening:  { r: 60,  speed: 0.022, rgb: isDark ? [140, 170, 220] : [100, 130, 210], bloom: 0.55, wobble: 0.70, pulse: 0.16  },
+    discovery:  { r: 68,  speed: 0.034, rgb: [212, 168,  83],                             bloom: 1.00, wobble: 1.30, pulse: 0.28  },
+    marking:    { r: 64,  speed: 0.026, rgb: [212, 168,  83],                             bloom: 0.90, wobble: 0.55, pulse: 0.30  },
+    processing: { r: 56,  speed: 0.024, rgb: isDark ? [ 96, 165, 250] : [ 60, 120, 230], bloom: 0.60, wobble: 0.85, pulse: 0.10  },
+    offline:    { r: 42,  speed: 0.003, rgb: isDark ? [ 55,  58,  70] : [180, 182, 190], bloom: 0.04, wobble: 0.08, pulse: 0.008 },
+  }
+}
+
+const MOODS = getMoods()
 
 export default function MascotOrb({ mood = 'idle', audioLevel = 0, size = 280 }) {
   const canvasRef  = useRef(null)
   const stateRef   = useRef({
     t:            0,
     energy:       0,
-    currentMood:  { ...MOODS.idle },
-    targetMood:   { ...MOODS.idle },
+    currentMood:  { ...getMoods().idle },
+    targetMood:   { ...getMoods().idle },
     particles:    [],
     ripples:      [],
     scanLine:     0,
@@ -43,15 +72,31 @@ export default function MascotOrb({ mood = 'idle', audioLevel = 0, size = 280 })
   // Keep audio level in a ref for the animation loop (avoids stale closure)
   useEffect(() => { audioRef.current = audioLevel }, [audioLevel])
 
-  // React to mood changes
+  // React to mood changes — re-read theme each time so colours stay in sync
   useEffect(() => {
-    const s = stateRef.current
-    if (mood === s.prevMood) return
-    s.prevMood    = mood
-    s.targetMood  = { ...MOODS[mood] || MOODS.idle }
+    const s     = stateRef.current
+    const moods = getMoods()
+    if (mood === s.prevMood) {
+      // Even if mood didn't change, refresh the target colours in case theme changed
+      s.targetMood = { ...moods[mood] || moods.idle }
+      return
+    }
+    s.prevMood   = mood
+    s.targetMood = { ...moods[mood] || moods.idle }
     if (mood === 'discovery') spawnParticles(s, 22)
     if (mood === 'marking')   spawnRipple(s)
   }, [mood])
+
+  // Watch for theme changes (data-theme attribute on <html>) and refresh colours
+  useEffect(() => {
+    const observer = new MutationObserver(() => {
+      const s     = stateRef.current
+      const moods = getMoods()
+      s.targetMood = { ...moods[s.prevMood] || moods.idle }
+    })
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
+    return () => observer.disconnect()
+  }, [])
 
   // Mount canvas and start loop
   useEffect(() => {
@@ -78,9 +123,11 @@ export default function MascotOrb({ mood = 'idle', audioLevel = 0, size = 280 })
       cm.rgb    = cm.rgb.map((v, i) => lerp(v, tm.rgb[i], sp))
 
       // Energy from audio level + mood pulse
-      const audioDriven = audioRef.current * 0.6
+      // audioLevel is 0–1 from the analyser average — boost it significantly
+      // so even quiet speech makes the orb visibly react
+      const audioDriven = Math.pow(audioRef.current, 0.6) * 1.2  // curve + amplify
       const moodDriven  = Math.sin(s.t * cm.speed * 200) * cm.pulse
-      s.energy = lerp(s.energy, audioDriven + moodDriven, 0.10)
+      s.energy = lerp(s.energy, audioDriven + moodDriven, 0.15)  // faster lerp = snappier response
 
       drawRipples(ctx, s, cx, cy)
       drawOrb(ctx, s, cm, cx, cy, W)
@@ -238,7 +285,7 @@ function drawRipples(ctx, s, cx, cy) {
   s.ripples = s.ripples.filter(rp => {
     ctx.beginPath()
     ctx.arc(cx, cy, rp.r, 0, Math.PI * 2)
-    ctx.strokeStyle = `rgba(200,184,154,${rp.life * 0.38})`
+    ctx.strokeStyle = `rgba(160,180,220,${rp.life * 0.35})`
     ctx.lineWidth   = 1.4 * rp.life
     ctx.stroke()
     rp.r    += 3.2
