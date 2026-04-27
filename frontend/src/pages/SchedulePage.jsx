@@ -258,7 +258,10 @@ export default function SchedulePage() {
   const [cadenceInfo,    setCadenceInfo]    = useState(null)
 
   useEffect(() => {
-    if (!activeCategoryId) return
+    if (!activeCategoryId) {
+      setLoading(false)
+      return
+    }
     setLoading(true)
     episodesApi.list({ categoryId: activeCategoryId, limit: 50 })
       .then(({ episodes: eps }) => {

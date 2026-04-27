@@ -88,7 +88,7 @@ export const useStore = create((set, get) => ({
 
   // ── UI State ──────────────────────────────────────────────
   sidebarCollapsed: false,
-  chatOpen:         true,
+  chatOpen:         false,
   currentMode:      'dashboard',
 
   setSidebarCollapsed: (v) => set({ sidebarCollapsed: v }),
