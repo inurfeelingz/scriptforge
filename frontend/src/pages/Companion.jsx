@@ -72,6 +72,7 @@ function reducer(state, action) {
   switch (action.type) {
     case 'SET':             return { ...state, ...action.payload }
     case 'ADD_ENTRY':       return { ...state, entries: [...state.entries, action.entry] }
+    case 'REPLACE_SPEECH_ENTRY': return { ...state, entries: [...state.entries.filter(e => e.type !== 'speech'), action.entry] }
     case 'REMOVE_ENTRY':    return { ...state, entries: state.entries.filter(e => e.id !== action.id) }
     case 'SET_WAVEFORM':    return { ...state, waveform: action.data, audioLevel: action.level }
     case 'RESET_SESSION':   return { ...state, sessionId: null, recording: false, elapsedMs: 0, entries: [], processed: null, status: 'idle', error: null, justMarked: false }
@@ -483,7 +484,9 @@ export default function Companion() {
           console.info('[companion] Server-side transcription unavailable — add OPENAI_API_KEY or implement client-side Whisper path')
         } else if (data.entries?.length) {
           console.info('[transcribe] Got', data.entries.length, 'entries:', data.entries.map(e => e.text?.slice(0,40)))
-          data.entries.forEach(e => dispatch({ type: 'ADD_ENTRY', entry: e }))
+          // Cumulative mode — replace the single speech entry rather than appending
+          // so the UI shows the growing transcript without duplicates
+          data.entries.forEach(e => dispatch({ type: e.type === 'speech' ? 'REPLACE_SPEECH_ENTRY' : 'ADD_ENTRY', entry: e }))
         } else {
           console.info('[transcribe] Response OK but no entries. Text:', data.text?.slice(0,80))
         }
