@@ -543,16 +543,24 @@ export default function Companion() {
   async function processSession() {
     if (!sessionIdRef.current) return
     set({ processing: true, orbMood: 'processing', error: null })
+
+    const timeoutId = setTimeout(() => {
+      set({ processing: false, orbMood: 'idle', error: 'Memo generation timed out — try again' })
+      set({ screen: 2 })
+    }, 90000)
+
     try {
       const result = await api.post(`/session/${sessionIdRef.current}/process`)
+      clearTimeout(timeoutId)
       const voiceMemoText = result?.voiceMemoText || result?.voice_memo_text || ''
       const keyMoments    = result?.keyMoments    || result?.key_moments    || []
-      if (!voiceMemoText) throw new Error('No memo generated — speak clearly during recording, or check OPENAI_API_KEY is set in Railway')
+      if (!voiceMemoText) throw new Error('No memo generated — speak clearly during recording')
       set({ processed: { voiceMemoText, keyMoments }, processing: false, orbMood: 'idle' })
       set({ screen: 2 })
       loadPastSessions()
       navigator.vibrate?.([100, 50, 100, 50, 200])
     } catch (err) {
+      clearTimeout(timeoutId)
       set({ processing: false, orbMood: 'idle', error: err.message || 'Processing failed' })
       set({ screen: 2 })
     }

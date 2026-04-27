@@ -64,10 +64,11 @@ app.use(cors({
 app.use(express.json({ limit: '10mb' }))
 app.use(express.urlencoded({ extended: true, limit: '10mb' }))
 
-// Request timeout — SSE routes exempt (they heartbeat independently)
+// Request timeout — SSE routes and session processing exempt
 app.use((req, res, next) => {
-  const isSSE = req.path.endsWith('/generate') || req.path.endsWith('/message')
-  if (isSSE) return next()
+  const isSSE     = req.path.endsWith('/generate') || req.path.endsWith('/message')
+  const isProcess = req.path.includes('/process')
+  if (isSSE || isProcess) return next()
   const t = setTimeout(() => {
     if (!res.headersSent) res.status(503).json({ error: 'Request timed out — try again' })
   }, 30000)
