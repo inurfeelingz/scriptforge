@@ -182,6 +182,10 @@ app.use((err, req, res, next) => {
 const server = app.listen(PORT, () => {
   console.log(`\n WhispaCuts API  port ${PORT}  env ${process.env.NODE_ENV}`)
   console.log(` Frontend: ${process.env.FRONTEND_URL}\n`)
+
+  // Allow long-running requests (Claude memo generation can take 30-60s)
+  server.timeout = 180000          // 3 min socket timeout
+  server.keepAliveTimeout = 65000  // slightly above Railway's 60s idle timeout
   startSmartScheduler()
 
   // Configure VAPID push notifications

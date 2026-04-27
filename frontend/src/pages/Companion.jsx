@@ -551,7 +551,7 @@ export default function Companion() {
     const timeoutId = setTimeout(() => {
       set({ processing: false, orbMood: 'idle', error: 'Memo generation timed out — try again' })
       set({ screen: 2 })
-    }, 90000)
+    }, 180000)  // 3 min — matches server timeout
 
     try {
       const result = await api.post(`/session/${sessionIdRef.current}/process`)
