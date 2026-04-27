@@ -326,14 +326,14 @@ export default function Companion() {
       sessionStartRef.current = Date.now()
       audioChunksRef.current  = []
 
-      // MediaRecorder
-      // iOS Safari only supports audio/mp4 — must be in the chain
+      // MediaRecorder mime type — prefer mp4/aac as it produces self-contained
+      // chunks that Whisper handles reliably. webm produces fragmented chunks
+      // that Whisper rejects even though it lists webm as supported.
       const mimeType = [
-        'audio/webm;codecs=opus',  // Chrome/Android (best quality)
-        'audio/webm',              // Chrome fallback
-        'audio/mp4;codecs=aac',    // iOS Safari 14.3+
-        'audio/mp4',               // iOS Safari fallback
-        'audio/ogg',               // Firefox
+        'audio/mp4;codecs=aac',    // Chrome 130+, iOS Safari (best for Whisper)
+        'audio/mp4',               // Chrome/iOS fallback
+        'audio/webm;codecs=opus',  // Android fallback
+        'audio/webm',              // last resort
       ].find(t => MediaRecorder.isTypeSupported(t)) || 'audio/mp4'
 
       // Use bitrate from micDetect.js — each brand has optimal value
