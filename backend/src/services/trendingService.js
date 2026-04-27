@@ -103,7 +103,7 @@ async function synthesiseTrending(niche, allVideos, withTranscripts) {
     .join('\n\n');
 
   const response = await client.messages.create({
-    model:      process.env.CLAUDE_MODEL || 'claude-sonnet-4-20250514',
+    model:      process.env.CLAUDE_MODEL || 'claude-sonnet-4-5-20251001',
     max_tokens: 1200,
     messages: [{
       role: 'user',

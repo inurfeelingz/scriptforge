@@ -145,7 +145,7 @@ router.get('/recommendations', async (req, res) => {
   const context = await assembleContext(req.user.id, categoryId, { mode: 'vault' });
 
   const response = await client.messages.create({
-    model:      process.env.CLAUDE_MODEL || 'claude-sonnet-4-20250514',
+    model:      process.env.CLAUDE_MODEL || 'claude-sonnet-4-5-20251001',
     max_tokens: 800,
     system:     context,
     messages: [{

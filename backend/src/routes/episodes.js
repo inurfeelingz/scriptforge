@@ -137,7 +137,7 @@ PLATFORM_CTA:`;
     }, 3 * 60 * 1000)
 
     const stream = await client.messages.stream({
-      model:      process.env.CLAUDE_MODEL || 'claude-sonnet-4-20250514',
+      model:      process.env.CLAUDE_MODEL || 'claude-sonnet-4-5-20251001',
       max_tokens: parseInt(process.env.MAX_TOKENS) || 8000,
       system:     systemContext,
       messages:   [{ role: 'user', content: userPrompt }],
@@ -364,7 +364,7 @@ Return ONLY a minute-by-minute energy score (1–10) with a one-line annotation 
 
     let fullText = '';
     const stream = await client.messages.stream({
-      model:      process.env.CLAUDE_MODEL || 'claude-sonnet-4-20250514',
+      model:      process.env.CLAUDE_MODEL || 'claude-sonnet-4-5-20251001',
       max_tokens: 2000,
       system:     systemContext,
       messages:   [{ role: 'user', content: SECTION_PROMPTS[section] }],
@@ -461,7 +461,7 @@ Return ONLY valid JSON — no preamble, no markdown, no explanation:
 }`;
 
     const response = await client.messages.create({
-      model:      process.env.CLAUDE_MODEL || 'claude-sonnet-4-20250514',
+      model:      process.env.CLAUDE_MODEL || 'claude-sonnet-4-5-20251001',
       max_tokens: 800,
       system:     systemContext,
       messages:   [{ role: 'user', content: prompt }],

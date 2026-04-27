@@ -85,7 +85,7 @@ router.post('/message', async (req, res) => {
     let fullResponse = '';
 
     const stream = await client.messages.stream({
-      model:      process.env.CLAUDE_MODEL || 'claude-sonnet-4-20250514',
+      model:      process.env.CLAUDE_MODEL || 'claude-sonnet-4-5-20251001',
       max_tokens: 2000,
       system:     systemContext,
       messages:   claudeMessages,
