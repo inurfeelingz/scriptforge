@@ -27,6 +27,9 @@ const soundRoutes     = require('./routes/sound')
 const { startSmartScheduler } = require('./services/smartScheduler')
 
 const app  = express()
+
+// Railway sits behind a proxy — tell Express to trust X-Forwarded-For headers
+app.set('trust proxy', 1)
 const PORT = process.env.PORT || 3001
 
 // ─── MIDDLEWARE ────────────────────────────────────────────────────────────────
