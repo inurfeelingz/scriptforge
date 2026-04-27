@@ -292,6 +292,191 @@ PLATFORM_CTA:`;
   }
 });
 
+// ─── REGENERATE SINGLE SECTION ───────────────────────────────────────────────
+// POST /api/episodes/:id/regenerate-section
+// Body: { section: 'hook'|'vo_script'|'metadata'|'shortform'|'energy_curve' }
+// Regenerates one section in isolation — ~10% of full generation cost.
+
+router.post('/:id/regenerate-section', async (req, res) => {
+  const { section } = req.body;
+  const VALID = ['hook', 'vo_script', 'metadata', 'shortform', 'energy_curve'];
+  if (!VALID.includes(section)) {
+    return res.status(400).json({ error: `Invalid section. Must be one of: ${VALID.join(', ')}` });
+  }
+
+  const { data: episode, error: epErr } = await supabase
+    .from('episodes')
+    .select('*')
+    .eq('id', req.params.id)
+    .eq('user_id', req.user.id)
+    .single();
+
+  if (epErr || !episode) return res.status(404).json({ error: 'Episode not found' });
+
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.flushHeaders();
+
+  const send = (event, data) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+
+  try {
+    const systemContext = await assembleContext(req.user.id, episode.category_id, { mode: 'generate' });
+
+    const SECTION_PROMPTS = {
+      hook: `Rewrite only the opening hook (first 2–3 sentences) of this episode's VO script.
+The rest of the script will stay unchanged. Try a completely different hook strategy than before.
+Current script opening: "${(episode.vo_script || '').split('\n').slice(0,4).join('\n')}"
+Track: "${episode.track_name}" | Mood: ${episode.track_mood} | Genre: ${episode.track_genre}
+Return ONLY the new hook sentences — no preamble, no section markers.`,
+
+      vo_script: `Rewrite the full VO script for this episode.
+Keep the same structure and EDL timecodes but refresh the language, vary sentence rhythm, and try a different hook.
+Target: ~${Math.round((episode.generation_decisions?.trackContext?.targetDurationMinutes || 8) * 130)} words.
+Track: "${episode.track_name}" | Mood: ${episode.track_mood}
+Current script for reference:\n${episode.vo_script || '(none)'}
+Return ONLY the new script starting from the first timecode — no preamble.`,
+
+      metadata: `Rewrite the YouTube/TikTok metadata for this episode.
+Generate a more clickable title, richer description with timestamps, better tags, and a stronger TikTok caption.
+Track: "${episode.track_name}" | Mood: ${episode.track_mood} | Genre: ${episode.track_genre}
+Current metadata:\n${episode.metadata_block ? JSON.stringify(episode.metadata_block, null, 2) : '(none)'}
+Return ONLY the metadata block using these keys:
+YOUTUBE_TITLE:
+YOUTUBE_DESCRIPTION:
+YOUTUBE_TAGS:
+YOUTUBE_CHAPTERS:
+TIKTOK_CAPTION:
+PLATFORM_CTA:`,
+
+      shortform: `Generate 3 new short-form cut suggestions for this episode.
+Each should be a self-contained 45–60 second moment with a strong standalone hook.
+Track: "${episode.track_name}" | VO Script excerpt:\n${(episode.vo_script || '').slice(0, 800)}
+Return ONLY the shortform moments in this format:
+MOMENT_01 | clip | timecode | hook text | platform`,
+
+      energy_curve: `Rewrite the energy curve for this episode with more granular annotations.
+Track: "${episode.track_name}" | Mood: ${episode.track_mood}
+VO Script:\n${(episode.vo_script || '').slice(0, 1000)}
+Return ONLY a minute-by-minute energy score (1–10) with a one-line annotation per minute.`,
+    };
+
+    let fullText = '';
+    const stream = await client.messages.stream({
+      model:      process.env.CLAUDE_MODEL || 'claude-sonnet-4-20250514',
+      max_tokens: 2000,
+      system:     systemContext,
+      messages:   [{ role: 'user', content: SECTION_PROMPTS[section] }],
+    });
+
+    for await (const chunk of stream) {
+      if (chunk.type === 'content_block_delta' && chunk.delta.type === 'text_delta') {
+        fullText += chunk.delta.text;
+        send('chunk', { text: chunk.delta.text });
+      }
+    }
+
+    // Persist updated section back to the episode row
+    const DB_FIELD = {
+      hook:         null,  // hook updates the first lines of vo_script
+      vo_script:    'vo_script',
+      metadata:     null,  // parsed separately
+      shortform:    'short_form_moments',
+      energy_curve: 'retention_curve',
+    };
+
+    const updates = { updated_at: new Date().toISOString() };
+
+    if (section === 'hook') {
+      // Splice new hook into existing script — replace first non-timecode paragraph
+      const lines  = (episode.vo_script || '').split('\n');
+      const firstParaEnd = lines.findIndex((l, i) => i > 0 && l.trim() === '');
+      const rest   = firstParaEnd > 0 ? lines.slice(firstParaEnd).join('\n') : '';
+      updates.vo_script = fullText.trim() + '\n' + rest;
+    } else if (section === 'metadata') {
+      const meta = {};
+      fullText.split('\n').forEach(line => {
+        const [k, ...v] = line.split(':');
+        if (k && v.length) meta[k.trim()] = v.join(':').trim();
+      });
+      updates.metadata_block = meta;
+    } else if (DB_FIELD[section]) {
+      updates[DB_FIELD[section]] = fullText.trim();
+    }
+
+    await supabase.from('episodes').update(updates).eq('id', episode.id);
+
+    send('done', { section, content: fullText.trim() });
+    res.end();
+  } catch (err) {
+    send('error', { message: err.message });
+    res.end();
+  }
+});
+
+// ─── HOOK VARIANTS ────────────────────────────────────────────────────────────
+// POST /api/episodes/hook-variants
+// Body: { categoryId, trackContext, voiceMemoText }
+// Returns 3 hook variants (different strategies) before full generation.
+// Fast — single focused call, ~8 seconds.
+
+router.post('/hook-variants', async (req, res) => {
+  const { categoryId, trackContext, voiceMemoText } = req.body;
+  if (!categoryId || !trackContext?.name) {
+    return res.status(400).json({ error: 'categoryId and trackContext.name are required' });
+  }
+
+  try {
+    const systemContext = await assembleContext(req.user.id, categoryId, { mode: 'generate' });
+
+    const prompt = `Generate exactly 3 different opening hooks for this episode.
+Each hook must use a completely different strategy. Be bold — don't play it safe.
+
+Track: "${trackContext.name}"
+Mood: ${trackContext.mood || 'not specified'}
+Genre: ${trackContext.genre || 'not specified'}
+BPM: ${trackContext.bpm || 'not specified'}
+Voice memo: "${voiceMemoText || 'not provided'}"
+
+Return ONLY valid JSON — no preamble, no markdown, no explanation:
+{
+  "variants": [
+    {
+      "strategy": "question",
+      "label": "Open with a question",
+      "hook": "2-3 sentence hook text here"
+    },
+    {
+      "strategy": "in-media-res",
+      "label": "Drop straight into the moment",
+      "hook": "2-3 sentence hook text here"
+    },
+    {
+      "strategy": "tension",
+      "label": "Build tension from a fact or contradiction",
+      "hook": "2-3 sentence hook text here"
+    }
+  ]
+}`;
+
+    const response = await client.messages.create({
+      model:      process.env.CLAUDE_MODEL || 'claude-sonnet-4-20250514',
+      max_tokens: 800,
+      system:     systemContext,
+      messages:   [{ role: 'user', content: prompt }],
+    });
+
+    const text = response.content[0]?.text || '';
+    const clean = text.replace(/```json|```/g, '').trim();
+    const parsed = JSON.parse(clean);
+
+    res.json({ variants: parsed.variants });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ─── DUPLICATE EPISODE ───────────────────────────────────────────────────────
 // Clone an existing episode as a starting point — copies track context and
 // voice memo into a new draft at the next episode number.

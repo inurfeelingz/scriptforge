@@ -16,6 +16,10 @@ const chatRoutes      = require('./routes/chat')
 const refreshRoutes   = require('./routes/refresh')
 const collabRoutes    = require('./routes/collab')
 const userRoutes      = require('./routes/users')
+const adminRoutes     = require('./routes/admin')
+const dashboardRoutes = require('./routes/dashboard')
+const shortsRoutes    = require('./routes/shorts')
+const pushRoutes      = require('./routes/push')
 const editorRoutes    = require('./routes/editor')
 const sessionRoutes   = require('./routes/session')
 const soundRoutes     = require('./routes/sound')
@@ -89,6 +93,10 @@ app.get('/health', (req, res) => {
 // All registered BEFORE app.listen() — Express requires this
 
 app.use('/api/users',      userRoutes)
+app.use('/api/admin',      authMiddleware, adminRoutes)
+app.use('/api/dashboard',  authMiddleware, dashboardRoutes)
+app.use('/api/shorts',     authMiddleware, shortsRoutes)
+app.use('/api/push',       authMiddleware, pushRoutes)
 app.use('/api/categories', authMiddleware, categoryRoutes)
 app.use('/api/episodes',   authMiddleware, episodeRoutes)
 app.use('/api/vault',      authMiddleware, vaultRoutes)
@@ -111,8 +119,8 @@ app.post('/api/test-webhook', authMiddleware, async (req, res) => {
   if (!url) return res.status(400).json({ error: 'No webhook URL configured in .env (DISCORD_WEBHOOK_URL or SLACK_WEBHOOK_URL)' })
   try {
     const body = process.env.DISCORD_WEBHOOK_URL
-      ? JSON.stringify({ content: '✅ ScriptForge webhook test — notifications are working.' })
-      : JSON.stringify({ text:    '✅ ScriptForge webhook test — notifications are working.' })
+      ? JSON.stringify({ content: '✅ WhispaCuts webhook test — notifications are working.' })
+      : JSON.stringify({ text:    '✅ WhispaCuts webhook test — notifications are working.' })
     const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body })
     if (!r.ok) throw new Error(`Webhook returned ${r.status}`)
     res.json({ sent: true })
@@ -152,9 +160,17 @@ app.use((err, req, res, next) => {
 // ─── START ─────────────────────────────────────────────────────────────────────
 
 const server = app.listen(PORT, () => {
-  console.log(`\n ScriptForge API  port ${PORT}  env ${process.env.NODE_ENV}`)
+  console.log(`\n WhispaCuts API  port ${PORT}  env ${process.env.NODE_ENV}`)
   console.log(` Frontend: ${process.env.FRONTEND_URL}\n`)
   startSmartScheduler()
+
+  // Configure VAPID push notifications
+  const pushService = require('./services/pushService')
+  pushService.configure()
+
+  // Start background scheduler (weekly analytics pull, cadence reminders)
+  const schedulerService = require('./services/schedulerService')
+  schedulerService.start()
 })
 
 // Graceful shutdown — drain SSE streams before Railway's 30s kill

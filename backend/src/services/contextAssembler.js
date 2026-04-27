@@ -83,8 +83,8 @@ async function assembleContext(userId, categoryId, options = {}) {
   const sections = [];
 
   // ── IDENTITY ──────────────────────────────────────────────
-  sections.push(`# SCRIPTFORGE CONTEXT
-You are the AI creative layer inside ScriptForge, a content production system for a solo creator.
+  sections.push(`# WHISPACUTS CONTEXT
+You are the AI creative layer inside WhispaCuts, a content production system for a solo creator.
 Current mode: ${mode.toUpperCase()}
 Creator niche: ${category.niche}
 Category: ${category.name}${episodeCtx?.targetDurationMinutes ? `
@@ -336,7 +336,7 @@ async function getVaultHighlights(userId, categoryId) {
 }
 
 function buildMinimalContext(mode) {
-  return `# SCRIPTFORGE\nYou are the AI creative layer in ScriptForge.\nMode: ${mode.toUpperCase()}\nNo category context loaded yet — help the user get set up.`;
+  return `# WHISPACUTS\nYou are the AI creative layer in WhispaCuts.\nMode: ${mode.toUpperCase()}\nNo category context loaded yet — help the user get set up.`;
 }
 
 module.exports = { assembleContext, invalidateContext };

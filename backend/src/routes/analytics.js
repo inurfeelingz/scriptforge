@@ -4,10 +4,241 @@ const multer  = require('multer');
 const Anthropic = require('@anthropic-ai/sdk');
 const { supabase }        = require('../utils/supabase');
 const { assembleContext } = require('../services/contextAssembler');
+const ytOAuth             = require('../services/youtubeOAuth');
 
 const router  = express.Router();
 const client  = new Anthropic.Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 const upload  = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
+
+// ─── YOUTUBE OAUTH: CONNECTION STATUS ─────────────────────────────────────────
+
+router.get('/youtube/status', async (req, res) => {
+  const { categoryId } = req.query
+  if (!categoryId) return res.status(400).json({ error: 'categoryId required' })
+  try {
+    const status = await ytOAuth.getConnectionStatus(req.user.id, categoryId)
+    res.json(status)
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// ─── YOUTUBE OAUTH: CONNECT ───────────────────────────────────────────────────
+// GET /api/analytics/youtube/connect?categoryId=xxx
+// Redirects to Google consent screen.
+
+router.get('/youtube/connect', async (req, res) => {
+  const { categoryId } = req.query
+  if (!categoryId) return res.status(400).json({ error: 'categoryId required' })
+
+  if (!process.env.YOUTUBE_CLIENT_ID || !process.env.YOUTUBE_CLIENT_SECRET) {
+    return res.status(503).json({
+      error: 'YouTube OAuth not configured — add YOUTUBE_CLIENT_ID, YOUTUBE_CLIENT_SECRET, and YOUTUBE_REDIRECT_URI to Railway environment variables',
+    })
+  }
+
+  // Embed userId so we can verify in callback
+  const state  = Buffer.from(JSON.stringify({ userId: req.user.id, categoryId })).toString('base64url')
+  const url    = ytOAuth.buildAuthUrl(req.user.id, categoryId)
+  res.redirect(url)
+})
+
+// ─── YOUTUBE OAUTH: CALLBACK ──────────────────────────────────────────────────
+// GET /api/analytics/youtube/callback?code=xxx&state=xxx
+// Called by Google after user grants consent.
+// Exchanges code, stores tokens, redirects to frontend analytics page.
+
+router.get('/youtube/callback', async (req, res) => {
+  const { code, state, error: oauthError } = req.query
+
+  if (oauthError) {
+    return res.redirect(`${process.env.FRONTEND_URL}/analytics?error=youtube_denied`)
+  }
+
+  let userId, categoryId
+  try {
+    const decoded = JSON.parse(Buffer.from(state, 'base64url').toString())
+    userId     = decoded.userId
+    categoryId = decoded.categoryId
+  } catch {
+    return res.redirect(`${process.env.FRONTEND_URL}/analytics?error=invalid_state`)
+  }
+
+  try {
+    const tokens  = await ytOAuth.exchangeCode(code)
+    await ytOAuth.storeTokens(userId, categoryId, tokens)
+
+    // Get channel info and store it
+    const channel = await ytOAuth.getChannelInfo(tokens.access_token)
+    if (channel) {
+      await supabase.from('youtube_connections').update({
+        channel_id:        channel.channelId,
+        channel_title:     channel.title,
+        channel_thumbnail: channel.thumbnail,
+      }).eq('user_id', userId).eq('category_id', categoryId)
+    }
+
+    res.redirect(`${process.env.FRONTEND_URL}/analytics?youtube=connected&categoryId=${categoryId}`)
+  } catch (err) {
+    console.error('[youtube/callback]', err.message)
+    res.redirect(`${process.env.FRONTEND_URL}/analytics?error=oauth_failed`)
+  }
+})
+
+// ─── YOUTUBE OAUTH: PULL LATEST DATA ─────────────────────────────────────────
+// POST /api/analytics/youtube/pull
+// Body: { categoryId }
+// Fetches latest 90-day analytics, runs through the same Claude pipeline as CSV upload.
+
+router.post('/youtube/pull', async (req, res) => {
+  const { categoryId } = req.body
+  if (!categoryId) return res.status(400).json({ error: 'categoryId required' })
+
+  try {
+    const accessToken = await ytOAuth.getValidToken(req.user.id, categoryId)
+    const videos      = await ytOAuth.pullAnalyticsData(accessToken)
+
+    if (!videos.length) {
+      return res.json({ message: 'No video data found for this channel', videoCount: 0 })
+    }
+
+    // Score and sort — same logic as CSV upload
+    const scored = videos.map(v => ({
+      ...v,
+      retentionScore: calcScore(v.avgViewPercentage, v.views, v.ctr || 0),
+    })).sort((a, b) => b.retentionScore - a.retentionScore)
+
+    // Run Claude insights
+    const context   = await assembleContext(req.user.id, categoryId, { mode: 'analytics' })
+    const topTitles = scored.slice(0, 10).map((v, i) =>
+      `${i+1}. "${v.title}" — score: ${v.retentionScore}, views: ${v.views?.toLocaleString()}, avg view: ${v.avgViewPercentage}%`
+    ).join('\n')
+
+    const insightRes = await client.messages.create({
+      model:      process.env.CLAUDE_MODEL || 'claude-sonnet-4-20250514',
+      max_tokens: 600,
+      system:     context,
+      messages: [{
+        role: 'user',
+        content: `Interpret this YouTube analytics data (auto-imported via OAuth).\n\nTOP 10 PERFORMERS:\n${topTitles}\n\nTOTALS: ${videos.length} videos, avg score: ${Math.round(scored.reduce((s,v) => s+v.retentionScore,0)/scored.length)}\n\nGive 3-4 specific, actionable insights. Reference episode titles. End with 2 concrete recommendations for the next episode.`,
+      }],
+    })
+
+    const insights = insightRes.content[0].text
+    const avgScore = Math.round(scored.reduce((s,v) => s+v.retentionScore,0) / scored.length)
+
+    // Save
+    await supabase.from('analytics_uploads').insert({
+      user_id:        req.user.id,
+      category_id:    categoryId,
+      platform:       'youtube',
+      source:         'oauth_auto',
+      video_count:    videos.length,
+      avg_score:      avgScore,
+      top_performers: scored.slice(0, 20),
+      insights,
+      raw_data:       scored,
+    })
+
+    // Update last pulled timestamp
+    await supabase.from('youtube_connections').update({
+      last_pulled_at: new Date().toISOString(),
+    }).eq('user_id', req.user.id).eq('category_id', categoryId)
+
+    // Match episodes
+    let matched = 0
+    for (const video of scored.slice(0, 30)) {
+      const { data: eps } = await supabase
+        .from('episodes')
+        .select('id')
+        .eq('user_id', req.user.id)
+        .eq('category_id', categoryId)
+        .ilike('track_name', `%${video.title.slice(0, 20)}%`)
+      if (eps?.length) {
+        for (const ep of eps) {
+          await supabase.from('episodes').update({
+            yt_view_count:      video.views,
+            yt_avg_view_pct:    video.avgViewPercentage,
+            yt_retention_score: video.retentionScore,
+            performance_logged_at: new Date().toISOString(),
+          }).eq('id', ep.id)
+          matched++
+        }
+      }
+    }
+
+    res.json({ videoCount: videos.length, avgScore, insights, episodesMatched: matched, source: 'oauth' })
+  } catch (err) {
+    console.error('[youtube/pull]', err.message)
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// ─── YOUTUBE OAUTH: DISCONNECT ────────────────────────────────────────────────
+
+router.delete('/youtube/disconnect', async (req, res) => {
+  const { categoryId } = req.query
+  if (!categoryId) return res.status(400).json({ error: 'categoryId required' })
+  try {
+    await ytOAuth.disconnect(req.user.id, categoryId)
+    res.json({ disconnected: true })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// ─── EPISODE RETENTION CURVE ──────────────────────────────────────────────────
+// GET /api/analytics/episode/:id/retention
+// Returns the retention curve map + script lines mapped to timecodes
+// Used by EpisodeReview page (improvement 10)
+
+router.get('/episode/:id/retention', async (req, res) => {
+  const { data: episode, error } = await supabase
+    .from('episodes')
+    .select('id, episode_number, track_name, vo_script, retention_curve_map, retention_patterns, yt_retention_score')
+    .eq('id', req.params.id)
+    .eq('user_id', req.user.id)
+    .single()
+
+  if (error || !episode) return res.status(404).json({ error: 'Episode not found' })
+
+  // Map VO script lines to approximate timecodes
+  // Each paragraph ~= speaking time based on word count at 130wpm
+  const scriptLines = mapScriptToTimecodes(episode.vo_script || '')
+
+  res.json({
+    episode: {
+      id:             episode.id,
+      episodeNumber:  episode.episode_number,
+      trackName:      episode.track_name,
+      retentionScore: episode.yt_retention_score,
+    },
+    retentionCurve:   episode.retention_curve_map || null,
+    retentionPatterns: episode.retention_patterns || null,
+    scriptLines,
+    hasRetentionData: !!episode.retention_curve_map,
+  })
+})
+
+// ─── RETENTION CURVE INGEST ───────────────────────────────────────────────────
+// POST /api/analytics/episode/:id/retention-curve
+// Body: { curveData } — raw retention CSV or JSON from YouTube Studio
+// Saves the curve and triggers template rebuild
+
+router.post('/episode/:id/retention-curve', async (req, res) => {
+  const { curveData } = req.body
+  if (!curveData) return res.status(400).json({ error: 'curveData required' })
+
+  try {
+    const { parseRetentionCurve, extractStructuralPatterns, saveRetentionCurve } = require('../services/retentionMapper')
+    const result = await saveRetentionCurve(req.user.id, req.params.id, curveData)
+    res.json({ saved: true, ...result })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+
 
 // ─── UPLOAD ANALYTICS CSV ─────────────────────────────────────────────────────
 
@@ -259,5 +490,55 @@ router.get('/hook-stats', async (req, res) => {
 
   res.json({ breakdown, totalEpisodes: data?.length || 0 })
 })
+
+// ─── HELPERS ─────────────────────────────────────────────────────────────────
+
+/**
+ * Map VO script paragraphs to approximate timecodes.
+ * Uses word count at 130wpm to estimate how far into the episode each line lands.
+ * Returns array of { text, startSec, endSec, wordCount, isHint }
+ */
+function mapScriptToTimecodes(voScript) {
+  if (!voScript) return []
+  const WPM        = 130
+  const WORDS_PER_SEC = WPM / 60
+
+  const lines = voScript.split('\n')
+  const result = []
+  let elapsedSec = 0
+
+  for (const line of lines) {
+    const trimmed = line.trim()
+    if (!trimmed) continue
+
+    const isHint    = /^\[(?:CAM|DAW|BROLL|VO)/i.test(trimmed)
+    const isTc      = /^\[\d+:\d+\]/.test(trimmed)
+
+    // Extract explicit timecode if present e.g. [0:45]
+    if (isTc) {
+      const match = trimmed.match(/^\[(\d+):(\d+)\]/)
+      if (match) {
+        elapsedSec = parseInt(match[1]) * 60 + parseInt(match[2])
+      }
+    }
+
+    const text      = trimmed.replace(/^\[\d+:\d+\]\s*/, '')
+    const wordCount = text.split(/\s+/).filter(Boolean).length
+    const durSec    = isHint ? 0 : Math.max(wordCount / WORDS_PER_SEC, 1)
+
+    result.push({
+      text,
+      startSec:  Math.round(elapsedSec),
+      endSec:    Math.round(elapsedSec + durSec),
+      wordCount,
+      isHint,
+      isTc,
+    })
+
+    if (!isHint) elapsedSec += durSec
+  }
+
+  return result
+}
 
 module.exports = router;

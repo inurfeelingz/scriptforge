@@ -5,6 +5,7 @@
 
 const express    = require('express')
 const Anthropic  = require('@anthropic-ai/sdk')
+const multer     = require('multer')
 const { supabase } = require('../utils/supabase')
 
 const router = express.Router()
@@ -282,7 +283,84 @@ router.patch('/:id/link', async (req, res) => {
   res.json({ session: data })
 })
 
-// ─── TRANSCRIBE AUDIO CHUNK ─────────────────────────────────────────────────
+// ─── STANDALONE TRANSCRIBE (full VO audio → word timestamps) ─────────────────
+// POST /api/session/standalone/transcribe
+// Receives a full VO recording (MP3/WAV/WebM) uploaded from the Teleprompter.
+// Returns Whisper output with word-level timestamps for VO alignment.
+// Auth required — no session ID needed.
+
+const standaloneUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } })
+
+router.post('/standalone/transcribe', standaloneUpload.single('audio'), async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'Audio file required' })
+
+  try {
+    if (!process.env.OPENAI_API_KEY) {
+      return res.status(503).json({
+        error: 'OPENAI_API_KEY not configured — add it to your Railway environment variables to enable VO alignment',
+      })
+    }
+
+    const FormData = require('form-data')
+    const axios    = require('axios')
+    const form     = new FormData()
+
+    // Detect format from mimetype or filename
+    const ext      = (req.file.originalname || 'audio.webm').split('.').pop().toLowerCase()
+    const mimetype = req.file.mimetype || `audio/${ext}`
+
+    form.append('file', req.file.buffer, {
+      filename:    req.file.originalname || `vo-recording.${ext}`,
+      contentType: mimetype,
+    })
+    form.append('model', 'whisper-1')
+    form.append('language', 'en')
+    form.append('response_format', 'verbose_json')
+    form.append('timestamp_granularities[]', 'word')
+
+    const response = await axios.post(
+      'https://api.openai.com/v1/audio/transcriptions',
+      form,
+      {
+        headers: {
+          ...form.getHeaders(),
+          Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+        },
+        maxContentLength: Infinity,
+        maxBodyLength:    Infinity,
+        timeout:          120000,   // 2min — large files can take a while
+      }
+    )
+
+    const { text, words = [], segments = [], duration } = response.data
+
+    // Normalise word objects — Whisper returns { word, start, end }
+    const normalisedWords = words.map(w => ({
+      word:    w.word?.trim().replace(/[^\w']/g, '') || '',
+      startMs: Math.round((w.start || 0) * 1000),
+      endMs:   Math.round((w.end   || 0) * 1000),
+    })).filter(w => w.word)
+
+    res.json({
+      text,
+      words:      normalisedWords,
+      wordCount:  normalisedWords.length,
+      durationMs: Math.round((duration || 0) * 1000),
+      segments:   segments.map(s => ({
+        text:    s.text,
+        startMs: Math.round(s.start * 1000),
+        endMs:   Math.round(s.end   * 1000),
+      })),
+    })
+
+  } catch (err) {
+    console.error('[session/standalone/transcribe]', err.response?.data || err.message)
+    const msg = err.response?.data?.error?.message || err.message
+    res.status(502).json({ error: 'Whisper transcription failed: ' + msg })
+  }
+})
+
+// ─── TRANSCRIBE AUDIO CHUNK (companion app) ─────────────────────────────────
 
 const { handleTranscribe, upload } = require('./session/transcribe')
 router.post('/:id/transcribe', upload.single('audio'), handleTranscribe)
