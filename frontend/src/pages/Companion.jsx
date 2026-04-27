@@ -782,9 +782,19 @@ export default function Companion() {
             </div>
           )}
 
-          {/* Mascot orb — overflow visible so bloom glow bleeds past edges */}
-          <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '0', background: 'transparent', overflow: 'visible' }}>
-            <MascotOrb mood={state.orbMood} audioLevel={state.audioLevel} size={200}/>
+          {/* Mascot orb — absolutely positioned so bloom bleeds freely in all directions */}
+          <div style={{
+            position: 'relative', height: 220, flexShrink: 0,
+            display: 'flex', justifyContent: 'center', alignItems: 'center',
+          }}>
+            <div style={{
+              position: 'absolute',
+              top: '50%', left: '50%',
+              transform: 'translate(-50%, -50%)',
+              pointerEvents: 'none',
+            }}>
+              <MascotOrb mood={state.orbMood} audioLevel={state.audioLevel} size={260}/>
+            </div>
           </div>
 
           {/* Idle instructions — only when not recording */}
