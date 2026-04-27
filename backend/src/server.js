@@ -32,12 +32,28 @@ const PORT = process.env.PORT || 3001
 // ─── MIDDLEWARE ────────────────────────────────────────────────────────────────
 
 app.use(helmet({ contentSecurityPolicy: false }))
+// Build allowed origins list — always include the production domain
+const ALLOWED_ORIGINS = [
+  'https://whispacuts.com',
+  'https://www.whispacuts.com',
+  process.env.FRONTEND_URL,
+  'http://localhost:5173',
+  'http://localhost:3000',
+].filter(Boolean)
+
 app.use(cors({
-  origin: [
-    process.env.FRONTEND_URL,
-    'http://localhost:5173',
-    'http://localhost:3000',
-  ],
+  origin: (origin, callback) => {
+    // Allow requests with no origin (mobile apps, curl, Postman)
+    if (!origin) return callback(null, true)
+    if (ALLOWED_ORIGINS.includes(origin)) return callback(null, true)
+    // Allow any subdomain of whispacuts.com
+    if (/^https?:\/\/([a-z0-9-]+\.)?whispacuts\.com$/.test(origin)) return callback(null, true)
+    // Allow Railway preview URLs
+    if (/\.railway\.app$/.test(origin)) return callback(null, true)
+    // Allow Netlify preview URLs
+    if (/\.netlify\.app$/.test(origin)) return callback(null, true)
+    callback(new Error(`CORS: origin ${origin} not allowed`))
+  },
   credentials:    true,
   methods:        ['GET','POST','PUT','PATCH','DELETE','OPTIONS'],
   allowedHeaders: ['Content-Type','Authorization'],
