@@ -3,11 +3,11 @@
 // Used in both the Companion page and the Generate page (to pick a past session).
 
 import { useState, useEffect } from 'react'
-import { Flag, Mic, Clock, ChevronDown, ChevronUp } from 'lucide-react'
+import { Flag, Mic, Clock, ChevronDown, ChevronUp, Sparkles } from 'lucide-react'
 import { api } from '../../lib/api'
 import { useStore } from '../../store'
 
-export default function SessionJournal({ onSelectMemo }) {
+export default function SessionJournal({ onSelectMemo, onGenerateNow }) {
   const { activeCategoryId } = useStore()
   const [sessions, setSessions] = useState([])
   const [expanded, setExpanded] = useState(null)
@@ -79,13 +79,25 @@ export default function SessionJournal({ onSelectMemo }) {
                 </div>
               )}
 
-              {onSelectMemo && (
-                <button
-                  onClick={() => onSelectMemo(session.voice_memo_text, session)}
-                  className="w-full py-2 bg-[#c8b89a]/10 border border-[#c8b89a]/20 text-[#c8b89a] rounded text-xs hover:bg-[#c8b89a]/20 transition-all"
-                >
-                  Use this session as voice memo
-                </button>
+              {(onSelectMemo || onGenerateNow) && (
+                <div className="flex gap-2">
+                  {onSelectMemo && (
+                    <button
+                      onClick={() => onSelectMemo(session.voice_memo_text, session)}
+                      className="flex-1 py-2 bg-[#c8b89a]/5 border border-[#c8b89a]/15 text-[#c8b89a]/70 rounded text-xs hover:bg-[#c8b89a]/10 transition-all"
+                    >
+                      Load memo
+                    </button>
+                  )}
+                  {onGenerateNow && (
+                    <button
+                      onClick={() => onGenerateNow(session.voice_memo_text, session)}
+                      className="flex-1 py-2 bg-[#c8b89a]/10 border border-[#c8b89a]/30 text-[#c8b89a] rounded text-xs hover:bg-[#c8b89a]/20 transition-all flex items-center justify-center gap-1.5 font-medium"
+                    >
+                      <Sparkles size={10}/> Generate now →
+                    </button>
+                  )}
+                </div>
               )}
             </div>
           )}

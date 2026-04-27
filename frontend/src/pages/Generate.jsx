@@ -1,21 +1,91 @@
 // frontend/src/pages/Generate.jsx
-import { useState, useRef, useEffect } from 'react'
+// Batch 1 improvements:
+//  01 — One-click session → generate (SessionJournal pre-fills everything + fires)
+//  02 — Live word count vs target during VO script stream
+//  03 — Regenerate individual sections without full re-run
+//  04 — Hook A/B variants: generate 3 openings, pick one before full generation
+
+import { useState, useRef, useEffect, useCallback } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { Sparkles, Upload, FileText, Music2, Mic, ChevronDown, ChevronUp, Download, Check } from 'lucide-react'
+import {
+  Sparkles, Upload, FileText, Music2, Mic, ChevronDown, ChevronUp,
+  Download, Check, RefreshCw, Zap, AlertTriangle, X,
+} from 'lucide-react'
 import { useStore } from '../store'
 import SessionJournal from '../components/companion/SessionJournal'
 import { episodes as episodesApi } from '../lib/api'
 import { requestNotificationPermission, notifyGeneration } from '../lib/notifications'
 
+// ── Word counter ──────────────────────────────────────────────────────────────
+function countWords(text) {
+  return text ? text.trim().split(/\s+/).filter(Boolean).length : 0
+}
+
+// ── Hook variant card ─────────────────────────────────────────────────────────
+function HookCard({ variant, selected, onSelect }) {
+  return (
+    <button
+      onClick={() => onSelect(variant)}
+      className={`w-full text-left p-4 rounded border transition-all space-y-2 ${
+        selected
+          ? 'border-[#c8b89a]/50 bg-[#c8b89a]/8'
+          : 'border-[#1a1a1a] hover:border-[#333] bg-[#0a0a0a]'
+      }`}
+    >
+      <div className="flex items-center justify-between">
+        <span className="text-[10px] font-medium uppercase tracking-wider text-[#c8b89a]/70">
+          {variant.label}
+        </span>
+        {selected && <Check size={12} className="text-[#c8b89a]"/>}
+      </div>
+      <p className="text-sm text-[#ccc] leading-relaxed">{variant.hook}</p>
+    </button>
+  )
+}
+
+// ── Section regenerate button ─────────────────────────────────────────────────
+function RegenButton({ label, section, episodeId, onDone, disabled }) {
+  const [loading, setLoading] = useState(false)
+  const { notify } = useStore()
+
+  async function run() {
+    if (!episodeId) return
+    setLoading(true)
+    let text = ''
+    try {
+      await episodesApi.regenerateSection(episodeId, section, {
+        chunk: ({ text: t }) => { text += t },
+        done:  ({ content }) => {
+          onDone(section, content)
+          notify(`${label} regenerated`, 'success')
+        },
+        error: ({ message }) => notify('Regen failed: ' + message, 'error'),
+      })
+    } catch (err) {
+      notify(err.message, 'error')
+    }
+    setLoading(false)
+  }
+
+  return (
+    <button
+      onClick={run}
+      disabled={disabled || loading || !episodeId}
+      className="flex items-center gap-1.5 text-[10px] px-2 py-1 rounded border border-[#1a1a1a] text-[#555] hover:border-[#c8b89a]/30 hover:text-[#c8b89a] disabled:opacity-30 transition-all"
+    >
+      {loading ? <RefreshCw size={9} className="animate-spin"/> : <Zap size={9}/>}
+      {loading ? 'Regenerating…' : `Regen ${label}`}
+    </button>
+  )
+}
+
+// ── Main component ────────────────────────────────────────────────────────────
 export default function Generate() {
   const { activeCategoryId, activeCategory, notify } = useStore()
 
-  // ── Persistent defaults (survive tab close) ──────────────────────────────
   const PERSIST_KEYS = ['mood', 'genre', 'bpm', 'targetDurationMinutes']
-
   const storedDefaults = (() => {
-    try { return JSON.parse(localStorage.getItem('wc_generate_defaults') || '{}') }
-    catch { return {} }
+    try { return JSON.parse(localStorage.getItem('wc_generate_defaults') || '{}') } catch { return {} }
   })()
 
   const [form, setForm] = useState({
@@ -29,59 +99,70 @@ export default function Generate() {
     targetDurationMinutes: storedDefaults.targetDurationMinutes || '8',
   })
 
-  const [clips,          setClips]          = useState([])
-  const [generating,     setGenerating]     = useState(false)
-  const [phase,          setPhase]          = useState('')
-  const [pct,            setPct]            = useState(0)
-  const [reasoning,      setReasoning]      = useState('')
-  const [scriptStream,   setScriptStream]   = useState('')
-  const [result,         setResult]         = useState(null)
-  const [showReasoning,  setShowReasoning]  = useState(true)
-  const [showSessions,   setShowSessions]   = useState(false)
-  const [nextEpNumber,   setNextEpNumber]   = useState(null)
+  const [clips,           setClips]           = useState([])
+  const [generating,      setGenerating]      = useState(false)
+  const [phase,           setPhase]           = useState('')
+  const [pct,             setPct]             = useState(0)
+  const [reasoning,       setReasoning]       = useState('')
+  const [scriptStream,    setScriptStream]    = useState('')
+  const [result,          setResult]          = useState(null)
+  const [showReasoning,   setShowReasoning]   = useState(true)
+  const [showSessions,    setShowSessions]    = useState(false)
+  const [nextEpNumber,    setNextEpNumber]    = useState(null)
+
+  // 01 — Session pre-fill
+  const [sessionSource,   setSessionSource]   = useState(null)
+
+  // 02 — Word count
+  const [wordCount,       setWordCount]       = useState(0)
+  const targetWords = Math.round((parseInt(form.targetDurationMinutes) || 8) * 130)
+
+  // 03 — Section regen
+  const [episodeId,       setEpisodeId]       = useState(null)
+  const [parsedResult,    setParsedResult]    = useState(null)
+
+  // 04 — Hook variants
+  const [hookVariants,    setHookVariants]    = useState(null)
+  const [selectedHook,    setSelectedHook]    = useState(null)
+  const [loadingVariants, setLoadingVariants] = useState(false)
+  const [showVariants,    setShowVariants]    = useState(false)
 
   const reasoningRef = useRef(null)
   const scriptRef    = useRef(null)
   const autosaveRef  = useRef(null)
-
   const cat = activeCategory?.()
 
-  // ── Draft save / restore ─────────────────────────────────────────────────
-
-  const saveDraft = () => {
+  // ── Draft persistence ────────────────────────────────────────────────────
+  const saveDraft = useCallback(() => {
     try {
       localStorage.setItem('wc_generate_draft', JSON.stringify({
         ...form, _savedAt: Date.now(), _v: 2,
       }))
     } catch {}
-  }
+  }, [form])
 
-  // Restore draft on mount (useEffect — NOT useState) ← Bug fix
   useEffect(() => {
     try {
-      const raw   = localStorage.getItem('wc_generate_draft')
+      const raw = localStorage.getItem('wc_generate_draft')
       if (!raw) return
       const draft = JSON.parse(raw)
-      if (draft._v !== 2) return                           // stale schema
-      if (Date.now() - (draft._savedAt || 0) > 24 * 60 * 60 * 1000) return  // too old
+      if (draft._v !== 2) return
+      if (Date.now() - (draft._savedAt || 0) > 24 * 60 * 60 * 1000) return
       setForm(f => ({
         ...f,
         trackName:     draft.trackName     || f.trackName,
         voiceMemoText: draft.voiceMemoText || f.voiceMemoText,
         platformLink:  draft.platformLink  || f.platformLink,
-        // Don't restore episodeNumber — always auto-set from series
       }))
     } catch {}
-  }, [])  // empty deps — run once on mount only
+  }, [])
 
-  // Auto-save draft on any form change
   useEffect(() => {
     clearTimeout(autosaveRef.current)
     autosaveRef.current = setTimeout(saveDraft, 20000)
     return () => clearTimeout(autosaveRef.current)
-  }, [form])
+  }, [form, saveDraft])
 
-  // Save immediately on tab hide / page unload
   useEffect(() => {
     const save = () => saveDraft()
     document.addEventListener('visibilitychange', save)
@@ -90,52 +171,49 @@ export default function Generate() {
       document.removeEventListener('visibilitychange', save)
       window.removeEventListener('beforeunload', save)
     }
-  }, [form])
+  }, [saveDraft])
 
-  // ── Pre-fill from URL params (duplicate flow from SeriesPage) ───────────
+  // ── URL params (duplicate flow) ──────────────────────────────────────────
   const [searchParams] = useSearchParams()
-
   useEffect(() => {
-    const trackName    = searchParams.get('trackName')
-    const from         = searchParams.get('from')
-    if (from === 'duplicate' && trackName) {
+    const from = searchParams.get('from')
+    if (from === 'duplicate') {
       setForm(f => ({
         ...f,
-        trackName:     trackName,
-        mood:          searchParams.get('mood')   || f.mood,
-        genre:         searchParams.get('genre')  || f.genre,
-        bpm:           searchParams.get('bpm')    || f.bpm,
+        trackName:     searchParams.get('trackName')    || f.trackName,
+        mood:          searchParams.get('mood')          || f.mood,
+        genre:         searchParams.get('genre')         || f.genre,
+        bpm:           searchParams.get('bpm')           || f.bpm,
         episodeNumber: searchParams.get('episodeNumber') || f.episodeNumber,
       }))
     }
   }, [])
 
-  // ── Auto episode number ───────────────────────────────────────────────────
-  // Load the next episode number from the server so the user can't accidentally
-  // overwrite an existing episode by leaving the field blank
-
+  // ── Auto episode number ──────────────────────────────────────────────────
   useEffect(() => {
     if (!activeCategoryId) return
-    import('../lib/api').then(({ episodes: epApi }) => {
-      epApi.list({ categoryId: activeCategoryId, limit: 1 })
-        .then(({ episodes }) => {
-          const next = episodes?.length ? (episodes[0].episode_number + 1) : 1
-          setNextEpNumber(next)
-          setForm(f => ({ ...f, episodeNumber: String(next) }))
-        })
-        .catch(() => {})
-    })
+    episodesApi.list({ categoryId: activeCategoryId, limit: 1 })
+      .then(({ episodes }) => {
+        const next = episodes?.length ? (episodes[0].episode_number + 1) : 1
+        setNextEpNumber(next)
+        setForm(f => ({ ...f, episodeNumber: String(next) }))
+      })
+      .catch(() => {})
   }, [activeCategoryId])
 
+  // ── Word count tracking ──────────────────────────────────────────────────
+  useEffect(() => {
+    setWordCount(countWords(scriptStream))
+  }, [scriptStream])
 
+  // ── Field helpers ────────────────────────────────────────────────────────
   function setField(k, v) {
     setForm(f => {
       const next = { ...f, [k]: v }
-      // Persist stable fields (mood/genre/bpm) — not the per-episode fields
       if (PERSIST_KEYS.includes(k)) {
         try {
-          const current = JSON.parse(localStorage.getItem('wc_generate_defaults') || '{}')
-          localStorage.setItem('wc_generate_defaults', JSON.stringify({ ...current, [k]: v }))
+          const cur = JSON.parse(localStorage.getItem('wc_generate_defaults') || '{}')
+          localStorage.setItem('wc_generate_defaults', JSON.stringify({ ...cur, [k]: v }))
         } catch {}
       }
       return next
@@ -144,41 +222,101 @@ export default function Generate() {
 
   function handleClipUpload(e) {
     const files = Array.from(e.target.files)
-    const parsed = files.map(f => ({
+    setClips(files.map(f => ({
       filename: f.name,
       type: f.name.toLowerCase().startsWith('daw') || f.name.includes('screen') ? 'daw' : 'cam',
-    }))
-    setClips(parsed)
+    })))
   }
 
+  // ── 01: Session → generate one-click ────────────────────────────────────
+  function handleSessionSelect(memoText, session) {
+    setSessionSource(session)
+    setShowSessions(false)
+    setForm(f => ({
+      ...f,
+      voiceMemoText: memoText,
+      trackName:     f.trackName || session.title || '',
+    }))
+    notify(`Session loaded: "${session.title}" — ready to generate`, 'success')
+  }
+
+  function handleSessionGenerate(memoText, session) {
+    // Pre-fill AND immediately fire generation
+    const updatedForm = {
+      ...form,
+      voiceMemoText: memoText,
+      trackName:     form.trackName || session.title || '',
+    }
+    setSessionSource(session)
+    setShowSessions(false)
+    setForm(updatedForm)
+    // Small delay to let state settle before generating
+    setTimeout(() => generateWithForm(updatedForm), 50)
+  }
+
+  // ── 04: Hook variants ────────────────────────────────────────────────────
+  async function fetchHookVariants() {
+    if (!form.trackName.trim()) return notify('Enter a track name first', 'error')
+    if (!activeCategoryId) return notify('Select a category first', 'error')
+    setLoadingVariants(true)
+    setShowVariants(true)
+    setSelectedHook(null)
+    setHookVariants(null)
+    try {
+      const { variants } = await episodesApi.hookVariants({
+        categoryId:    activeCategoryId,
+        trackContext:  { name: form.trackName, mood: form.mood, genre: form.genre, bpm: form.bpm },
+        voiceMemoText: form.voiceMemoText,
+      })
+      setHookVariants(variants)
+    } catch (err) {
+      notify('Hook variants failed: ' + err.message, 'error')
+      setShowVariants(false)
+    }
+    setLoadingVariants(false)
+  }
+
+  // ── Generate ─────────────────────────────────────────────────────────────
   async function generate() {
-    if (!form.trackName.trim()) return notify('Track name is required', 'error')
-    if (!activeCategoryId)      return notify('Select a category first', 'error')
+    await generateWithForm(form)
+  }
+
+  async function generateWithForm(f) {
+    if (!f.trackName.trim()) return notify('Track name is required', 'error')
+    if (!activeCategoryId)   return notify('Select a category first', 'error')
 
     setGenerating(true)
     setReasoning('')
     setScriptStream('')
+    setWordCount(0)
     setResult(null)
-    setPhase('Starting...')
+    setParsedResult(null)
+    setEpisodeId(null)
+    setPhase('Starting…')
     setPct(0)
     requestNotificationPermission()
-    window.scrollTo({ top: 0, behavior: 'smooth' })  // ask now while user is interacting (required by browsers)
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+
+    // If a hook variant was selected, prepend it as a voice memo instruction
+    const voiceMemoBoosted = selectedHook
+      ? `PREFERRED HOOK (use this as the opening): "${selectedHook.hook}"\n\n${f.voiceMemoText || ''}`
+      : f.voiceMemoText
 
     try {
       await episodesApi.generate(
         {
-          categoryId:     activeCategoryId,
-          episodeNumber:  parseInt(form.episodeNumber) || nextEpNumber || 1,
+          categoryId:    activeCategoryId,
+          episodeNumber: parseInt(f.episodeNumber) || nextEpNumber || 1,
           trackContext: {
-            name:                  form.trackName,
-            mood:                  form.mood,
-            genre:                 form.genre,
-            bpm:                   form.bpm,
-            platformLink:          form.platformLink,
-            targetDurationMinutes: parseInt(form.targetDurationMinutes) || 8,
+            name:                  f.trackName,
+            mood:                  f.mood,
+            genre:                 f.genre,
+            bpm:                   f.bpm,
+            platformLink:          f.platformLink,
+            targetDurationMinutes: parseInt(f.targetDurationMinutes) || 8,
           },
-          voiceMemoText:  form.voiceMemoText,
-          clipInventory:  clips,
+          voiceMemoText: voiceMemoBoosted,
+          clipInventory: clips,
         },
         {
           progress:  ({ message, pct: p }) => { setPhase(message); setPct(p) },
@@ -186,20 +324,28 @@ export default function Generate() {
             setReasoning(prev => prev + text)
             reasoningRef.current?.scrollTo({ top: reasoningRef.current.scrollHeight, behavior: 'smooth' })
           },
-          chunk:     ({ text }) => {
-            setScriptStream(prev => prev + text)
+          chunk: ({ text }) => {
+            setScriptStream(prev => {
+              const next = prev + text
+              setWordCount(countWords(next))
+              return next
+            })
             scriptRef.current?.scrollTo({ top: scriptRef.current.scrollHeight, behavior: 'smooth' })
           },
-          done:      ({ episodeId, parsed }) => {
-            setResult({ episodeId, parsed })
+          done: ({ episodeId: eid, parsed }) => {
+            setResult({ episodeId: eid, parsed })
+            setParsedResult(parsed)
+            setEpisodeId(eid)
             try { localStorage.removeItem('wc_generate_draft') } catch {}
-            notifyGeneration(form.trackName, form.episodeNumber || '?')
+            notifyGeneration(f.trackName, f.episodeNumber || '?')
             setGenerating(false)
             setPhase('Complete')
             setPct(100)
+            setSelectedHook(null)
+            setShowVariants(false)
             notify('Episode package ready', 'success')
           },
-          error:     ({ message }) => {
+          error: ({ message }) => {
             notify('Generation failed: ' + message, 'error')
             setGenerating(false)
           },
@@ -211,6 +357,24 @@ export default function Generate() {
     }
   }
 
+  // ── 03: Section update handler ───────────────────────────────────────────
+  function handleSectionRegen(section, content) {
+    setParsedResult(prev => {
+      if (!prev) return prev
+      const MAP = {
+        hook:         'voScript',
+        vo_script:    'voScript',
+        metadata:     'metadata',
+        shortform:    'shortformMoments',
+        energy_curve: 'energyCurve',
+      }
+      return { ...prev, [MAP[section]]: content }
+    })
+    if (section === 'vo_script' || section === 'hook') {
+      setScriptStream(content)
+    }
+  }
+
   function downloadFile(content, filename) {
     const blob = new Blob([content], { type: 'text/plain' })
     const url  = URL.createObjectURL(blob)
@@ -218,6 +382,10 @@ export default function Generate() {
     a.href = url; a.download = filename; a.click()
     URL.revokeObjectURL(url)
   }
+
+  const wordPct    = targetWords > 0 ? Math.min(100, Math.round(wordCount / targetWords * 100)) : 0
+  const wordStatus = wordPct >= 95 ? 'good' : wordPct >= 75 ? 'ok' : 'low'
+  const wordColor  = { good: '#40a060', ok: '#c8a030', low: '#c8b89a' }[wordStatus]
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
@@ -227,6 +395,19 @@ export default function Generate() {
         <h1 className="text-2xl font-serif text-[#f0ede8]">Generate episode</h1>
         {cat && <p className="text-sm text-[#555] mt-1">{cat.name} · {cat.niche}</p>}
       </div>
+
+      {/* Session source banner — shown when a session was loaded */}
+      {sessionSource && (
+        <div className="flex items-center gap-3 px-4 py-3 bg-[#c8b89a]/5 border border-[#c8b89a]/20 rounded">
+          <Mic size={13} className="text-[#c8b89a] shrink-0"/>
+          <div className="flex-1 min-w-0">
+            <span className="text-sm text-[#c8b89a]">Session loaded: </span>
+            <span className="text-sm text-[#aaa]">{sessionSource.title}</span>
+          </div>
+          <button onClick={() => { setSessionSource(null); setField('voiceMemoText', '') }}
+            className="text-[#444] hover:text-[#888]"><X size={13}/></button>
+        </div>
+      )}
 
       {/* Form */}
       <div className="grid grid-cols-2 gap-4">
@@ -241,9 +422,9 @@ export default function Generate() {
         </div>
 
         {[
-          { key: 'mood',     label: 'Mood',          placeholder: 'melancholic, late night' },
-          { key: 'genre',    label: 'Genre',          placeholder: 'lo-fi soul'              },
-          { key: 'bpm',      label: 'BPM',            placeholder: '87'                      },
+          { key: 'mood',  label: 'Mood',   placeholder: 'melancholic, late night' },
+          { key: 'genre', label: 'Genre',  placeholder: 'lo-fi soul' },
+          { key: 'bpm',   label: 'BPM',    placeholder: '87' },
           { key: 'targetDurationMinutes', label: 'Target length (min)', placeholder: '8' },
           { key: 'episodeNumber', label: 'Episode #', placeholder: nextEpNumber ? String(nextEpNumber) : '7' },
         ].map(({ key, label, placeholder }) => (
@@ -268,10 +449,10 @@ export default function Generate() {
           />
         </div>
 
-        {/* Voice memo */}
-        <div className="col-span-2 space-y-1">
+        {/* Voice memo + session journal */}
+        <div className="col-span-2 space-y-2">
           <div className="flex items-center justify-between">
-            <label className="text-xs text-[#666] uppercase tracking-wide">Voice memo — what happened this session</label>
+            <label className="text-xs text-[#666] uppercase tracking-wide">Voice memo</label>
             <button
               type="button"
               onClick={() => setShowSessions(s => !s)}
@@ -282,16 +463,14 @@ export default function Generate() {
           </div>
           {showSessions && (
             <SessionJournal
-              onSelectMemo={(memo) => {
-                setField('voiceMemoText', memo)
-                setShowSessions(false)
-              }}
+              onSelectMemo={handleSessionSelect}
+              onGenerateNow={handleSessionGenerate}
             />
           )}
           <textarea
             value={form.voiceMemoText}
             onChange={e => setField('voiceMemoText', e.target.value)}
-            placeholder="Found the chord progression by accident at 2am. Tried 12 different bass sounds before the 808 locked in. The drop was supposed to be bigger but it felt too aggressive so I stripped it back..."
+            placeholder="Found the chord progression by accident at 2am. Tried 12 different bass sounds before the 808 locked in..."
             rows={4}
             className="w-full bg-[#0d0d0d] border border-[#1e1e1e] rounded px-3 py-2.5 text-sm text-[#f0ede8] placeholder-[#333] outline-none focus:border-[#c8b89a]/40 transition-colors resize-none"
           />
@@ -311,16 +490,64 @@ export default function Generate() {
             <div className="flex flex-wrap gap-2 mt-2">
               {clips.map((c, i) => (
                 <span key={i} className={`text-xs px-2 py-1 rounded border ${
-                  c.type === 'daw'
-                    ? 'border-blue-800/40 text-blue-400/70'
-                    : 'border-[#c8b89a]/20 text-[#c8b89a]/70'
-                }`}>
-                  {c.type.toUpperCase()} · {c.filename}
-                </span>
+                  c.type === 'daw' ? 'border-blue-800/40 text-blue-400/70' : 'border-[#c8b89a]/20 text-[#c8b89a]/70'
+                }`}>{c.type.toUpperCase()} · {c.filename}</span>
               ))}
             </div>
           )}
         </div>
+      </div>
+
+      {/* 04 — Hook variants panel */}
+      <div className="space-y-3">
+        <div className="flex items-center gap-3">
+          <button
+            onClick={fetchHookVariants}
+            disabled={loadingVariants || generating || !form.trackName.trim()}
+            className="flex items-center gap-2 px-4 py-2 border border-[#1a1a1a] rounded text-sm text-[#666] hover:border-[#c8b89a]/30 hover:text-[#c8b89a] disabled:opacity-40 transition-all"
+          >
+            {loadingVariants ? <RefreshCw size={13} className="animate-spin"/> : <Zap size={13}/>}
+            {loadingVariants ? 'Generating hooks…' : 'Pick opening hook (optional)'}
+          </button>
+          {selectedHook && (
+            <div className="flex items-center gap-2 text-xs text-[#40a060]">
+              <Check size={11}/> Hook selected: {selectedHook.label}
+              <button onClick={() => { setSelectedHook(null); setShowVariants(false) }}
+                className="text-[#444] hover:text-[#888] ml-1"><X size={11}/></button>
+            </div>
+          )}
+        </div>
+
+        {showVariants && (
+          <div className="space-y-2">
+            {!hookVariants && loadingVariants && (
+              <div className="space-y-2">
+                {[0,1,2].map(i => (
+                  <div key={i} className="h-20 bg-[#0a0a0a] border border-[#111] rounded animate-pulse"/>
+                ))}
+              </div>
+            )}
+            {hookVariants && (
+              <>
+                <div className="text-xs text-[#555] mb-2">Choose an opening strategy — or skip to let Claude decide</div>
+                {hookVariants.map((v, i) => (
+                  <HookCard
+                    key={i}
+                    variant={v}
+                    selected={selectedHook?.strategy === v.strategy}
+                    onSelect={setSelectedHook}
+                  />
+                ))}
+                <button
+                  onClick={() => { setSelectedHook(null); setShowVariants(false) }}
+                  className="text-xs text-[#444] hover:text-[#888] transition-colors w-full text-center py-1"
+                >
+                  Skip — let Claude choose the hook
+                </button>
+              </>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Generate button */}
@@ -336,10 +563,7 @@ export default function Generate() {
       {/* Progress bar */}
       {generating && (
         <div className="h-0.5 bg-[#111] rounded overflow-hidden">
-          <div
-            className="h-full bg-[#c8b89a] transition-all duration-500"
-            style={{ width: `${pct}%` }}
-          />
+          <div className="h-full bg-[#c8b89a] transition-all duration-500" style={{ width: `${pct}%` }}/>
         </div>
       )}
 
@@ -357,8 +581,7 @@ export default function Generate() {
             {showReasoning ? <ChevronUp size={12}/> : <ChevronDown size={12}/>}
           </button>
           {showReasoning && (
-            <div
-              ref={reasoningRef}
+            <div ref={reasoningRef}
               className="px-4 py-3 text-xs text-[#555] leading-relaxed max-h-32 overflow-y-auto bg-[#060606]"
             >
               {reasoning || 'Thinking...'}
@@ -367,19 +590,52 @@ export default function Generate() {
         </div>
       )}
 
-      {/* Script stream */}
+      {/* 02 — Script stream with live word count */}
       {scriptStream && (
         <div className="border border-[#1a1a1a] rounded overflow-hidden">
-          <div className="px-4 py-2.5 text-xs text-[#666] bg-[#0a0a0a] flex items-center gap-2">
-            <FileText size={12}/>
-            Writing VO script...
+          <div className="px-4 py-2.5 bg-[#0a0a0a] flex items-center gap-3">
+            <FileText size={12} className="text-[#555]"/>
+            <span className="text-xs text-[#666]">
+              {generating ? 'Writing VO script…' : 'VO script'}
+            </span>
+            <div className="ml-auto flex items-center gap-3">
+              {/* Live word counter */}
+              <div className="flex items-center gap-2">
+                <div className="w-20 h-1 bg-[#111] rounded overflow-hidden">
+                  <div
+                    className="h-full rounded transition-all duration-300"
+                    style={{ width: `${wordPct}%`, background: wordColor }}
+                  />
+                </div>
+                <span className="text-[10px] font-mono" style={{ color: wordColor }}>
+                  {wordCount} / {targetWords}w
+                </span>
+                {!generating && wordPct < 80 && (
+                  <span className="flex items-center gap-1 text-[10px] text-[#c8a030]">
+                    <AlertTriangle size={9}/> Short
+                  </span>
+                )}
+                {!generating && wordPct > 115 && (
+                  <span className="flex items-center gap-1 text-[10px] text-[#c8a030]">
+                    <AlertTriangle size={9}/> Long
+                  </span>
+                )}
+              </div>
+
+              {/* 03 — Regen section buttons */}
+              {!generating && episodeId && (
+                <div className="flex gap-1">
+                  <RegenButton label="hook"   section="hook"     episodeId={episodeId} onDone={handleSectionRegen} disabled={generating}/>
+                  <RegenButton label="script" section="vo_script" episodeId={episodeId} onDone={handleSectionRegen} disabled={generating}/>
+                </div>
+              )}
+            </div>
           </div>
-          <div
-            ref={scriptRef}
+          <div ref={scriptRef}
             className="px-4 py-3 text-xs text-[#888] leading-relaxed max-h-64 overflow-y-auto font-mono whitespace-pre-wrap bg-[#060606]"
           >
             {scriptStream}
-            <span className="inline-block w-1 h-3 bg-[#c8b89a]/60 ml-0.5 animate-pulse align-middle"/>
+            {generating && <span className="inline-block w-1 h-3 bg-[#c8b89a]/60 ml-0.5 animate-pulse align-middle"/>}
           </div>
         </div>
       )}
@@ -387,47 +643,47 @@ export default function Generate() {
       {/* Result package */}
       {result && (
         <div className="border border-[#c8b89a]/20 rounded overflow-hidden">
-          <div className="px-4 py-3 bg-[#c8b89a]/5 border-b border-[#c8b89a]/10 flex items-center gap-2">
-            <Check size={14} className="text-[#c8b89a]"/>
-            <span className="text-sm text-[#c8b89a]">Episode package ready</span>
+          <div className="px-4 py-3 bg-[#c8b89a]/5 border-b border-[#c8b89a]/10 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Check size={14} className="text-[#c8b89a]"/>
+              <span className="text-sm text-[#c8b89a]">Episode package ready</span>
+            </div>
+            {/* 03 — All section regen buttons in results */}
+            {episodeId && (
+              <div className="flex gap-1 flex-wrap">
+                <RegenButton label="hook"      section="hook"         episodeId={episodeId} onDone={handleSectionRegen} disabled={generating}/>
+                <RegenButton label="metadata"  section="metadata"     episodeId={episodeId} onDone={handleSectionRegen} disabled={generating}/>
+                <RegenButton label="shorts"    section="shortform"    episodeId={episodeId} onDone={handleSectionRegen} disabled={generating}/>
+                <RegenButton label="energy"    section="energy_curve" episodeId={episodeId} onDone={handleSectionRegen} disabled={generating}/>
+              </div>
+            )}
           </div>
           <div className="p-4 grid grid-cols-2 gap-3">
-            {result.parsed?.voScript && (
-              <DownloadCard
-                label="VO Script"
-                icon={<Mic size={14}/>}
-                onClick={() => downloadFile(result.parsed.voScript, `ep-vo-script.txt`)}
-              />
+            {(parsedResult?.voScript || result.parsed?.voScript) && (
+              <DownloadCard label="VO Script" icon={<Mic size={14}/>}
+                onClick={() => downloadFile(parsedResult?.voScript || result.parsed.voScript, `ep${form.episodeNumber}-vo-script.txt`)}/>
             )}
-            {result.parsed?.edlClipMap && (
-              <DownloadCard
-                label="EDL for DaVinci"
-                icon={<FileText size={14}/>}
-                onClick={() => downloadFile(buildEDL(result.parsed.edlClipMap), `episode.edl`)}
-              />
+            {(parsedResult?.edlClipMap || result.parsed?.edlClipMap) && (
+              <DownloadCard label="EDL for DaVinci" icon={<FileText size={14}/>}
+                onClick={() => downloadFile(buildEDL(parsedResult?.edlClipMap || result.parsed.edlClipMap), `ep${form.episodeNumber}.edl`)}/>
             )}
-            {result.parsed?.metadata && (
-              <DownloadCard
-                label="All Metadata"
-                icon={<Download size={14}/>}
-                onClick={() => downloadFile(result.parsed.metadata, `ep-metadata.txt`)}
-              />
+            {(parsedResult?.metadata || result.parsed?.metadata) && (
+              <DownloadCard label="All Metadata" icon={<Download size={14}/>}
+                onClick={() => downloadFile(parsedResult?.metadata || result.parsed.metadata, `ep${form.episodeNumber}-metadata.txt`)}/>
             )}
-            {result.parsed?.shortformMoments && (
-              <DownloadCard
-                label="Short-form Cuts"
-                icon={<Music2 size={14}/>}
-                onClick={() => downloadFile(result.parsed.shortformMoments, `ep-shorts.txt`)}
-              />
+            {(parsedResult?.shortformMoments || result.parsed?.shortformMoments) && (
+              <DownloadCard label="Short-form Cuts" icon={<Music2 size={14}/>}
+                onClick={() => downloadFile(parsedResult?.shortformMoments || result.parsed.shortformMoments, `ep${form.episodeNumber}-shorts.txt`)}/>
             )}
           </div>
 
-          {/* Energy curve */}
-          {result.parsed?.energyCurve && (
+          {(parsedResult?.energyCurve || result.parsed?.energyCurve) && (
             <div className="px-4 pb-4">
-              <div className="text-xs text-[#555] mb-2">Energy curve</div>
+              <div className="flex items-center justify-between mb-2">
+                <div className="text-xs text-[#555]">Energy curve</div>
+              </div>
               <div className="text-xs text-[#444] font-mono whitespace-pre-wrap leading-relaxed border border-[#111] rounded p-3 bg-[#060606]">
-                {result.parsed.energyCurve}
+                {parsedResult?.energyCurve || result.parsed.energyCurve}
               </div>
             </div>
           )}
@@ -439,10 +695,8 @@ export default function Generate() {
 
 function DownloadCard({ label, icon, onClick }) {
   return (
-    <button
-      onClick={onClick}
-      className="flex items-center gap-3 px-4 py-3 border border-[#1a1a1a] rounded hover:border-[#c8b89a]/30 hover:bg-[#c8b89a]/5 transition-all text-left"
-    >
+    <button onClick={onClick}
+      className="flex items-center gap-3 px-4 py-3 border border-[#1a1a1a] rounded hover:border-[#c8b89a]/30 hover:bg-[#c8b89a]/5 transition-all text-left">
       <span className="text-[#c8b89a]/60">{icon}</span>
       <span className="text-sm text-[#888]">{label}</span>
       <Download size={12} className="ml-auto text-[#333]"/>
@@ -454,15 +708,15 @@ function buildEDL(clipMapText) {
   if (!clipMapText) return ''
   const lines = clipMapText.split('\n').filter(l => l.trim().startsWith('CLIP_'))
   let edl = `TITLE: episode\nFCM: NON-DROP FRAME\n\n`
-  let recTC = 90000 // 01:00:00:00 at 25fps
+  let recTC = 90000
   lines.forEach((line, idx) => {
-    const parts   = line.split('|').map(p => p.trim())
-    const reel    = (parts[1] || `clip${idx+1}`).replace(/[^a-z0-9_-]/gi,'_').slice(0,32)
-    const srcIn   = parseTC(parts[2]?.replace('IN:','').trim() || '00:00:00:00')
-    const srcOut  = parseTC(parts[3]?.replace('OUT:','').trim() || '00:00:05:00')
-    const dur     = Math.max(srcOut - srcIn, 1)
-    const recOut  = recTC + dur
-    const n       = String(idx+1).padStart(3,'0')
+    const parts  = line.split('|').map(p => p.trim())
+    const reel   = (parts[1] || `clip${idx+1}`).replace(/[^a-z0-9_-]/gi,'_').slice(0,32)
+    const srcIn  = parseTC(parts[2]?.replace('IN:','').trim() || '00:00:00:00')
+    const srcOut = parseTC(parts[3]?.replace('OUT:','').trim() || '00:00:05:00')
+    const dur    = Math.max(srcOut - srcIn, 1)
+    const recOut = recTC + dur
+    const n      = String(idx+1).padStart(3,'0')
     edl += `${n}  ${reel.padEnd(32)} V     C        ${tc(srcIn)} ${tc(srcOut)} ${tc(recTC)} ${tc(recOut)}\n`
     edl += `* FROM CLIP NAME: ${parts[1] || ''}\n\n`
     recTC = recOut
@@ -481,5 +735,3 @@ function tc(f) {
   const fps=25,ff=f%fps,ss=Math.floor(f/fps)%60,mm=Math.floor(f/fps/60)%60,hh=Math.floor(f/fps/3600)
   return [hh,mm,ss,ff].map(n=>String(n).padStart(2,'0')).join(':')
 }
-
-

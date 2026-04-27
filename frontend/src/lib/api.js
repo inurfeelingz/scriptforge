@@ -91,9 +91,17 @@ export const episodes = {
   generate:    (body, handlers) => streamRequest('/episodes/generate', body, handlers),
   duplicate:   (id)       => req('POST', `/episodes/${id}/duplicate`),
   usage:       ()          => req('GET',  '/episodes/usage'),
+  hookVariants:(body)      => req('POST', '/episodes/hook-variants', body),
+  regenerateSection: (id, section, handlers) => streamRequest(`/episodes/${id}/regenerate-section`, { section }, handlers),
 }
 
 // ── Vault ─────────────────────────────────────────────────────────────────────
+export const dashboard = {
+  brief:         (categoryId)      => req('GET', `/dashboard/brief?categoryId=${categoryId}`),
+  pipeline:      (categoryId)      => req('GET', `/dashboard/pipeline?categoryId=${categoryId}`),
+  advanceStatus: (id, status)      => req('PATCH', `/dashboard/pipeline/${id}/status`, { status }),
+}
+
 export const vault = {
   list:          (params) => req('GET', `/vault?${new URLSearchParams(params)}`),
   stats:         (params) => req('GET', `/vault/stats?${new URLSearchParams(params)}`),
@@ -122,12 +130,27 @@ export const analytics = {
     if (!res.ok) throw new Error(`Upload failed: ${res.status}`)
     return res.json()
   },
+  // YouTube OAuth
+  youtubeStatus:     (categoryId) => req('GET',  `/analytics/youtube/status?categoryId=${categoryId}`),
+  youtubeConnectUrl: (categoryId) => `${BASE}/analytics/youtube/connect?categoryId=${categoryId}`,
+  youtubePull:       (categoryId) => req('POST', '/analytics/youtube/pull', { categoryId }),
+  youtubeDisconnect: (categoryId) => req('DELETE', `/analytics/youtube/disconnect?categoryId=${categoryId}`),
+  // Episode retention
+  episodeRetention:  (episodeId)  => req('GET',  `/analytics/episode/${episodeId}/retention`),
+  saveRetentionCurve:(id, data)   => req('POST', `/analytics/episode/${id}/retention-curve`, { curveData: data }),
 }
 
 // ── Series ────────────────────────────────────────────────────────────────────
 export const series = {
   list:   (params) => req('GET', `/series?${new URLSearchParams(params)}`),
   update: (id, body)=> req('PATCH', `/series/${id}`, body),
+}
+
+export const shorts = {
+  generate:        (episodeId, categoryId) => req('POST', '/shorts/generate',   { episodeId, categoryId }),
+  thumbnails:      (episodeId, categoryId) => req('POST', '/shorts/thumbnails', { episodeId, categoryId }),
+  get:             (episodeId)             => req('GET',  `/shorts/${episodeId}`),
+  bible:           (categoryId, force)     => req('GET',  `/shorts/bible/${categoryId}${force ? '?force=true' : ''}`),
 }
 
 // ── Chat ──────────────────────────────────────────────────────────────────────
@@ -147,6 +170,9 @@ export const users = {
   profile:     ()     => req('GET', '/users/profile'),
   updateProfile:(body) => req('PATCH', '/users/profile', body),
   checkInvite: (code) => req('GET', `/users/invite/${code}`),
+  list:        ()     => req('GET', '/admin/users'),
+  setTier:     (id, tier) => req('PATCH', `/admin/users/${id}/tier`, { tier }),
+  resetUsage:  (id)   => req('POST', `/admin/reset-usage/${id}`),
 }
 
 // ── Sound library ────────────────────────────────────────────────────────────

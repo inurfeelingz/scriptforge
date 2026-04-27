@@ -8,9 +8,13 @@ import AuthPage     from './pages/AuthPage'
 import OnboardPage  from './pages/OnboardPage'
 import Dashboard    from './pages/Dashboard'
 import Generate     from './pages/Generate'
-import SeriesPage   from './pages/SeriesPage'
+import SeriesPage      from './pages/SeriesPage'
+import ShortsPage      from './pages/ShortsPage'
+import SeriesBiblePage from './pages/SeriesBiblePage'
+import SchedulePage    from './pages/SchedulePage'
 import VaultPage    from './pages/VaultPage'
-import AnalyticsPage from './pages/AnalyticsPage'
+import AnalyticsPage  from './pages/AnalyticsPage'
+import EpisodeReview  from './pages/EpisodeReview'
 import Teleprompter from './pages/Teleprompter'
 import SoundPage    from './pages/SoundPage'
 import SettingsPage from './pages/SettingsPage'
@@ -52,8 +56,12 @@ export default function App() {
           <Route index                element={<Dashboard />} />
           <Route path="generate"      element={<Generate />} />
           <Route path="series"        element={<SeriesPage />} />
+          <Route path="shorts"        element={<ShortsPage />} />
+          <Route path="series-bible"  element={<SeriesBiblePage />} />
+          <Route path="schedule"      element={<SchedulePage />} />
           <Route path="vault"         element={<VaultPage />} />
-          <Route path="analytics"     element={<AnalyticsPage />} />
+          <Route path="analytics"              element={<AnalyticsPage />} />
+          <Route path="analytics/review/:episodeId" element={<EpisodeReview />} />
           <Route path="teleprompter"  element={<Teleprompter />} />
           <Route path="sound"         element={<SoundPage />} />
           <Route path="editor"        element={<EditorPage />} />

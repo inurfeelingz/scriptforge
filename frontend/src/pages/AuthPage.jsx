@@ -44,8 +44,11 @@ export default function AuthPage() {
 
         {/* Logo */}
         <div className="text-center space-y-2">
-          <div className="text-3xl font-serif text-[#c8b89a] tracking-widest">WHISPACUTS</div>
-          <div className="text-xs text-[#444] tracking-widest uppercase">AI Content Studio</div>
+         <img src="/icon-mark.svg" style={{ width: 40, height: 40, margin: '0 auto' }} alt="WhispaCuts"/>
+<div style={{ fontFamily: 'Syne, sans-serif', fontWeight: 800, fontSize: 26, color: '#eeeaf2', letterSpacing: '-0.5px' }}>
+  Whispa<span style={{ color: '#d4a853' }}>Cuts</span>
+</div>
+<div style={{ fontSize: 11, color: '#55536a', letterSpacing: '0.18em', textTransform: 'uppercase' }}>AI Content Studio</div>
         </div>
 
         {sent ? (

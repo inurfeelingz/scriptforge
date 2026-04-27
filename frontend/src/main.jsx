@@ -4,13 +4,12 @@ import ReactDOM from 'react-dom/client'
 import App from './App'
 import './index.css'
 import './companion.css'
+import { registerServiceWorker } from './lib/notifications'
 
-// Register service worker for companion PWA
-if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js').catch(console.warn)
-  })
-}
+// Register service worker — covers offline pages + push notifications
+window.addEventListener('load', () => {
+  registerServiceWorker()
+})
 
 // Apply saved theme before first paint
 try {

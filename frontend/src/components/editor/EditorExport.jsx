@@ -11,22 +11,22 @@ const FORMATS = [
   {
     key:         'edl',
     label:       'CMX3600 EDL',
-    description: 'Import into DaVinci: File → Import Timeline → Import EDL',
+    description: 'Import into DaVinci: File → Import Timeline → Import EDL. Offline reels clearly marked.',
     status:      'working',
     extension:   '.edl',
   },
   {
     key:         'fcpxml',
-    label:       'FCPXML',
-    description: 'Final Cut Pro / DaVinci project file with full asset references',
-    status:      'stub',
+    label:       'FCPXML 1.10',
+    description: 'Final Cut Pro 10.6+ / DaVinci Resolve 18+. Full asset references, B-roll on connected clips.',
+    status:      'working',
     extension:   '.fcpxml',
   },
   {
     key:         'otio',
     label:       'OpenTimelineIO',
-    description: 'Open standard — compatible with most professional NLEs',
-    status:      'stub',
+    description: 'Open standard — DaVinci Resolve 19+, Flame, Nuke, and any NLE with the OTIO SDK.',
+    status:      'working',
     extension:   '.otio',
   },
 ]
@@ -144,16 +144,34 @@ export default function EditorExport({ project }) {
         ))}
       </div>
 
-      {/* DaVinci instructions */}
-      <div className="border border-[#1a1a1a] rounded p-4 space-y-2">
-        <h3 className="text-xs text-[#666] uppercase tracking-wide">After export — DaVinci workflow</h3>
-        <ol className="text-xs text-[#444] space-y-1.5">
-          <li>1. Open DaVinci Resolve</li>
-          <li>2. Add your footage folder to the Media Pool (drag or File → Import Media)</li>
-          <li>3. File → Import Timeline → Import EDL → select the .edl file</li>
-          <li>4. DaVinci auto-matches clips by filename</li>
-          <li>5. Review, record VO on track A1, apply colour grade, export</li>
-        </ol>
+      {/* Import instructions per format */}
+      <div className="border border-[#1a1a1a] rounded p-4 space-y-4">
+        <h3 className="text-xs text-[#666] uppercase tracking-wide">After export — import into your NLE</h3>
+        <div className="space-y-3 text-xs text-[#444]">
+          <div>
+            <div className="text-[#666] mb-1">EDL → DaVinci Resolve</div>
+            <ol className="space-y-0.5 pl-3">
+              <li>1. Add footage folder to Media Pool</li>
+              <li>2. File → Import Timeline → Import EDL → select .edl</li>
+              <li>3. Resolve auto-matches clips by filename</li>
+            </ol>
+          </div>
+          <div>
+            <div className="text-[#666] mb-1">FCPXML → DaVinci Resolve / Final Cut</div>
+            <ol className="space-y-0.5 pl-3">
+              <li>1. File → Import → Timeline (Resolve) or File → Import (FCP)</li>
+              <li>2. Select the .fcpxml — asset paths are embedded</li>
+              <li>3. Relink any offline media if paths differ</li>
+            </ol>
+          </div>
+          <div>
+            <div className="text-[#666] mb-1">OTIO → Any compatible NLE</div>
+            <ol className="space-y-0.5 pl-3">
+              <li>1. Resolve 19+: File → Import Timeline → OTIO</li>
+              <li>2. Or use Python SDK: opentimelineio.adapters.write_to_file()</li>
+            </ol>
+          </div>
+        </div>
       </div>
     </div>
   )

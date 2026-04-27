@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import {
   LayoutDashboard, Sparkles, Film, BookMarked,
   BarChart2, Mic, Music2, Scissors, Smartphone, Settings, LogOut,
-  ChevronLeft, ChevronRight, Plus, RefreshCw, MessageSquare
+  ChevronLeft, ChevronRight, Plus, RefreshCw, MessageSquare, Calendar, Shield,
 } from 'lucide-react'
 import { useStore } from '../../store'
 import { categories as catApi } from '../../lib/api'
@@ -17,8 +17,11 @@ const NAV = [
   { to: '/',            icon: LayoutDashboard, label: 'Dashboard'   },
   { to: '/generate',    icon: Sparkles,        label: 'Generate'    },
   { to: '/series',      icon: Film,            label: 'Series'      },
+  { to: '/shorts',      icon: Scissors,        label: 'Shorts'      },
+  { to: '/series-bible',icon: BookMarked,      label: 'Bible'       },
   { to: '/vault',       icon: BookMarked,      label: 'Vault'       },
   { to: '/analytics',   icon: BarChart2,       label: 'Analytics'   },
+  { to: '/schedule',    icon: Calendar,        label: 'Schedule'    },
   { to: '/teleprompter',icon: Mic,             label: 'Teleprompter'},
   { to: '/sound',       icon: Music2,          label: 'Sound'       },
   { to: '/editor',      icon: Scissors,        label: 'Editor'      },

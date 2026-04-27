@@ -3,19 +3,39 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
+
   <title>WhispaCuts</title>
+  <meta name="description" content="WhispaCuts — AI-powered content scripting studio for creators"/>
+  <meta name="application-name" content="WhispaCuts"/>
+
+  <!-- Favicon -->
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg"/>
+  <link rel="icon" type="image/x-icon" href="/favicon.ico"/>
+  <link rel="icon" type="image/png" sizes="32x32" href="/icons/icon-32x32.png"/>
+  <link rel="icon" type="image/png" sizes="16x16" href="/icons/favicon-16.png"/>
+
+  <!-- Apple Touch -->
+  <link rel="apple-touch-icon" sizes="180x180" href="/icons/icon-180x180.png"/>
+
   <!-- PWA -->
   <link rel="manifest" href="/manifest.json"/>
   <meta name="mobile-web-app-capable" content="yes"/>
   <meta name="apple-mobile-web-app-capable" content="yes"/>
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
   <meta name="apple-mobile-web-app-title" content="WhispaCuts"/>
-  <meta name="theme-color" content="#080808"/>
-  <!-- viewport-fit=cover for notch devices, no user-scalable restriction (causes iOS keyboard glitch) -->
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
+  <meta name="theme-color" content="#09090f"/>
+
+  <!-- Open Graph -->
+  <meta property="og:title" content="WhispaCuts"/>
+  <meta property="og:description" content="AI-powered content scripting studio for creators"/>
+  <meta property="og:image" content="/icons/icon-512x512.png"/>
+  <meta property="og:type" content="website"/>
+
+  <!-- Fonts: Syne (display) + Figtree (body) -->
   <link rel="preconnect" href="https://fonts.googleapis.com"/>
-  <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=Figtree:wght@300;400;500;600&display=swap" rel="stylesheet"/>
 </head>
 <body>
   <div id="root"></div>
