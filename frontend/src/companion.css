@@ -237,21 +237,25 @@
 .entry-feed {
   display:        flex;
   flex-direction: column;
-  gap:            4px;
-  max-height:     120px;
+  gap:            6px;
+  max-height:     110px;
   overflow-y:     auto;
   overflow-x:     hidden;
   -webkit-overflow-scrolling: touch;
   scroll-behavior: smooth;
+  padding:        0 2px;
 }
 
 .entry-row {
   display:     flex;
   align-items: flex-start;
   gap:         8px;
-  padding:     5px 8px;
-  border-radius: 6px;
-  background:  #0f1318;
+  padding:     8px 10px;
+  border-radius: 8px;
+  background:  rgba(255,255,255,0.04);
+  min-width:   0;
+  width:       100%;
+  box-sizing:  border-box;
 }
 
 .entry-row-marker {
@@ -260,21 +264,22 @@
 }
 
 .entry-time {
-  font-size:   10px;
-  color:       #444;
-  font-family: 'Figtree', system-ui, sans-serif;
+  font-size:   11px;
+  color:       rgba(255,255,255,0.30);
   flex-shrink: 0;
-  padding-top: 1px;
+  padding-top: 2px;
+  font-family: 'Figtree', system-ui, sans-serif;
 }
 
 .entry-text {
   font-size:    14px;
-  color:        rgba(255,255,255,0.80);
-  line-height:  1.55;
+  color:        rgba(255,255,255,0.85);
+  line-height:  1.5;
   word-break:   break-word;
   overflow-wrap: break-word;
   white-space:  normal;
   min-width:    0;
+  flex:         1;
 }
 
 .entry-row-marker .entry-text {
