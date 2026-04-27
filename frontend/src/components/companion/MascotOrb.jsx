@@ -147,7 +147,7 @@ export default function MascotOrb({ mood = 'idle', audioLevel = 0, size = 280 })
       ref={canvasRef}
       width={size}
       height={size}
-      style={{ display: 'block', width: size, height: size }}
+      style={{ display: 'block', width: size, height: size, background: 'transparent' }}
     />
   )
 }

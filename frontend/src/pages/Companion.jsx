@@ -739,7 +739,7 @@ export default function Companion() {
           )}
 
           {/* Mascot orb */}
-          <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '8px 0' }}>
+          <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '8px 0', background: 'transparent' }}>
             <MascotOrb mood={state.orbMood} audioLevel={state.audioLevel} size={200}/>
           </div>
 
