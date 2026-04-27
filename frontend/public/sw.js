@@ -1,195 +1,173 @@
-// frontend/public/sw.js
-// WhispaCuts service worker — Batch 6:
-//   Offline-first: Teleprompter, Vault, episode review work without internet.
-//   Push: handles incoming VAPID push notifications.
-//   Background sync: companion session entries flush when reconnected.
+// frontend/public/sw.js — WhispaCuts service worker
+// Auto-updates: bumps CACHE_VERSION, clears old caches, activates immediately.
+// On update: posts UPDATE_AVAILABLE to all clients so the app can prompt reload.
 
-const CACHE_VERSION = 'wc-v3'
+const CACHE_VERSION = 'wc-v4'   // ← bump this string on every deploy
 const STATIC_CACHE  = `${CACHE_VERSION}-static`
 const DYNAMIC_CACHE = `${CACHE_VERSION}-dynamic`
 
-// ── Pages that should work fully offline ─────────────────────────────────────
-const OFFLINE_PAGES = [
-  '/',
-  '/teleprompter',
-  '/vault',
-  '/companion',
-]
+const PRECACHE = ['/', '/manifest.json', '/favicon.svg']
 
-// ── Static assets to precache on install ─────────────────────────────────────
-const PRECACHE_ASSETS = [
-  '/',
-  '/manifest.json',
-  '/favicon.svg',
-]
+const OFFLINE_PAGES = ['/', '/teleprompter', '/vault', '/companion']
 
-// ── Install ───────────────────────────────────────────────────────────────────
+// ── Install: cache shell, skip waiting immediately ────────────────────────────
 self.addEventListener('install', event => {
   event.waitUntil(
     caches.open(STATIC_CACHE)
-      .then(cache => cache.addAll(PRECACHE_ASSETS).catch(() => {}))
-      .then(() => self.skipWaiting())
+      .then(cache => cache.addAll(PRECACHE).catch(() => {}))
+      .then(() => self.skipWaiting())   // activate new SW without waiting for tabs to close
   )
 })
 
-// ── Activate: clean old caches ────────────────────────────────────────────────
+// ── Activate: delete ALL old caches, claim clients ───────────────────────────
 self.addEventListener('activate', event => {
   event.waitUntil(
     caches.keys()
       .then(keys => Promise.all(
         keys
-          .filter(k => k.startsWith('wc-') && k !== STATIC_CACHE && k !== DYNAMIC_CACHE)
-          .map(k => caches.delete(k))
+          .filter(k => k !== STATIC_CACHE && k !== DYNAMIC_CACHE)
+          .map(k => {
+            console.log('[sw] Deleting old cache:', k)
+            return caches.delete(k)
+          })
       ))
-      .then(() => self.clients.claim())
+      .then(() => self.clients.claim())   // take control of all open tabs immediately
+      .then(() => notifyClients({ type: 'SW_UPDATED', version: CACHE_VERSION }))
   )
 })
 
-// ── Fetch strategy ────────────────────────────────────────────────────────────
+// ── Fetch ────────────────────────────────────────────────────────────────────
 self.addEventListener('fetch', event => {
   const { request } = event
   const url = new URL(request.url)
 
-  // Skip non-GET, cross-origin, and extension requests
-  if (request.method !== 'GET') return
-  if (url.origin !== self.location.origin) return
-  if (url.pathname.startsWith('/__')) return  // Vite HMR
+  if (request.method !== 'GET')               return
+  if (url.origin !== self.location.origin)    return
+  if (url.pathname.startsWith('/__'))         return  // Vite HMR
+  if (url.pathname.startsWith('/@'))          return  // Vite internals
 
-  // API calls: network first, offline fallback for reads
+  // API: network first, cache reads for offline fallback
   if (url.pathname.startsWith('/api/')) {
-    event.respondWith(networkFirstWithOfflineFallback(request))
+    event.respondWith(networkFirst(request, DYNAMIC_CACHE,
+      ['episodes', 'vault', 'categories']))
     return
   }
 
-  // Navigation to offline pages: cache first, network fallback
+  // Navigation: offline pages get cache-first; everything else network-first
   if (request.mode === 'navigate') {
-    const isOfflinePage = OFFLINE_PAGES.some(p =>
-      url.pathname === p || url.pathname.startsWith(p + '/')
-    )
-    if (isOfflinePage) {
-      event.respondWith(cacheFirstWithNetworkUpdate(request))
-      return
-    }
-    // Other navigation: network first, fall back to cached shell
-    event.respondWith(
-      fetch(request)
-        .then(response => {
-          if (response.ok) cacheResponse(DYNAMIC_CACHE, request, response.clone())
-          return response
-        })
-        .catch(() => caches.match('/') || caches.match(request))
-    )
+    const isOffline = OFFLINE_PAGES.some(p =>
+      url.pathname === p || url.pathname.startsWith(p + '/'))
+    event.respondWith(isOffline
+      ? cacheFirst(request, STATIC_CACHE)
+      : networkFirstNav(request))
     return
   }
 
-  // Static assets (JS, CSS, images, fonts): stale-while-revalidate
-  if (
-    url.pathname.match(/\.(js|css|png|jpg|svg|ico|woff2?|ttf)$/) ||
-    url.pathname.startsWith('/assets/')
-  ) {
+  // Assets: stale-while-revalidate (fast load + background refresh)
+  if (url.pathname.match(/\.(js|css|png|jpg|webp|svg|ico|woff2?|ttf)$/) ||
+      url.pathname.startsWith('/assets/') ||
+      url.pathname.startsWith('/icons/')) {
     event.respondWith(staleWhileRevalidate(request))
     return
   }
 
-  // Everything else: network first
   event.respondWith(fetch(request).catch(() => caches.match(request)))
 })
 
-// ── Cache strategies ──────────────────────────────────────────────────────────
+// ── Strategies ────────────────────────────────────────────────────────────────
 
-async function networkFirstWithOfflineFallback(request) {
+async function networkFirst(request, cacheName, cacheableKeywords = []) {
   try {
     const response = await fetch(request)
-    if (response.ok) {
-      // Only cache GET API reads — skip mutations
-      const url = new URL(request.url)
-      if (['episodes', 'vault', 'categories'].some(p => url.pathname.includes(p))) {
-        await cacheResponse(DYNAMIC_CACHE, request, response.clone())
-      }
+    if (response.ok && cacheableKeywords.some(k => request.url.includes(k))) {
+      const cache = await caches.open(cacheName)
+      cache.put(request, response.clone())
     }
     return response
   } catch {
     const cached = await caches.match(request)
     return cached || new Response(
-      JSON.stringify({ error: 'offline', cached: false }),
+      JSON.stringify({ error: 'offline' }),
       { status: 503, headers: { 'Content-Type': 'application/json' } }
     )
   }
 }
 
-async function cacheFirstWithNetworkUpdate(request) {
-  const cached = await caches.match(request)
-  const networkFetch = fetch(request).then(response => {
-    if (response.ok) cacheResponse(STATIC_CACHE, request, response.clone())
+async function networkFirstNav(request) {
+  try {
+    const response = await fetch(request)
+    if (response.ok) {
+      const cache = await caches.open(DYNAMIC_CACHE)
+      cache.put(request, response.clone())
+    }
     return response
-  }).catch(() => null)
+  } catch {
+    const cached = await caches.match(request) || await caches.match('/')
+    return cached || new Response('Offline — please reconnect', { status: 503, headers: { 'Content-Type': 'text/plain' } })
+  }
+}
 
-  return cached || networkFetch || caches.match('/')
+async function cacheFirst(request, cacheName) {
+  const cached = await caches.match(request)
+  if (cached) {
+    // Revalidate in background
+    fetch(request).then(r => {
+      if (r.ok) caches.open(cacheName).then(c => c.put(request, r))
+    }).catch(() => {})
+    return cached
+  }
+  try {
+    const response = await fetch(request)
+    if (response.ok) {
+      const cache = await caches.open(cacheName)
+      cache.put(request, response.clone())
+    }
+    return response
+  } catch {
+    return (await caches.match('/')) || new Response('Offline', { status: 503 })
+  }
 }
 
 async function staleWhileRevalidate(request) {
   const cache  = await caches.open(STATIC_CACHE)
   const cached = await cache.match(request)
-  const networkFetch = fetch(request).then(response => {
-    if (response.ok) cache.put(request, response.clone())
-    return response
-  }).catch(() => cached)
-  return cached || networkFetch
-}
-
-async function cacheResponse(cacheName, request, response) {
-  try {
-    const cache = await caches.open(cacheName)
-    await cache.put(request, response)
-  } catch {}
+  const fresh  = fetch(request).then(r => {
+    if (r.ok) cache.put(request, r.clone())
+    return r
+  }).catch(() => null)
+  return cached || await fresh
 }
 
 // ── Push notifications ────────────────────────────────────────────────────────
 self.addEventListener('push', event => {
   if (!event.data) return
-
   let payload
-  try { payload = event.data.json() }
+  try   { payload = event.data.json() }
   catch { payload = { title: 'WhispaCuts', body: event.data.text() } }
 
-  const {
-    title   = 'WhispaCuts',
-    body    = '',
-    icon    = '/icons/icon-192x192.png',
-    badge   = '/icons/icon-48x48.png',
-    tag     = 'whispacuts',
-    data    = {},
-    actions = [],
-  } = payload
+  const { title = 'WhispaCuts', body = '', icon = '/icons/icon-192x192.png',
+          badge = '/icons/icon-48x48.png', tag = 'whispacuts',
+          data = {}, actions = [] } = payload
 
   event.waitUntil(
     self.registration.showNotification(title, {
       body, icon, badge, tag, data, actions,
-      requireInteraction: tag === 'episode-ready',  // stay until dismissed for important ones
+      requireInteraction: tag === 'episode-ready',
     })
   )
 })
 
-// ── Notification click ────────────────────────────────────────────────────────
 self.addEventListener('notificationclick', event => {
   event.notification.close()
-
   if (event.action === 'dismiss') return
-
   const url = event.notification.data?.url || '/'
-
   event.waitUntil(
-    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(clients => {
-      // Focus existing tab if open
-      const existing = clients.find(c => c.url.includes(self.location.origin))
-      if (existing) {
-        existing.focus()
-        existing.navigate(self.location.origin + url)
-        return
-      }
-      // Open new window
-      return self.clients.openWindow(self.location.origin + url)
-    })
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true })
+      .then(clients => {
+        const existing = clients.find(c => c.url.includes(self.location.origin))
+        if (existing) { existing.focus(); existing.navigate(self.location.origin + url); return }
+        return self.clients.openWindow(self.location.origin + url)
+      })
   )
 })
 
@@ -197,16 +175,19 @@ self.addEventListener('notificationclick', event => {
 self.addEventListener('sync', event => {
   if (event.tag === 'sync-session-entries') {
     event.waitUntil(
-      self.clients.matchAll().then(clients =>
-        clients.forEach(c => c.postMessage({ type: 'SYNC_ENTRIES' }))
-      )
+      self.clients.matchAll()
+        .then(clients => clients.forEach(c => c.postMessage({ type: 'SYNC_ENTRIES' })))
     )
   }
 })
 
-// ── Message from main thread ──────────────────────────────────────────────────
+// ── Messages from main thread ─────────────────────────────────────────────────
 self.addEventListener('message', event => {
-  if (event.data?.type === 'SKIP_WAITING') {
-    self.skipWaiting()
-  }
+  if (event.data?.type === 'SKIP_WAITING') self.skipWaiting()
 })
+
+// ── Utility ───────────────────────────────────────────────────────────────────
+async function notifyClients(message) {
+  const clients = await self.clients.matchAll({ includeUncontrolled: true })
+  clients.forEach(c => c.postMessage(message))
+}
