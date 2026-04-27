@@ -109,6 +109,7 @@ export default function Companion() {
   const sessionIdRef     = useRef(null)
   const longPressRef     = useRef(null)
   const audioMimeRef     = useRef('audio/webm')  // set on startSession, used in transcribeChunk
+  const transcribeBufferRef = useRef([])          // accumulates ALL chunks for valid Whisper input
   const wakeLockRef      = useRef(null)          // Screen Wake Lock — keeps display on while recording
   const offlineQueue     = useRef([])
 
@@ -340,6 +341,8 @@ export default function Companion() {
       const audioBitrate = bitrate || (isExternal ? 192000 : 128000)
 
       audioMimeRef.current = mimeType
+      transcribeBufferRef.current = []  // fresh buffer for each session
+      console.info('[companion] Recording format:', mimeType)
       const recorder = new MediaRecorder(stream, { mimeType, audioBitsPerSecond: audioBitrate })
       mediaRecorderRef.current = recorder
 
@@ -421,17 +424,33 @@ export default function Companion() {
   // ── TRANSCRIPTION ──────────────────────────────────────────────────────────
 
   async function transcribeChunk(sid) {
-    const chunks = audioChunksRef.current.splice(0)
-    if (!chunks.length || !sid) return
+    // We need ALL chunks including the header chunk (first chunk) to produce
+    // a valid audio file. Splice only takes new chunks but keeps old ones for context.
+    const newChunks = audioChunksRef.current.splice(0)
+    if (!newChunks.length || !sid) return
 
-    const blob        = new Blob(chunks, { type: audioMimeRef.current || 'audio/webm' })
+    // Add new chunks to accumulated buffer
+    if (!transcribeBufferRef.current) transcribeBufferRef.current = []
+    transcribeBufferRef.current.push(...newChunks)
+
+    // Build complete audio blob from ALL chunks so far — this gives Whisper
+    // a valid self-contained file with the container header included
+    const allChunks   = transcribeBufferRef.current
+    const mimeType    = audioMimeRef.current || 'audio/webm'
+    const blob        = new Blob(allChunks, { type: mimeType })
     const timestampMs = Date.now() - (sessionStartRef.current || Date.now())
+
+    // Skip if too small — likely just the header with no audio yet
+    if (blob.size < 8000) return
+
+    const ext = mimeType.split(';')[0].split('/')[1] || 'webm'
 
     try {
       const session  = await getSession()
       const formData = new FormData()
-      formData.append('audio', blob, 'chunk.webm')
+      formData.append('audio', blob, `recording.${ext}`)
       formData.append('timestampMs', String(timestampMs))
+      formData.append('isCumulative', 'true')  // tells backend to deduplicate entries
 
       const res = await fetch(
         `${import.meta.env.VITE_API_URL || '/api'}/session/${sid}/transcribe`,

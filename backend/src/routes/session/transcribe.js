@@ -81,6 +81,8 @@ async function handleTranscribe(req, res) {
 
     if (!text.trim()) return res.json({ text: '', entries: [] })
 
+    const isCumulative = req.body.isCumulative === 'true'
+
     // Create an entry for this transcribed chunk
     const entry = {
       id:           `speech-${Date.now()}`,
@@ -91,8 +93,19 @@ async function handleTranscribe(req, res) {
       confidence:   whisperConfidence,
     }
 
-    // Append to session entries
-    const entries = [...(session.entries || []), entry]
+    // For cumulative mode: replace the last speech entry (it's a re-transcription
+    // of everything including the previous chunk). This prevents duplicate text.
+    let existingEntries = session.entries || []
+    let entries
+    if (isCumulative) {
+      // Remove the last speech entry and replace with fresh full transcription
+      const nonSpeech = existingEntries.filter(e => e.type !== 'speech')
+      const markers   = existingEntries.filter(e => e.type === 'marker')
+      entries = [...markers, entry]
+    } else {
+      entries = [...existingEntries, entry]
+    }
+
     await supabase
       .from('session_journals')
       .update({ entries, updated_at: new Date().toISOString() })
