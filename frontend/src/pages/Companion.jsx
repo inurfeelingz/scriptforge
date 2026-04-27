@@ -26,7 +26,7 @@ import {
 import {
   Mic, MicOff, Square, Flag, Send, Wifi, WifiOff,
   ChevronLeft, ChevronRight, Trash2, Check, Loader2,
-  Volume2, Radio, Clock, Bookmark
+  Volume2, Radio, Clock, Bookmark, RefreshCw
 } from 'lucide-react'
 import { useStore } from '../store'
 import { api } from '../lib/api'
@@ -104,6 +104,7 @@ export default function Companion() {
   const timerRef         = useRef(null)
   const chunkTimerRef    = useRef(null)
   const analyserRef      = useRef(null)
+  const audioCtxRef      = useRef(null)
   const rafRef           = useRef(null)
   const sessionIdRef     = useRef(null)
   const longPressRef     = useRef(null)
@@ -120,28 +121,7 @@ export default function Companion() {
   const [editingTitle, setEditingTitle] = useState(false)
   const [pastSessions, setPastSessions] = useState([])
   const [loadingSessions, setLoadingSessions] = useState(false)
-  const [installPrompt, setInstallPrompt] = useState(null)
-  const [showInstallBanner, setShowInstallBanner] = useState(false)
-  const isDragging = useRef(false)
-
-  // PWA install prompt
-  useEffect(() => {
-    const handler = (e) => {
-      e.preventDefault()
-      setInstallPrompt(e)
-      setShowInstallBanner(true)
-    }
-    window.addEventListener('beforeinstallprompt', handler)
-    return () => window.removeEventListener('beforeinstallprompt', handler)
-  }, [])
-
-  async function handleInstall() {
-    if (!installPrompt) return
-    installPrompt.prompt()
-    const { outcome } = await installPrompt.userChoice
-    if (outcome === 'accepted') setShowInstallBanner(false)
-    setInstallPrompt(null)
-  }
+  const isDragging    = useRef(false)
 
   // Keep session ID ref in sync
   useEffect(() => { sessionIdRef.current = state.sessionId }, [state.sessionId])
@@ -159,14 +139,19 @@ export default function Companion() {
     return () => { window.removeEventListener('online', on); window.removeEventListener('offline', off) }
   }, [])
 
-  // Load past sessions when Journal tab is viewed
-  useEffect(() => {
-    if (state.screen !== 1) return
+  // Named so it can be called from processSession too
+  function loadPastSessions() {
     setLoadingSessions(true)
-    api.get('/session?status=ready&limit=10' + (activeCategoryId ? '&categoryId=' + activeCategoryId : ''))
+    api.get('/session?limit=20' + (activeCategoryId ? '&categoryId=' + activeCategoryId : ''))
       .then(({ sessions }) => setPastSessions(sessions || []))
       .catch(() => {})
       .finally(() => setLoadingSessions(false))
+  }
+
+  // Load past sessions when Journal tab is viewed
+  useEffect(() => {
+    if (state.screen !== 1) return
+    loadPastSessions()
   }, [state.screen, activeCategoryId])
 
   // Re-acquire Wake Lock if page becomes visible again after phone unlock
@@ -191,7 +176,14 @@ export default function Companion() {
   // ── WAVEFORM VISUALISER ────────────────────────────────────────────────────
 
   function startWaveform(stream) {
-    const ctx      = new AudioContext()
+    // Close any lingering AudioContext from a previous session
+    // Without this, the mic stays claimed and the second recording gets stuck
+    if (audioCtxRef.current) {
+      try { audioCtxRef.current.close() } catch {}
+      audioCtxRef.current = null
+    }
+    const ctx = new AudioContext()
+    audioCtxRef.current = ctx
     const source   = ctx.createMediaStreamSource(stream)
 
     // DJI Mic Mini 2 outputs stereo (L+R channels) — sum to mono for the analyser
@@ -229,19 +221,14 @@ export default function Companion() {
       const bars  = []
       const step  = Math.floor(data.length / WAVEFORM_BARS)
       let   total = 0
-      let   peak  = 0
 
       for (let i = 0; i < WAVEFORM_BARS; i++) {
         const val = data[i * step] / 255
         bars.push(val)
         total += val
-        if (val > peak) peak = val
       }
 
-      // Use a blend of peak and average — more sensitive than average alone
-      const level = (peak * 0.65 + (total / WAVEFORM_BARS) * 0.35)
-
-      dispatch({ type: 'SET_WAVEFORM', data: bars, level })
+      dispatch({ type: 'SET_WAVEFORM', data: bars, level: total / WAVEFORM_BARS })
       rafRef.current = requestAnimationFrame(draw)
     }
     draw()
@@ -250,6 +237,10 @@ export default function Companion() {
   function stopWaveform() {
     cancelAnimationFrame(rafRef.current)
     analyserRef.current = null
+    if (audioCtxRef.current) {
+      audioCtxRef.current.close().catch(() => {})
+      audioCtxRef.current = null
+    }
     dispatch({ type: 'SET_WAVEFORM', data: new Array(WAVEFORM_BARS).fill(0), level: 0 })
   }
 
@@ -259,49 +250,28 @@ export default function Companion() {
   // Each brand gets the optimal constraints (sample rate, processing, stereo).
 
   async function getBestMicStream() {
-    // First request permission with basic constraints — this populates device labels
-    // Without this, enumerateDevices returns devices with empty labels on first visit
-    let stream
-    try {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-    } catch (err) {
-      if (err.name === 'NotAllowedError') {
-        throw new Error('Microphone access denied — tap Allow when your browser asks')
-      }
-      throw err
-    }
-
-    // Stop the initial stream — we'll get a better one with proper constraints
-    stream.getTracks().forEach(t => t.stop())
-
-    // Now enumerate with labels available
     const devices    = await navigator.mediaDevices.enumerateDevices()
     const detection  = detectMic(devices)
     const constraints = buildConstraints(detection)
+    const stream     = await navigator.mediaDevices.getUserMedia(constraints)
 
-    try {
-      stream = await navigator.mediaDevices.getUserMedia(constraints)
-    } catch {
-      // Fall back to simplest possible constraint if advanced ones fail
-      stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-    }
-
-    const activeTrack = stream.getAudioTracks()[0]
-    const settings    = activeTrack?.getSettings?.() || {}
-    const isStereo    = needsStereoSum(detection) || settings.channelCount === 2
-    const bitrate     = getRecordingBitrate(detection)
-    const isDJI       = /dji/i.test(detection.match?.brand || '')
-    const isExternal  = detection.isExternal
+    // Confirm actual settings the browser negotiated
+    const activeTrack  = stream.getAudioTracks()[0]
+    const settings     = activeTrack?.getSettings?.() || {}
+    const isStereo     = needsStereoSum(detection) || settings.channelCount === 2
+    const bitrate      = getRecordingBitrate(detection)
+    const isDJI        = /dji/i.test(detection.match?.brand || '')
+    const isExternal   = detection.isExternal
 
     return {
       stream,
-      label:      detection.displayLabel || activeTrack?.label || 'Microphone',
+      label:        detection.displayLabel,
       isDJI,
       isExternal,
       isStereo,
       bitrate,
-      sampleRate: settings.sampleRate || 44100,
-      micInfo:    describeMic(detection),
+      sampleRate:   settings.sampleRate || detection.match?.sampleRate || 44100,
+      micInfo:      describeMic(detection),
       detection,
     }
   }
@@ -390,16 +360,11 @@ export default function Companion() {
       navigator.vibrate?.([50])
 
     } catch (err) {
-      console.error('[Companion] startSession error:', err)
       set({
         status: 'error',
         error:  err.name === 'NotAllowedError'
-          ? 'Mic blocked — allow access in browser settings'
-          : err.name === 'NotFoundError'
-          ? 'No microphone found'
-          : err.message?.includes('fetch') || err.message?.includes('Failed to fetch')
-          ? 'Could not connect to server — check your connection'
-          : err.message || 'Something went wrong',
+          ? 'Microphone blocked — allow access in browser settings'
+          : err.message
       })
     }
   }
@@ -414,6 +379,7 @@ export default function Companion() {
 
     mediaRecorderRef.current.stop()
     mediaRecorderRef.current.stream.getTracks().forEach(t => t.stop())
+    mediaRecorderRef.current = null  // release so next session starts clean
 
     // Final chunk
     await transcribeChunk(sessionIdRef.current)
@@ -526,26 +492,16 @@ export default function Companion() {
     set({ processing: true, orbMood: 'processing', error: null })
     try {
       const result = await api.post(`/session/${sessionIdRef.current}/process`)
-      // Backend returns { voiceMemoText, keyMoments, transcript }
-      // If voiceMemoText is missing the API returned an unexpected shape
-      if (!result?.voiceMemoText && !result?.voice_memo_text) {
-        throw new Error('No memo generated — make sure you spoke during the recording')
-      }
-      // Normalise field names (backend may return snake_case)
-      const normalised = {
-        voiceMemoText: result.voiceMemoText || result.voice_memo_text || '',
-        keyMoments:    result.keyMoments    || result.key_moments    || [],
-        transcript:    result.transcript    || '',
-      }
-      set({ processed: normalised, processing: false, orbMood: 'idle' })
+      const voiceMemoText = result?.voiceMemoText || result?.voice_memo_text || ''
+      const keyMoments    = result?.keyMoments    || result?.key_moments    || []
+      if (!voiceMemoText) throw new Error('No memo generated — speak clearly during recording, or check OPENAI_API_KEY is set in Railway')
+      set({ processed: { voiceMemoText, keyMoments }, processing: false, orbMood: 'idle' })
       set({ screen: 2 })
+      loadPastSessions()
       navigator.vibrate?.([100, 50, 100, 50, 200])
     } catch (err) {
-      const msg = err.message?.includes('No entries')
-        ? 'No speech was transcribed — speak clearly during recording, or check that OPENAI_API_KEY is set in Railway'
-        : err.message || 'Processing failed'
-      set({ processing: false, error: msg, orbMood: 'idle' })
-      set({ screen: 2 })  // still navigate so user sees the error
+      set({ processing: false, orbMood: 'idle', error: err.message || 'Processing failed' })
+      set({ screen: 2 })
     }
   }
 
@@ -611,10 +567,6 @@ export default function Companion() {
   // ── LONG PRESS — record button ─────────────────────────────────────────────
 
   function onRecordPressStart() {
-    // If in error state, reset immediately so next press starts fresh
-    if (state.status === 'error') {
-      dispatch({ type: 'RESET_SESSION' })
-    }
     longPressRef.current = setTimeout(() => {
       if (!state.recording) startSession()
       else stopSession()
@@ -664,42 +616,10 @@ export default function Companion() {
       style={{ touchAction: 'pan-y' }}
     >
 
-      {/* ── INSTALL BANNER ───────────────────────────────────────────────────── */}
-      {showInstallBanner && (
-        <div style={{
-          position: 'fixed', top: 0, left: 0, right: 0, zIndex: 100,
-          background: '#1c2028', borderBottom: '1px solid rgba(255,255,255,0.1)',
-          padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 12,
-        }}>
-          <img src="/icon-mark.svg" alt="" style={{ width: 28, height: 28, flexShrink: 0 }}/>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 13, fontWeight: 600, color: '#e8eaed' }}>Add to Home Screen</div>
-            <div style={{ fontSize: 11, color: '#8a8f9a', marginTop: 1 }}>Install WhispaCuts Companion for offline use</div>
-          </div>
-          <button
-            onClick={handleInstall}
-            style={{ padding: '6px 14px', background: '#d4a853', color: '#080c10', border: 'none',
-              borderRadius: 6, fontSize: 12, fontWeight: 700, cursor: 'pointer', flexShrink: 0 }}
-          >
-            Install
-          </button>
-          <button
-            onClick={() => setShowInstallBanner(false)}
-            style={{ padding: '6px 10px', background: 'transparent', color: '#8a8f9a',
-              border: '1px solid rgba(255,255,255,0.1)', borderRadius: 6, fontSize: 12, cursor: 'pointer', flexShrink: 0 }}
-          >
-            Later
-          </button>
-        </div>
-      )}
-
       {/* ── STATUS BAR ──────────────────────────────────────────────────────── */}
       <header className="companion-header">
         <div className="companion-brand">
-          <img src="/icon-mark.svg" alt="WhispaCuts" style={{ width: 26, height: 26 }}/>
-          <span style={{ fontFamily: 'Syne, sans-serif', fontWeight: 800, fontSize: 16, letterSpacing: '-0.3px', color: '#e8eaed' }}>
-            Whispa<span style={{ color: '#d4a853' }}>Cuts</span>
-          </span>
+          <span className="brand-word">SF</span>
           {cat && <span className="brand-cat">{cat.name}</span>}
         </div>
 
@@ -889,14 +809,13 @@ export default function Companion() {
               onPressEnd={onRecordPressEnd}
             />
 
-            <p className="record-hint" onClick={state.status === 'error' ? () => { dispatch({ type: 'RESET_SESSION' }); startSession() } : undefined}
-               style={state.status === 'error' ? { cursor: 'pointer', textDecoration: 'underline' } : {}}>
+            <p className="record-hint">
               {state.status === 'starting'  && 'Connecting mic...'}
               {state.status === 'stopping'  && 'Saving session...'}
               {state.status === 'recording' && `${state.entries.filter(e=>e.type!=='marker').length} utterances · ${state.entries.filter(e=>e.type==='marker').length} marks`}
               {state.status === 'idle'      && 'Hold 0.6s to start'}
               {state.status === 'ready'     && `Session ready — swipe → to review`}
-              {state.status === 'error'     && `Tap to retry${state.error ? ` — ${state.error}` : ''}`}
+              {state.status === 'error'     && 'Tap to retry'}
             </p>
           </div>
 
@@ -918,54 +837,58 @@ export default function Companion() {
         {/* ══ SCREEN 1: JOURNAL ══════════════════════════════════════════════ */}
         <div className="screen screen-journal">
 
-          {/* Current session entries (if recording or just stopped) */}
+          <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:4}}>
+            <div className="screen-title" style={{margin:0}}>Sessions</div>
+            <button onClick={loadPastSessions} disabled={loadingSessions}
+              style={{background:'none',border:'none',color:'rgba(255,255,255,0.3)',cursor:'pointer',display:'flex',alignItems:'center',gap:4,fontSize:12,padding:'4px 8px',fontFamily:'inherit'}}>
+              <RefreshCw size={12} style={{animation:loadingSessions?'spin 1s linear infinite':'none'}}/>
+              {loadingSessions ? 'Loading...' : 'Refresh'}
+            </button>
+          </div>
+
           {state.entries.length > 0 && (
             <>
-              <div className="screen-title">This session</div>
+              <div className="screen-title" style={{marginTop:8}}>This session</div>
               <div className="journal-list">
                 {state.entries.map((e) => (
-                  <SwipeableEntry
-                    key={e.id}
-                    entry={e}
-                    onDelete={() => dispatch({ type: 'REMOVE_ENTRY', id: e.id })}
-                  />
+                  <SwipeableEntry key={e.id} entry={e} onDelete={() => dispatch({ type: 'REMOVE_ENTRY', id: e.id })}/>
                 ))}
               </div>
             </>
           )}
 
-          {/* Past sessions */}
-          <div className="screen-title" style={{marginTop: state.entries.length ? '16px' : '0'}}>
-            Past sessions
-          </div>
-
-          {loadingSessions ? (
-            <div style={{color:'#333',fontSize:'12px',textAlign:'center',padding:'24px'}}>Loading...</div>
-          ) : pastSessions.length === 0 ? (
-            <div className="empty-journal">
-              <Bookmark size={28} className="text-[#2a2a2a]"/>
-              <p>{state.entries.length ? 'No other sessions yet' : 'No sessions yet — start recording'}</p>
-            </div>
-          ) : (
-            <div className="journal-list">
+          {pastSessions.length > 0 && (
+            <div className="journal-list" style={{marginTop: state.entries.length ? 12 : 4}}>
               {pastSessions.map(s => (
-                <div key={s.id} className="swipeable-entry" style={{flexDirection:'column',gap:'6px',alignItems:'flex-start'}}>
+                <div key={s.id} className="swipeable-entry"
+                  style={{flexDirection:'column',gap:5,alignItems:'flex-start',cursor:s.voice_memo_text?'pointer':'default'}}
+                  onClick={() => { if (s.voice_memo_text) set({ processed: { voiceMemoText: s.voice_memo_text, keyMoments: s.key_moments||[] }, screen: 2 }) }}
+                >
                   <div style={{display:'flex',justifyContent:'space-between',width:'100%',alignItems:'center'}}>
-                    <span style={{fontSize:'13px',color:'#ccc'}}>{s.title}</span>
-                    <span style={{fontSize:'10px',color:'#444'}}>{new Date(s.recorded_at).toLocaleDateString()}</span>
+                    <span style={{fontSize:14,color:'#e8eaed',fontWeight:500}}>{s.title||'Session'}</span>
+                    <span style={{fontSize:11,color:'rgba(255,255,255,0.25)'}}>{new Date(s.recorded_at||s.created_at).toLocaleDateString()}</span>
                   </div>
-                  {s.key_moments?.length > 0 && (
-                    <div style={{fontSize:'11px',color:'#555'}}>
-                      {s.key_moments.length} marks · {s.voice_memo_text ? 'memo ready' : 'no memo'}
-                    </div>
-                  )}
+                  <span style={{fontSize:10,padding:'1px 6px',borderRadius:99,background:s.voice_memo_text?'rgba(74,222,128,0.1)':'rgba(255,255,255,0.05)',color:s.voice_memo_text?'#4ade80':'rgba(255,255,255,0.3)',border:s.voice_memo_text?'1px solid rgba(74,222,128,0.2)':'1px solid rgba(255,255,255,0.08)'}}>
+                    {s.voice_memo_text ? 'memo ready' : (s.status||'recorded')}
+                  </span>
                   {s.voice_memo_text && (
-                    <div style={{fontSize:'11px',color:'#666',lineHeight:'1.4',display:'-webkit-box',WebkitLineClamp:2,WebkitBoxOrient:'vertical',overflow:'hidden'}}>
+                    <div style={{fontSize:12,color:'rgba(255,255,255,0.4)',lineHeight:1.4,display:'-webkit-box',WebkitLineClamp:2,WebkitBoxOrient:'vertical',overflow:'hidden'}}>
                       {s.voice_memo_text}
                     </div>
                   )}
                 </div>
               ))}
+            </div>
+          )}
+
+          {!loadingSessions && pastSessions.length === 0 && state.entries.length === 0 && (
+            <div className="empty-journal">
+              <Bookmark size={28} style={{color:'rgba(255,255,255,0.1)'}}/>
+              <p style={{color:'rgba(255,255,255,0.3)'}}>No sessions yet</p>
+              <button onClick={() => set({ screen: 0 })}
+                style={{marginTop:8,padding:'10px 20px',background:'#d4a853',color:'#080c10',border:'none',borderRadius:10,fontSize:14,fontWeight:700,fontFamily:'inherit',cursor:'pointer'}}>
+                Start recording
+              </button>
             </div>
           )}
         </div>
@@ -976,35 +899,21 @@ export default function Companion() {
 
           {!state.processed && !state.processing && (
             <div className="empty-memo">
-              {state.error ? (
-                <>
-                  <div style={{ fontSize: 13, color: '#f87171', textAlign: 'center', lineHeight: 1.5, padding: '0 8px' }}>
-                    {state.error}
-                  </div>
-                  <button
-                    onClick={() => { dispatch({ type: 'RESET_SESSION' }) }}
-                    className="new-session-btn"
-                    style={{ marginTop: 12 }}
-                  >
-                    Start new session
-                  </button>
-                </>
-              ) : (
-                <>
-                  <Clock size={28} style={{ color: 'rgba(255,255,255,0.1)' }}/>
-                  <p>
-                    {state.status === 'ready'
-                      ? 'Go back and generate your memo'
-                      : 'Record a session first'}
-                  </p>
-                </>
-              )}
+              {state.error
+                ? <p style={{color:'#f87171',textAlign:'center',lineHeight:1.5,padding:'0 8px'}}>{state.error}</p>
+                : <>
+                    <Clock size={28} style={{color:'rgba(255,255,255,0.1)'}}/>
+                    <p style={{color:'rgba(255,255,255,0.3)'}}>
+                      {state.status === 'ready' ? 'Go back and tap Generate voice memo' : 'Record a session first'}
+                    </p>
+                  </>
+              }
             </div>
           )}
 
           {state.processing && (
             <div className="memo-loading">
-              <Loader2 size={24} className="animate-spin text-[#c8b89a]"/>
+              <Loader2 size={24} className="animate-spin" style={{color:'#d4a853'}}/>
               <p>Claude is writing your voice memo...</p>
             </div>
           )}
