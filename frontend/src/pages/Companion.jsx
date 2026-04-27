@@ -644,7 +644,10 @@ export default function Companion() {
       {/* ── STATUS BAR ──────────────────────────────────────────────────────── */}
       <header className="companion-header">
         <div className="companion-brand">
-          <span className="brand-word">SF</span>
+          <img src="/icon-mark.svg" alt="WhispaCuts" style={{ width: 26, height: 26 }}/>
+          <span style={{ fontFamily: 'Syne, sans-serif', fontWeight: 800, fontSize: 16, letterSpacing: '-0.3px', color: '#e8eaed' }}>
+            Whispa<span style={{ color: '#d4a853' }}>Cuts</span>
+          </span>
           {cat && <span className="brand-cat">{cat.name}</span>}
         </div>
 
@@ -856,6 +859,25 @@ export default function Companion() {
                 : <><Send size={16}/> Generate voice memo</>
               }
             </button>
+          )}
+
+          {/* Processing overlay — visible even after swiping away */}
+          {state.processing && (
+            <div style={{
+              position: 'fixed', inset: 0, zIndex: 80,
+              background: 'rgba(8,12,16,0.85)',
+              display: 'flex', flexDirection: 'column',
+              alignItems: 'center', justifyContent: 'center', gap: 16,
+              backdropFilter: 'blur(4px)',
+            }}>
+              <Loader2 size={36} style={{ color: '#d4a853', animation: 'spin 1s linear infinite' }}/>
+              <div style={{ fontFamily: 'Syne, sans-serif', fontWeight: 700, fontSize: 18, color: '#e8eaed' }}>
+                Writing your memo...
+              </div>
+              <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.35)', textAlign: 'center', maxWidth: 220 }}>
+                Claude is processing your session notes
+              </div>
+            </div>
           )}
         </div>
 
