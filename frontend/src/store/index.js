@@ -10,14 +10,27 @@ export const useStore = create((set, get) => ({
   })(),
   setTheme: (theme) => {
     try { localStorage.setItem('wc_theme', theme) } catch {}
-    // Apply immediately to root element
-    document.documentElement.setAttribute('data-theme', theme)
+    const root = document.documentElement
+    root.setAttribute('data-theme', theme)
     if (theme === 'light') {
-      document.documentElement.style.setProperty('--sf-bg',   '#f8f6f2')
-      document.documentElement.style.setProperty('--sf-text', '#1a1a1a')
+      root.style.setProperty('--bg',          '#f4f3f8')
+      root.style.setProperty('--surface',     '#ffffff')
+      root.style.setProperty('--surface2',    '#f0eff6')
+      root.style.setProperty('--surface3',    '#e8e7f0')
+      root.style.setProperty('--border',      'rgba(0,0,0,0.08)')
+      root.style.setProperty('--border2',     'rgba(0,0,0,0.14)')
+      root.style.setProperty('--accent',      '#b8882a')
+      root.style.setProperty('--accent-lo',   'rgba(184,136,42,0.1)')
+      root.style.setProperty('--accent-mid',  'rgba(184,136,42,0.4)')
+      root.style.setProperty('--text',        '#1a1824')
+      root.style.setProperty('--text2',       '#5a5870')
+      root.style.setProperty('--text3',       '#9a98b0')
     } else {
-      document.documentElement.style.removeProperty('--sf-bg')
-      document.documentElement.style.removeProperty('--sf-text')
+      // Remove all overrides — CSS variables in :root take over
+      const vars = ['--bg','--surface','--surface2','--surface3',
+        '--border','--border2','--accent','--accent-lo','--accent-mid',
+        '--text','--text2','--text3']
+      vars.forEach(v => root.style.removeProperty(v))
     }
     set({ theme })
   },

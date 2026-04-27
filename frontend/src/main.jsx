@@ -48,7 +48,16 @@ if ('serviceWorker' in navigator) {
 // ── Apply saved theme before first paint ──────────────────────────────────────
 try {
   const t = localStorage.getItem('wc_theme')
-  if (t === 'light') document.documentElement.setAttribute('data-theme', 'light')
+  if (t === 'light') {
+    const root = document.documentElement
+    root.setAttribute('data-theme', 'light')
+    root.style.setProperty('--bg',       '#f4f3f8')
+    root.style.setProperty('--surface',  '#ffffff')
+    root.style.setProperty('--text',     '#1a1824')
+    root.style.setProperty('--text2',    '#5a5870')
+    root.style.setProperty('--text3',    '#9a98b0')
+    root.style.setProperty('--accent',   '#b8882a')
+  }
 } catch {}
 
 ReactDOM.createRoot(document.getElementById('root')).render(
