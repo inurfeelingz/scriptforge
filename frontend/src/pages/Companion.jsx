@@ -766,12 +766,28 @@ export default function Companion() {
             </div>
           )}
 
+          {/* Live entry feed — shown ABOVE orb so always visible on small screens */}
+          {state.entries.length > 0 && (
+            <div className="entry-feed" ref={el => {
+              if (el) el.scrollTop = el.scrollHeight
+            }} key={state.entries.length}>
+              {state.entries.map(e => (
+                <EntryRow
+                  key={e.id}
+                  entry={e}
+                  elapsed={state.elapsedMs}
+                  onDelete={() => dispatch({ type: 'REMOVE_ENTRY', id: e.id })}
+                />
+              ))}
+            </div>
+          )}
+
           {/* Mascot orb — overflow visible so bloom glow bleeds past edges */}
           <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '0', background: 'transparent', overflow: 'visible' }}>
             <MascotOrb mood={state.orbMood} audioLevel={state.audioLevel} size={200}/>
           </div>
 
-          {/* Idle instructions */}
+          {/* Idle instructions — only when not recording */}
           {state.status === 'idle' && (
             <div className="idle-hint">
               <p className="idle-title">Hold to start recording</p>
@@ -785,25 +801,6 @@ export default function Companion() {
                     : `Built-in mic — enable processing for best quality`}
                 </p>
               )}
-            </div>
-          )}
-
-          {/* Live entry feed — all entries, scrolls to latest */}
-          {state.entries.length > 0 && (
-            <div className="entry-feed" ref={el => {
-              if (el) {
-                // Always scroll to bottom when entries update
-                el.scrollTop = el.scrollHeight
-              }
-            }} key={state.entries.length}>
-              {state.entries.map(e => (
-                <EntryRow
-                  key={e.id}
-                  entry={e}
-                  elapsed={state.elapsedMs}
-                  onDelete={() => dispatch({ type: 'REMOVE_ENTRY', id: e.id })}
-                />
-              ))}
             </div>
           )}
 
