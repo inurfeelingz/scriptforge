@@ -441,7 +441,12 @@ export default function Companion() {
     const timestampMs = Date.now() - (sessionStartRef.current || Date.now())
 
     // Skip if too small — likely just the header with no audio yet
-    if (blob.size < 8000) return
+    if (blob.size < 8000) {
+      console.info('[transcribe] Skipping — blob too small:', blob.size, 'bytes')
+      return
+    }
+
+    console.info('[transcribe] Sending', Math.round(blob.size/1024), 'KB of', mimeType, 'to Whisper')
 
     const ext = mimeType.split(';')[0].split('/')[1] || 'webm'
 
@@ -475,15 +480,16 @@ export default function Companion() {
           }
         }
         if (data.clientSideRequired) {
-          // Server has no OPENAI_API_KEY — transcription handled client-side by Whisper worker
-          // Entries will be added via the clipIndexer worker's CLIP_INDEXED event
-          // For now: log so the developer knows to add the key or use client-side Whisper
           console.info('[companion] Server-side transcription unavailable — add OPENAI_API_KEY or implement client-side Whisper path')
         } else if (data.entries?.length) {
+          console.info('[transcribe] Got', data.entries.length, 'entries:', data.entries.map(e => e.text?.slice(0,40)))
           data.entries.forEach(e => dispatch({ type: 'ADD_ENTRY', entry: e }))
+        } else {
+          console.info('[transcribe] Response OK but no entries. Text:', data.text?.slice(0,80))
         }
       }
-    } catch {
+    } catch (err) {
+      console.error('[transcribe] Failed:', err.message)
       // Queue for offline sync — will retry on reconnect
     }
   }
@@ -757,8 +763,8 @@ export default function Companion() {
             </div>
           )}
 
-          {/* Mascot orb */}
-          <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '8px 0', background: 'transparent' }}>
+          {/* Mascot orb — overflow visible so bloom glow bleeds past edges */}
+          <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '0', background: 'transparent', overflow: 'visible' }}>
             <MascotOrb mood={state.orbMood} audioLevel={state.audioLevel} size={200}/>
           </div>
 

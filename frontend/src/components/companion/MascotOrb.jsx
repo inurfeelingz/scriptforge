@@ -102,7 +102,8 @@ export default function MascotOrb({ mood = 'idle', audioLevel = 0, size = 280 })
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas) return
-    const ctx = canvas.getContext('2d')
+    const ctx = canvas.getContext('2d', { alpha: true, willReadFrequently: false })
+    // Use a larger internal draw area so bloom glow isn't clipped at edges
     const W   = size
     const H   = size
     const cx  = W / 2
