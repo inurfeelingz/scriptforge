@@ -544,6 +544,10 @@ export default function Companion() {
     if (!sessionIdRef.current) return
     set({ processing: true, orbMood: 'processing', error: null })
 
+    // Small delay to let the final transcription chunk finish saving to DB
+    // before we ask Claude to process it
+    await new Promise(r => setTimeout(r, 2000))
+
     const timeoutId = setTimeout(() => {
       set({ processing: false, orbMood: 'idle', error: 'Memo generation timed out — try again' })
       set({ screen: 2 })
@@ -552,6 +556,7 @@ export default function Companion() {
     try {
       const result = await api.post(`/session/${sessionIdRef.current}/process`)
       clearTimeout(timeoutId)
+      console.info('[process] Result:', JSON.stringify(result).slice(0, 200))
       const voiceMemoText = result?.voiceMemoText || result?.voice_memo_text || ''
       const keyMoments    = result?.keyMoments    || result?.key_moments    || []
       if (!voiceMemoText) throw new Error('No memo generated — speak clearly during recording')
@@ -561,6 +566,7 @@ export default function Companion() {
       navigator.vibrate?.([100, 50, 100, 50, 200])
     } catch (err) {
       clearTimeout(timeoutId)
+      console.error('[process] Error:', err.message)
       set({ processing: false, orbMood: 'idle', error: err.message || 'Processing failed' })
       set({ screen: 2 })
     }
