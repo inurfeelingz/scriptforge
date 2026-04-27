@@ -290,7 +290,43 @@
   background-color: var(--surface) !important;
 }
 
-/* ── Mobile ────────────────────────────────────────────────────────────────── */
+/* ── Font size overrides — Tailwind defaults are too small ─────────────────── */
+@layer base {
+  /* text-xs: 12px → 13px */
+  .text-xs { font-size: 0.8125rem !important; line-height: 1.5 !important; }
+  /* text-sm: 14px → 15px */
+  .text-sm { font-size: 0.9375rem !important; line-height: 1.55 !important; }
+  /* text-base stays 16px — already correct */
+  /* text-lg: 18px — keep */
+
+  /* Nav items specifically — bigger and easier to tap */
+  nav .text-sm { font-size: 0.9375rem !important; }
+  nav .text-xs { font-size: 0.8125rem !important; }
+
+  /* Top bar labels */
+  header .text-xs { font-size: 0.8125rem !important; }
+  header .text-sm { font-size: 0.9375rem !important; }
+}
+
+/* ── Input fix — ensure text is always visible ─────────────────────────────── */
+@layer base {
+  input, textarea, select {
+    color: var(--text) !important;
+    background-color: var(--surface2) !important;
+    border-color: var(--border2) !important;
+  }
+  input::placeholder, textarea::placeholder {
+    color: var(--text3) !important;
+    opacity: 1;
+  }
+  [data-theme="light"] input,
+  [data-theme="light"] textarea,
+  [data-theme="light"] select {
+    background-color: #ffffff !important;
+    border-color: rgba(0,0,0,0.2) !important;
+    color: var(--text) !important;
+  }
+}
 @media (max-width: 768px) {
   body { font-size: 0.9375rem; }
   h1   { font-size: 1.5rem; }

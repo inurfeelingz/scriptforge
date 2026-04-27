@@ -75,18 +75,13 @@ export default function AppLayout() {
         <div className={`h-14 flex items-center border-b border-[#1a1a1a] px-4 ${sidebarCollapsed ? 'justify-center' : 'gap-3'}`}>
         {!sidebarCollapsed ? (
           <div className="flex items-center gap-2.5">
-            <img src="/icon-mark.svg" alt="WhispaCuts" style={{ width: 28, height: 28, flexShrink: 0 }}/>
-            <div>
-              <div style={{ fontFamily: 'Syne, sans-serif', fontWeight: 800, fontSize: 15, letterSpacing: '-0.3px', color: 'var(--text, #edeaf4)', lineHeight: 1.1 }}>
-                Whispa<span style={{ color: 'var(--accent, #d4a853)' }}>Cuts</span>
-              </div>
-              <div style={{ fontSize: 10, color: 'var(--text3, #4e4c63)', letterSpacing: '0.12em', textTransform: 'uppercase', marginTop: 2 }}>
-                AI Content Studio
-              </div>
+            <img src="/icon-mark.svg" alt="WhispaCuts" style={{ width: 32, height: 32, flexShrink: 0 }}/>
+            <div style={{ fontFamily: 'Syne, sans-serif', fontWeight: 800, fontSize: 17, letterSpacing: '-0.4px', color: 'var(--text, #edeaf4)', lineHeight: 1 }}>
+              Whispa<span style={{ color: 'var(--accent, #d4a853)' }}>Cuts</span>
             </div>
           </div>
         ) : (
-          <img src="/icon-mark.svg" alt="WC" style={{ width: 26, height: 26 }}/>
+          <img src="/icon-mark.svg" alt="WC" style={{ width: 28, height: 28 }}/>
         )}
           <button
             onClick={() => setSidebarCollapsed(!sidebarCollapsed)}

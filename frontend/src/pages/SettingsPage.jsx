@@ -10,7 +10,7 @@ import { users as usersApi, categories as catApi, episodes as episodesApi, testW
 
 function Section({ title, subtitle, children, accent }) {
   return (
-    <div style={{ background:"var(--surface)", border:"1px solid var(--border)", borderRadius:"var(--r)", padding:"1.5rem", marginBottom:"1.25rem" }} style={{ marginBottom: '1.25rem' }}>
+    <div style={{ background:"var(--surface)", border:"1px solid var(--border)", borderRadius:"var(--r)", padding:"1.5rem", marginBottom:"1.25rem" }}>
       <div style={{ marginBottom: '1.25rem' }}>
         <h2 style={{
           fontFamily: 'Syne, sans-serif',
@@ -51,9 +51,8 @@ function Field({ label, value, onChange, placeholder, hint, wide, multiline }) {
           value={value}
           onChange={e => onChange(e.target.value)}
           placeholder={placeholder}
-          style={{ width:"100%", background:"var(--surface2)", border:"1px solid var(--border)", borderRadius:"var(--r-sm)", padding:"0.625rem 0.875rem", fontSize:"0.9375rem", color:"var(--text)", fontFamily:"inherit", outline:"none" }}
+          style={{ width:"100%", background:"var(--surface2)", border:"1px solid var(--border)", borderRadius:"var(--r-sm)", padding:"0.625rem 0.875rem", fontSize:"0.9375rem", color:"var(--text)", fontFamily:"inherit", outline:"none", resize:"vertical" }}
           rows={3}
-          style={{ resize: 'vertical' }}
         />
       ) : (
         <input
@@ -387,7 +386,7 @@ export default function SettingsPage() {
             ].map(({ label, value }) => (
               <div key={label} style={{ background:"var(--surface2)", borderRadius:"var(--r-sm)", padding:"1rem" }}>
                 <div style={{ fontSize:"0.75rem", fontWeight:500, color:"var(--text3)", textTransform:"uppercase", letterSpacing:"0.06em", marginBottom:"0.25rem" }}>{label}</div>
-                <div style={{ fontFamily:"Syne, sans-serif", fontSize:"1.5rem", fontWeight:700, color:"var(--accent)" }} style={{ fontSize: '1.25rem' }}>{value}</div>
+                <div style={{ fontFamily:"Syne, sans-serif", fontSize:"1.25rem", fontWeight:700, color:"var(--accent)" }}>{value}</div>
               </div>
             ))}
           </div>
@@ -559,7 +558,7 @@ export default function SettingsPage() {
             </div>
           </div>
 
-          <button onClick={saveVoiceProfile} disabled={savingVoice} style={{ width:"100%", padding:"0.625rem 1.25rem", borderRadius:"var(--r-sm)", border:"1px solid var(--border2)", background:"var(--active-bg)", color:"var(--text)", cursor:"pointer", fontFamily:"inherit", fontSize:"0.9375rem" }} style={{ width: '100%' }}>
+          <button onClick={saveVoiceProfile} disabled={savingVoice} style={{ width:"100%", padding:"0.625rem 1.25rem", borderRadius:"var(--r-sm)", border:"1px solid var(--border2)", background:"var(--active-bg)", color:"var(--text)", cursor:"pointer", fontFamily:"inherit", fontSize:"0.9375rem" }}>
             {savingVoice ? 'Saving…' : 'Save voice profile'}
           </button>
         </Section>
@@ -609,34 +608,12 @@ export default function SettingsPage() {
               <button
                 key={t}
                 onClick={() => setTheme(t)}
-                style={{ padding:"0.5rem 1rem", borderRadius:"var(--r-sm)", border: theme === t ? "1px solid var(--accent-mid)" : "1px solid var(--border2)", background: theme === t ? "var(--accent-lo)" : "transparent", color: theme === t ? "var(--accent)" : "var(--text2)", cursor:"pointer", fontFamily:"inherit", textTransform:"capitalize" }}
-                style={{ padding: '7px 18px', fontSize: '0.875rem', textTransform: 'capitalize' }}
+                style={{ padding:"0.5rem 1.25rem", borderRadius:"var(--r-sm)", border: theme === t ? "1px solid var(--accent-mid)" : "1px solid var(--border2)", background: theme === t ? "var(--accent-lo)" : "transparent", color: theme === t ? "var(--accent)" : "var(--text2)", cursor:"pointer", fontFamily:"inherit", fontSize:"0.875rem", textTransform:"capitalize" }}
               >
                 {t}
               </button>
             ))}
           </div>
-        </div>
-      </Section>
-
-      {/* ── Keyboard shortcuts ────────────────────────────────────────────── */}
-      <Section title="Keyboard shortcuts">
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.625rem' }}>
-          {[
-            ['Teleprompter', 'Space = play/pause · ↑↓ = speed · R = restart'],
-            ['Generate',     'Cmd+Enter = generate · Tab between fields'],
-            ['Chat',         'Enter = send · Shift+Enter = new line'],
-            ['Vault',        'Click Select to enter bulk mode'],
-          ].map(([k, v]) => (
-            <div key={k} style={{ display: 'flex', gap: '1rem' }}>
-              <span style={{
-                width: 110, flexShrink: 0,
-                fontSize: '0.875rem', fontWeight: 500,
-                color: 'var(--text2)',
-              }}>{k}</span>
-              <span style={{ fontSize: '0.875rem', color: 'var(--text3)' }}>{v}</span>
-            </div>
-          ))}
         </div>
       </Section>
     </div>
