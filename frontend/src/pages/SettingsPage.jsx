@@ -236,18 +236,29 @@ export default function SettingsPage() {
         pro:    { max_episodes_pm: 30,   max_categories: 10   },
         studio: { max_episodes_pm: 9999, max_categories: 9999 },
       }
-      // Direct Supabase call via admin route
-      const res = await fetch(`/api/admin/users/${userId}/tier`, {
+      const { getSession } = await import('../lib/supabase')
+      const session = await getSession()
+      const token = session?.access_token
+      if (!token) throw new Error('Not authenticated')
+
+      const BASE = import.meta.env.VITE_API_URL || '/api'
+      const res = await fetch(`${BASE}/admin/users/${userId}/tier`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${(await import('../lib/supabase')).getSession().then(s => s?.access_token)}` },
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
         body: JSON.stringify({ tier }),
       })
-      if (!res.ok) throw new Error('Failed')
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        throw new Error(err.error || `${res.status}`)
+      }
       setAdminUsers(prev => prev.map(u => u.id === userId ? { ...u, tier } : u))
       if (userId === profile?.id) setProfile({ ...profile, tier, ...limits[tier] })
       notify(`Tier updated to ${tier}`, 'success')
     } catch (err) {
-      notify('Failed to update tier', 'error')
+      notify('Failed to update tier: ' + err.message, 'error')
     }
     setTierSaving(s => ({ ...s, [userId]: false }))
   }
