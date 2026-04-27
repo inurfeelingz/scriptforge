@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" fill="none">
+  <rect width="64" height="64" rx="16" fill="#d4a853"/>
+  <!-- Waveform -->
+  <path d="M14 32 Q18 20 22 32 Q26 44 30 32 Q34 20 38 32 Q42 44 46 32 Q50 20 50 28"
+        stroke="#0c0c12" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  <!-- Scissors blades at cut point -->
+  <line x1="46" y1="22" x2="54" y2="14" stroke="#0c0c12" stroke-width="2.5" stroke-linecap="round"/>
+  <line x1="46" y1="22" x2="54" y2="30" stroke="#0c0c12" stroke-width="2.5" stroke-linecap="round"/>
+  <circle cx="46" cy="22" r="3" fill="#0c0c12"/>
+  <!-- Tail whispers -->
+  <line x1="14" y1="32" x2="9" y2="32" stroke="#0c0c12" stroke-width="1.5" stroke-linecap="round" opacity="0.35"/>
+  <line x1="50" y1="32" x2="55" y2="32" stroke="#0c0c12" stroke-width="1.5" stroke-linecap="round" opacity="0.35"/>
+</svg>
