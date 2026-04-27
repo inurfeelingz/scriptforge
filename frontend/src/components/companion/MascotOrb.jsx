@@ -43,12 +43,12 @@ function cssVarRgb(varName, fallback) {
 function getMoods() {
   const isDark = document.documentElement.getAttribute('data-theme') !== 'light'
   return {
-    idle:       { r: 52,  speed: 0.008, rgb: isDark ? [100, 115, 155] : [130, 140, 180], bloom: 0.15, wobble: 0.20, pulse: 0.030 },
-    listening:  { r: 60,  speed: 0.022, rgb: isDark ? [140, 170, 220] : [100, 130, 210], bloom: 0.55, wobble: 0.70, pulse: 0.16  },
-    discovery:  { r: 68,  speed: 0.034, rgb: [212, 168,  83],                             bloom: 1.00, wobble: 1.30, pulse: 0.28  },
-    marking:    { r: 64,  speed: 0.026, rgb: [212, 168,  83],                             bloom: 0.90, wobble: 0.55, pulse: 0.30  },
-    processing: { r: 56,  speed: 0.024, rgb: isDark ? [ 96, 165, 250] : [ 60, 120, 230], bloom: 0.60, wobble: 0.85, pulse: 0.10  },
-    offline:    { r: 42,  speed: 0.003, rgb: isDark ? [ 55,  58,  70] : [180, 182, 190], bloom: 0.04, wobble: 0.08, pulse: 0.008 },
+    idle:       { r: 52,  speed: 0.0008, rgb: isDark ? [100, 115, 155] : [130, 140, 180], bloom: 0.15, wobble: 0.06, pulse: 0.010 },
+    listening:  { r: 60,  speed: 0.022,  rgb: isDark ? [140, 170, 220] : [100, 130, 210], bloom: 0.55, wobble: 0.70, pulse: 0.16  },
+    discovery:  { r: 68,  speed: 0.034,  rgb: [212, 168,  83],                             bloom: 1.00, wobble: 1.30, pulse: 0.28  },
+    marking:    { r: 64,  speed: 0.026,  rgb: [212, 168,  83],                             bloom: 0.90, wobble: 0.55, pulse: 0.30  },
+    processing: { r: 56,  speed: 0.018,  rgb: isDark ? [ 96, 165, 250] : [ 60, 120, 230], bloom: 0.60, wobble: 0.85, pulse: 0.10  },
+    offline:    { r: 42,  speed: 0.0002, rgb: isDark ? [ 55,  58,  70] : [180, 182, 190], bloom: 0.04, wobble: 0.02, pulse: 0.003 },
   }
 }
 
@@ -112,8 +112,8 @@ export default function MascotOrb({ mood = 'idle', audioLevel = 0, size = 280 })
       const s = stateRef.current
       ctx.clearRect(0, 0, W, H)
 
-      // Lerp current mood toward target
-      const sp = 0.032
+      // Lerp current mood toward target — slower when settling into idle
+      const sp = s.prevMood === 'idle' ? 0.008 : 0.032
       const cm = s.currentMood
       const tm = s.targetMood
       cm.r      = lerp(cm.r,      tm.r,      sp)
