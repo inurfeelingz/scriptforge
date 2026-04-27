@@ -7,16 +7,43 @@
 [build.environment]
   NODE_VERSION = "20"
 
+# Static assets must NOT be redirected to index.html
+# This fixes the CSS MIME type error
+[[redirects]]
+  from   = "/assets/*"
+  to     = "/assets/:splat"
+  status = 200
+
+[[redirects]]
+  from   = "/icons/*"
+  to     = "/icons/:splat"
+  status = 200
+
+[[redirects]]
+  from   = "/*.js"
+  to     = "/:splat.js"
+  status = 200
+
+[[redirects]]
+  from   = "/*.css"
+  to     = "/:splat.css"
+  status = 200
+
+# SPA fallback — all other routes serve index.html
 [[redirects]]
   from   = "/*"
   to     = "/index.html"
   status = 200
 
 [[headers]]
+  for = "/assets/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
   for = "/*"
   [headers.values]
-    X-Frame-Options                = "DENY"
-    X-Content-Type-Options         = "nosniff"
-    Referrer-Policy                = "strict-origin-when-cross-origin"
-    Cross-Origin-Opener-Policy     = "same-origin"
-    Cross-Origin-Embedder-Policy   = "require-corp"
+    X-Frame-Options            = "DENY"
+    X-Content-Type-Options     = "nosniff"
+    Referrer-Policy            = "strict-origin-when-cross-origin"
+    Cross-Origin-Opener-Policy = "same-origin"

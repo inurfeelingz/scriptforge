@@ -120,7 +120,28 @@ export default function Companion() {
   const [editingTitle, setEditingTitle] = useState(false)
   const [pastSessions, setPastSessions] = useState([])
   const [loadingSessions, setLoadingSessions] = useState(false)
-  const isDragging    = useRef(false)
+  const [installPrompt, setInstallPrompt] = useState(null)
+  const [showInstallBanner, setShowInstallBanner] = useState(false)
+  const isDragging = useRef(false)
+
+  // PWA install prompt
+  useEffect(() => {
+    const handler = (e) => {
+      e.preventDefault()
+      setInstallPrompt(e)
+      setShowInstallBanner(true)
+    }
+    window.addEventListener('beforeinstallprompt', handler)
+    return () => window.removeEventListener('beforeinstallprompt', handler)
+  }, [])
+
+  async function handleInstall() {
+    if (!installPrompt) return
+    installPrompt.prompt()
+    const { outcome } = await installPrompt.userChoice
+    if (outcome === 'accepted') setShowInstallBanner(false)
+    setInstallPrompt(null)
+  }
 
   // Keep session ID ref in sync
   useEffect(() => { sessionIdRef.current = state.sessionId }, [state.sessionId])
@@ -593,10 +614,39 @@ export default function Companion() {
       style={{ touchAction: 'pan-y' }}
     >
 
+      {/* ── INSTALL BANNER ───────────────────────────────────────────────────── */}
+      {showInstallBanner && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, zIndex: 100,
+          background: '#1c2028', borderBottom: '1px solid rgba(255,255,255,0.1)',
+          padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 12,
+        }}>
+          <img src="/icon-mark.svg" alt="" style={{ width: 28, height: 28, flexShrink: 0 }}/>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: '#e8eaed' }}>Add to Home Screen</div>
+            <div style={{ fontSize: 11, color: '#8a8f9a', marginTop: 1 }}>Install WhispaCuts Companion for offline use</div>
+          </div>
+          <button
+            onClick={handleInstall}
+            style={{ padding: '6px 14px', background: '#d4a853', color: '#080c10', border: 'none',
+              borderRadius: 6, fontSize: 12, fontWeight: 700, cursor: 'pointer', flexShrink: 0 }}
+          >
+            Install
+          </button>
+          <button
+            onClick={() => setShowInstallBanner(false)}
+            style={{ padding: '6px 10px', background: 'transparent', color: '#8a8f9a',
+              border: '1px solid rgba(255,255,255,0.1)', borderRadius: 6, fontSize: 12, cursor: 'pointer', flexShrink: 0 }}
+          >
+            Later
+          </button>
+        </div>
+      )}
+
       {/* ── STATUS BAR ──────────────────────────────────────────────────────── */}
       <header className="companion-header">
         <div className="companion-brand">
-          <span className="brand-word">SF</span>
+          <img src="/icon-mark.svg" alt="WhispaCuts" style={{ width: 22, height: 22 }}/>
           {cat && <span className="brand-cat">{cat.name}</span>}
         </div>
 

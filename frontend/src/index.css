@@ -251,6 +251,45 @@
   --accent-mid:  rgba(184,136,42,0.35);
 }
 
+/* Force light mode to override ALL background/text Tailwind classes */
+[data-theme="light"] body,
+[data-theme="light"] #root,
+[data-theme="light"] .min-h-screen,
+[data-theme="light"] [class*="bg-[#0"],
+[data-theme="light"] [class*="bg-[#1"] {
+  background-color: var(--bg) !important;
+  color: var(--text) !important;
+}
+
+[data-theme="light"] [class*="text-[#f"],
+[data-theme="light"] [class*="text-[#e"] {
+  color: var(--text) !important;
+}
+
+[data-theme="light"] [class*="text-[#8"],
+[data-theme="light"] [class*="text-[#9"],
+[data-theme="light"] [class*="text-[#a"] {
+  color: var(--text2) !important;
+}
+
+[data-theme="light"] [class*="text-[#4"],
+[data-theme="light"] [class*="text-[#5"],
+[data-theme="light"] [class*="text-[#6"] {
+  color: var(--text3) !important;
+}
+
+[data-theme="light"] [class*="border-[#1"],
+[data-theme="light"] [class*="border-[#2"] {
+  border-color: var(--border) !important;
+}
+
+[data-theme="light"] aside,
+[data-theme="light"] header,
+[data-theme="light"] main,
+[data-theme="light"] nav {
+  background-color: var(--surface) !important;
+}
+
 /* ── Mobile ────────────────────────────────────────────────────────────────── */
 @media (max-width: 768px) {
   body { font-size: 0.9375rem; }

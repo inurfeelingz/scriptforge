@@ -36,7 +36,7 @@ export default function SeriesPage() {
   const cat = activeCategory?.()
 
   useEffect(() => {
-    if (!activeCategoryId) return
+    if (!activeCategoryId) { setLoading(false); return }
     episodesApi.list({ categoryId: activeCategoryId, limit: 50 })
       .then(({ episodes }) => { setEpisodes(episodes || []); setLoading(false) })
       .catch(() => setLoading(false))
