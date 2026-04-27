@@ -250,28 +250,53 @@ export default function Companion() {
   // Each brand gets the optimal constraints (sample rate, processing, stereo).
 
   async function getBestMicStream() {
-    const devices    = await navigator.mediaDevices.enumerateDevices()
-    const detection  = detectMic(devices)
-    const constraints = buildConstraints(detection)
-    const stream     = await navigator.mediaDevices.getUserMedia(constraints)
+    // Step 1: request basic permission first — without this, enumerateDevices
+    // returns empty labels and we can't detect the mic model
+    let permStream
+    try {
+      permStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false })
+    } catch (err) {
+      if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+        throw new Error('Microphone access denied — tap Allow when your browser asks')
+      }
+      if (err.name === 'NotFoundError') {
+        throw new Error('No microphone found — connect a mic and try again')
+      }
+      throw err
+    }
+    // Stop the permission-request stream — we'll get a better one below
+    permStream.getTracks().forEach(t => t.stop())
 
-    // Confirm actual settings the browser negotiated
-    const activeTrack  = stream.getAudioTracks()[0]
-    const settings     = activeTrack?.getSettings?.() || {}
-    const isStereo     = needsStereoSum(detection) || settings.channelCount === 2
-    const bitrate      = getRecordingBitrate(detection)
-    const isDJI        = /dji/i.test(detection.match?.brand || '')
-    const isExternal   = detection.isExternal
+    // Step 2: now enumerate with labels populated
+    const devices     = await navigator.mediaDevices.enumerateDevices()
+    const detection   = detectMic(devices)
+    const constraints = buildConstraints(detection)
+
+    // Step 3: get the optimised stream
+    let stream
+    try {
+      stream = await navigator.mediaDevices.getUserMedia(constraints)
+    } catch {
+      // Fallback to simplest constraints if advanced ones fail
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false })
+    }
+
+    const activeTrack = stream.getAudioTracks()[0]
+    const settings    = activeTrack?.getSettings?.() || {}
+    const isStereo    = needsStereoSum(detection) || settings.channelCount === 2
+    const bitrate     = getRecordingBitrate(detection)
+    const isDJI       = /dji/i.test(detection.match?.brand || '')
+    const isExternal  = detection.isExternal
 
     return {
       stream,
-      label:        detection.displayLabel,
+      label:      detection.displayLabel || activeTrack?.label || 'Microphone',
       isDJI,
       isExternal,
       isStereo,
       bitrate,
-      sampleRate:   settings.sampleRate || detection.match?.sampleRate || 44100,
-      micInfo:      describeMic(detection),
+      sampleRate: settings.sampleRate || detection.match?.sampleRate || 44100,
+      micInfo:    describeMic(detection),
       detection,
     }
   }
@@ -710,8 +735,8 @@ export default function Companion() {
             </div>
           )}
 
-          {/* Mascot orb — entity that reacts to your voice */}
-          <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '200px' }}>
+          {/* Mascot orb */}
+          <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '8px 0' }}>
             <MascotOrb mood={state.orbMood} audioLevel={state.audioLevel} size={200}/>
           </div>
 
@@ -732,10 +757,10 @@ export default function Companion() {
             </div>
           )}
 
-          {/* Live entry feed */}
+          {/* Live entry feed — all entries, scrolls to latest */}
           {state.entries.length > 0 && (
-            <div className="entry-feed">
-              {state.entries.slice(-5).map(e => (
+            <div className="entry-feed" ref={el => { if (el) el.scrollTop = el.scrollHeight }}>
+              {state.entries.map(e => (
                 <EntryRow
                   key={e.id}
                   entry={e}
@@ -861,18 +886,34 @@ export default function Companion() {
             <div className="journal-list" style={{marginTop: state.entries.length ? 12 : 4}}>
               {pastSessions.map(s => (
                 <div key={s.id} className="swipeable-entry"
-                  style={{flexDirection:'column',gap:5,alignItems:'flex-start',cursor:s.voice_memo_text?'pointer':'default'}}
-                  onClick={() => { if (s.voice_memo_text) set({ processed: { voiceMemoText: s.voice_memo_text, keyMoments: s.key_moments||[] }, screen: 2 }) }}
+                  style={{flexDirection:'column',gap:5,alignItems:'flex-start'}}
                 >
                   <div style={{display:'flex',justifyContent:'space-between',width:'100%',alignItems:'center'}}>
-                    <span style={{fontSize:14,color:'#e8eaed',fontWeight:500}}>{s.title||'Session'}</span>
-                    <span style={{fontSize:11,color:'rgba(255,255,255,0.25)'}}>{new Date(s.recorded_at||s.created_at).toLocaleDateString()}</span>
+                    <span
+                      style={{fontSize:14,color:'#e8eaed',fontWeight:500,flex:1,cursor:s.voice_memo_text?'pointer':'default'}}
+                      onClick={() => { if (s.voice_memo_text) set({ processed: { voiceMemoText: s.voice_memo_text, keyMoments: s.key_moments||[] }, screen: 2 }) }}
+                    >{s.title||'Session'}</span>
+                    <div style={{display:'flex',alignItems:'center',gap:8,flexShrink:0}}>
+                      <span style={{fontSize:11,color:'rgba(255,255,255,0.25)'}}>{new Date(s.recorded_at||s.created_at).toLocaleDateString()}</span>
+                      <button
+                        onClick={() => {
+                          api.delete(`/session/${s.id}`).then(() => {
+                            setPastSessions(prev => prev.filter(x => x.id !== s.id))
+                          }).catch(() => {})
+                        }}
+                        style={{background:'none',border:'none',color:'rgba(255,255,255,0.2)',cursor:'pointer',padding:'2px 4px',fontSize:16,lineHeight:1}}
+                        title="Delete session"
+                      >×</button>
+                    </div>
                   </div>
                   <span style={{fontSize:10,padding:'1px 6px',borderRadius:99,background:s.voice_memo_text?'rgba(74,222,128,0.1)':'rgba(255,255,255,0.05)',color:s.voice_memo_text?'#4ade80':'rgba(255,255,255,0.3)',border:s.voice_memo_text?'1px solid rgba(74,222,128,0.2)':'1px solid rgba(255,255,255,0.08)'}}>
-                    {s.voice_memo_text ? 'memo ready' : (s.status||'recorded')}
+                    {s.voice_memo_text ? 'tap to view memo' : (s.status||'recorded')}
                   </span>
                   {s.voice_memo_text && (
-                    <div style={{fontSize:12,color:'rgba(255,255,255,0.4)',lineHeight:1.4,display:'-webkit-box',WebkitLineClamp:2,WebkitBoxOrient:'vertical',overflow:'hidden'}}>
+                    <div
+                      style={{fontSize:12,color:'rgba(255,255,255,0.4)',lineHeight:1.4,display:'-webkit-box',WebkitLineClamp:2,WebkitBoxOrient:'vertical',overflow:'hidden',cursor:'pointer'}}
+                      onClick={() => set({ processed: { voiceMemoText: s.voice_memo_text, keyMoments: s.key_moments||[] }, screen: 2 })}
+                    >
                       {s.voice_memo_text}
                     </div>
                   )}
