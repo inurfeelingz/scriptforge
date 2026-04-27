@@ -43,11 +43,11 @@ function cssVarRgb(varName, fallback) {
 function getMoods() {
   const isDark = document.documentElement.getAttribute('data-theme') !== 'light'
   return {
-    idle:       { r: 52,  speed: 0.0008, rgb: isDark ? [100, 115, 155] : [130, 140, 180], bloom: 0.15, wobble: 0.06, pulse: 0.010 },
-    listening:  { r: 60,  speed: 0.022,  rgb: isDark ? [140, 170, 220] : [100, 130, 210], bloom: 0.55, wobble: 0.70, pulse: 0.16  },
-    discovery:  { r: 68,  speed: 0.034,  rgb: [212, 168,  83],                             bloom: 1.00, wobble: 1.30, pulse: 0.28  },
-    marking:    { r: 64,  speed: 0.026,  rgb: [212, 168,  83],                             bloom: 0.90, wobble: 0.55, pulse: 0.30  },
-    processing: { r: 56,  speed: 0.018,  rgb: isDark ? [ 96, 165, 250] : [ 60, 120, 230], bloom: 0.60, wobble: 0.85, pulse: 0.10  },
+    idle:       { r: 52,  speed: 0.0008, rgb: isDark ? [100, 115, 155] : [130, 140, 180], bloom: 0.20, wobble: 0.06, pulse: 0.010 },
+    listening:  { r: 60,  speed: 0.022,  rgb: isDark ? [140, 170, 220] : [100, 130, 210], bloom: 1.20, wobble: 0.70, pulse: 0.16  },
+    discovery:  { r: 68,  speed: 0.034,  rgb: [212, 168,  83],                             bloom: 2.00, wobble: 1.30, pulse: 0.28  },
+    marking:    { r: 64,  speed: 0.026,  rgb: [212, 168,  83],                             bloom: 1.80, wobble: 0.55, pulse: 0.30  },
+    processing: { r: 56,  speed: 0.018,  rgb: isDark ? [ 96, 165, 250] : [ 60, 120, 230], bloom: 1.40, wobble: 0.85, pulse: 0.10  },
     offline:    { r: 42,  speed: 0.0002, rgb: isDark ? [ 55,  58,  70] : [180, 182, 190], bloom: 0.04, wobble: 0.02, pulse: 0.003 },
   }
 }
@@ -158,11 +158,12 @@ function drawOrb(ctx, s, cm, cx, cy, W) {
   const { r, bloom, wobble, rgb: [rr, rg, rb], speed } = cm
   const energy = s.energy
 
-  // Outer bloom glow
-  const bloomR = r * (2.1 + bloom * 0.9)
-  const grd = ctx.createRadialGradient(cx, cy, r * 0.3, cx, cy, bloomR)
-  grd.addColorStop(0,   `rgba(${rr},${rg},${rb},${0.10 + bloom * 0.06})`)
-  grd.addColorStop(0.4, `rgba(${rr},${rg},${rb},${0.04 + bloom * 0.02})`)
+  // Outer bloom glow — larger radius and higher opacity
+  const bloomR = r * (3.2 + bloom * 1.8)
+  const grd = ctx.createRadialGradient(cx, cy, r * 0.2, cx, cy, bloomR)
+  grd.addColorStop(0,   `rgba(${rr},${rg},${rb},${0.18 + bloom * 0.14})`)
+  grd.addColorStop(0.3, `rgba(${rr},${rg},${rb},${0.08 + bloom * 0.06})`)
+  grd.addColorStop(0.6, `rgba(${rr},${rg},${rb},${0.03 + bloom * 0.02})`)
   grd.addColorStop(1,   `rgba(${rr},${rg},${rb},0)`)
   ctx.beginPath()
   ctx.arc(cx, cy, bloomR, 0, Math.PI * 2)

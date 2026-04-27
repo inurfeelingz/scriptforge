@@ -781,7 +781,12 @@ export default function Companion() {
 
           {/* Live entry feed — all entries, scrolls to latest */}
           {state.entries.length > 0 && (
-            <div className="entry-feed" ref={el => { if (el) el.scrollTop = el.scrollHeight }}>
+            <div className="entry-feed" ref={el => {
+              if (el) {
+                // Always scroll to bottom when entries update
+                el.scrollTop = el.scrollHeight
+              }
+            }} key={state.entries.length}>
               {state.entries.map(e => (
                 <EntryRow
                   key={e.id}
