@@ -1059,7 +1059,7 @@ export default function Companion() {
                 value={state.processed.voiceMemoText}
                 onChange={e => set({ processed: { ...state.processed, voiceMemoText: e.target.value } })}
                 rows={8}
-                style={{resize:'vertical',outline:'none',border:'1px solid #1a1a1a',background:'#0a0a0a',borderRadius:'12px',padding:'16px',fontFamily:'inherit',fontSize:'14px',color:'#aaa',lineHeight:'1.7',width:'100%',boxSizing:'border-box'}}
+                style={{resize:'vertical',outline:'none',border:'1px solid rgba(255,255,255,0.1)',background:'rgba(255,255,255,0.05)',borderRadius:'12px',padding:'16px',fontFamily:'inherit',fontSize:'15px',color:'#e8eaed',lineHeight:'1.7',width:'100%',boxSizing:'border-box'}}
               />
 
               {/* Actions */}

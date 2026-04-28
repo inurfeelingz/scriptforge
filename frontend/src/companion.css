@@ -597,7 +597,7 @@
 }
 
 .memo-moments {
-  background:    #0d1116;
+  background:    rgba(255,255,255,0.04);
   border:        1px solid rgba(255,255,255,0.06);
   border-radius: 12px;
   padding:       14px;
@@ -608,7 +608,7 @@
 
 .memo-section-label {
   font-size:      10px;
-  color:          #444;
+  color:          rgba(255,255,255,0.45);
   text-transform: uppercase;
   letter-spacing: 2px;
   margin-bottom:  4px;
@@ -626,13 +626,13 @@
   flex-shrink: 0;
 }
 
-.moment-text { color: #666; }
+.moment-text { color: rgba(255,255,255,0.55); }
 
 .memo-text {
   font-size:   14px;
-  color:       #aaa;
+  color:       #e8eaed;
   line-height: 1.7;
-  background:  #0a0a0a;
+  background:  rgba(255,255,255,0.04);
   border:      1px solid rgba(255,255,255,0.06);
   border-radius: 12px;
   padding:     16px;
