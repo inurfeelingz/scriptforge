@@ -1012,6 +1012,10 @@ export default function Companion() {
         {/* ══ SCREEN 2: MEMO ═════════════════════════════════════════════════ */}
         <div className="screen screen-memo">
           <div className="screen-title">Voice memo</div>
+          {/* DEBUG — remove after fix */}
+          <div style={{fontSize:11,color:'#888',padding:'4px 0'}}>
+            screen:{state.screen} processed:{state.processed?'YES':'NO'} processing:{state.processing?'Y':'N'} error:{state.error?'Y':'N'}
+          </div>
 
           {!state.processed && !state.processing && (
             <div className="empty-memo">
