@@ -780,36 +780,30 @@ export default function Companion() {
             </div>
           )}
 
-          {/* Live entry feed — shown ABOVE orb so always visible on small screens */}
-          {state.entries.length > 0 && (
-            <div className="entry-feed" ref={el => {
-              if (el) el.scrollTop = el.scrollHeight
-            }} key={state.entries.length}>
-              {state.entries.map(e => (
-                <EntryRow
-                  key={e.id}
-                  entry={e}
-                  elapsed={state.elapsedMs}
-                  onDelete={() => dispatch({ type: 'REMOVE_ENTRY', id: e.id })}
-                />
-              ))}
+          {/* When transcript entries exist: show centered, hide orb */}
+          {state.entries.length > 0 ? (
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', padding: '8px 0' }}>
+              <div className="entry-feed" ref={el => {
+                if (el) el.scrollTop = el.scrollHeight
+              }} key={state.entries.length} style={{ maxHeight: '55vh' }}>
+                {state.entries.map(e => (
+                  <EntryRow
+                    key={e.id}
+                    entry={e}
+                    elapsed={state.elapsedMs}
+                    onDelete={() => dispatch({ type: 'REMOVE_ENTRY', id: e.id })}
+                  />
+                ))}
+              </div>
             </div>
-          )}
-
-          {/* Mascot orb — absolutely positioned so bloom bleeds freely in all directions */}
-          <div style={{
-            position: 'relative', height: 220, flexShrink: 0,
-            display: 'flex', justifyContent: 'center', alignItems: 'center',
-          }}>
+          ) : (
+            /* Orb — only shown when no transcript yet */
             <div style={{
-              position: 'absolute',
-              top: '50%', left: '50%',
-              transform: 'translate(-50%, -50%)',
-              pointerEvents: 'none',
+              flex: 1, display: 'flex', justifyContent: 'center', alignItems: 'center',
             }}>
               <MascotOrb mood={state.orbMood} audioLevel={state.audioLevel} size={260}/>
             </div>
-          </div>
+          )}
 
           {/* Idle instructions — only when not recording */}
           {state.status === 'idle' && (
@@ -936,7 +930,13 @@ export default function Companion() {
         </div>
 
         {/* ══ SCREEN 1: JOURNAL ══════════════════════════════════════════════ */}
-        <div className="screen screen-journal">
+        <div className="screen screen-journal"
+          onTouchStart={e => { e._pullY = e.touches[0].clientY }}
+          onTouchEnd={e => {
+            const dist = e.changedTouches[0].clientY - (e._pullY || 0)
+            if (dist > 60) loadPastSessions()
+          }}
+        >
 
           <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:4}}>
             <div className="screen-title" style={{margin:0}}>Sessions</div>
