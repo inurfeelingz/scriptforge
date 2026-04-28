@@ -731,6 +731,7 @@ export default function Companion() {
       </div>
 
       {/* ── SLIDING SCREENS ─────────────────────────────────────────────────── */}
+      {process.env.NODE_ENV !== 'production' && console.log('[render] screen:', state.screen, 'processed:', !!state.processed, 'processing:', state.processing)}
       <div
         className="screens-container"
         style={{
