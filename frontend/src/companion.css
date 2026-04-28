@@ -577,7 +577,7 @@
 
 /* ─── MEMO SCREEN ────────────────────────────────────────────────────────── */
 
-.screen-memo { gap: 16px; }
+.screen-memo { gap: 16px; background: #080c10; color: #e8eaed; }
 
 .memo-loading {
   display:         flex;
@@ -591,9 +591,10 @@
 }
 
 .memo-content {
-  display:        flex;
-  flex-direction: column;
-  gap:            16px;
+  display:         flex;
+  flex-direction:  column;
+  gap:             16px;
+  color:           #e8eaed;
 }
 
 .memo-moments {
@@ -608,7 +609,7 @@
 
 .memo-section-label {
   font-size:      10px;
-  color:          rgba(255,255,255,0.45);
+  color:          rgba(255,255,255,0.55) !important;
   text-transform: uppercase;
   letter-spacing: 2px;
   margin-bottom:  4px;
@@ -629,14 +630,19 @@
 .moment-text { color: rgba(255,255,255,0.55); }
 
 .memo-text {
-  font-size:   14px;
-  color:       #e8eaed;
-  line-height: 1.7;
-  background:  rgba(255,255,255,0.04);
-  border:      1px solid rgba(255,255,255,0.06);
+  font-size:     15px;
+  color:         #e8eaed !important;
+  line-height:   1.7;
+  background:    #0f1318 !important;
+  border:        1px solid rgba(255,255,255,0.10);
   border-radius: 12px;
-  padding:     16px;
-  white-space: pre-wrap;
+  padding:       16px;
+  white-space:   pre-wrap;
+  width:         100%;
+  box-sizing:    border-box;
+  resize:        vertical;
+  outline:       none;
+  font-family:   'Figtree', system-ui, sans-serif;
 }
 
 .memo-actions {
