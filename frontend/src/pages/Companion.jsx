@@ -549,8 +549,7 @@ export default function Companion() {
     await new Promise(r => setTimeout(r, 2000))
 
     const timeoutId = setTimeout(() => {
-      set({ processing: false, orbMood: 'idle', error: 'Memo generation timed out — try again' })
-      set({ screen: 2 })
+      set({ processing: false, orbMood: 'idle', error: 'Memo generation timed out — try again', screen: 2 })
     }, 180000)  // 3 min — matches server timeout
 
     try {
@@ -560,15 +559,14 @@ export default function Companion() {
       const voiceMemoText = result?.voiceMemoText || result?.voice_memo_text || ''
       const keyMoments    = result?.keyMoments    || result?.key_moments    || []
       if (!voiceMemoText) throw new Error('No memo generated — speak clearly during recording')
-      set({ processed: { voiceMemoText, keyMoments }, processing: false, orbMood: 'idle' })
-      set({ screen: 2 })
+      // Single dispatch — avoids race between two set() calls
+      set({ processed: { voiceMemoText, keyMoments }, processing: false, orbMood: 'idle', screen: 2 })
       loadPastSessions()
       navigator.vibrate?.([100, 50, 100, 50, 200])
     } catch (err) {
       clearTimeout(timeoutId)
       console.error('[process] Error:', err.message)
-      set({ processing: false, orbMood: 'idle', error: err.message || 'Processing failed' })
-      set({ screen: 2 })
+      set({ processing: false, orbMood: 'idle', error: err.message || 'Processing failed', screen: 2 })
     }
   }
 
