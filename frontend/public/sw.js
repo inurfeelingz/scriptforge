@@ -2,7 +2,7 @@
 // Auto-updates: bumps CACHE_VERSION, clears old caches, activates immediately.
 // On update: posts UPDATE_AVAILABLE to all clients so the app can prompt reload.
 
-const CACHE_VERSION = 'wc-v4'   // ← bump this string on every deploy
+const CACHE_VERSION = 'wc-v5'   // ← bump this string on every deploy
 const STATIC_CACHE  = `${CACHE_VERSION}-static`
 const DYNAMIC_CACHE = `${CACHE_VERSION}-dynamic`
 
@@ -63,9 +63,14 @@ self.addEventListener('fetch', event => {
     return
   }
 
-  // Assets: stale-while-revalidate (fast load + background refresh)
-  if (url.pathname.match(/\.(js|css|png|jpg|webp|svg|ico|woff2?|ttf)$/) ||
-      url.pathname.startsWith('/assets/') ||
+  // JS/CSS: network-first so new deploys always load fresh code
+  // Images/fonts: stale-while-revalidate (safe to cache)
+  if (url.pathname.match(/\.(js|css)$/) ||
+      url.pathname.startsWith('/assets/')) {
+    event.respondWith(networkFirstAsset(request))
+    return
+  }
+  if (url.pathname.match(/\.(png|jpg|webp|svg|ico|woff2?|ttf)$/) ||
       url.pathname.startsWith('/icons/')) {
     event.respondWith(staleWhileRevalidate(request))
     return
@@ -125,6 +130,20 @@ async function cacheFirst(request, cacheName) {
     return response
   } catch {
     return (await caches.match('/')) || new Response('Offline', { status: 503 })
+  }
+}
+
+async function networkFirstAsset(request) {
+  try {
+    const response = await fetch(request)
+    if (response.ok) {
+      const cache = await caches.open(STATIC_CACHE)
+      cache.put(request, response.clone())
+    }
+    return response
+  } catch {
+    const cached = await caches.match(request)
+    return cached || new Response('Asset unavailable offline', { status: 503 })
   }
 }
 
