@@ -1,464 +1,276 @@
-// frontend/src/pages/Dashboard.jsx
-// Batch 3 improvements:
-//  07 — "What to work on today" AI daily directive
-//  08 — Episode pipeline Kanban — status lanes with one-tap advancement
-
-import { useEffect, useState, useCallback } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
-import {
-  Sparkles, Film, BookMarked, BarChart2, TrendingUp,
-  ArrowRight, RefreshCw, ChevronRight, Mic, Scissors,
-  Upload, Globe, Zap, BookOpen,
-} from 'lucide-react'
+// frontend/src/pages/SeriesPage.jsx
+import { useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { TrendingUp, Clock, Copy, X, Download, ChevronRight, FileText, Scissors, Zap } from 'lucide-react'
 import { useStore } from '../store'
-import { episodes as episodesApi, vault as vaultApi, analytics as analyticsApi, dashboard as dashboardApi } from '../lib/api'
-
-// ── Status lane config ────────────────────────────────────────────────────────
-const LANES = [
-  { key: 'draft',     label: 'Draft',     next: 'ready',     icon: Sparkles,  nextLabel: 'Mark generated' },
-  { key: 'ready',     label: 'Generated', next: 'recorded',  icon: Mic,       nextLabel: 'Mark recorded'  },
-  { key: 'recorded',  label: 'Recorded',  next: 'edited',    icon: Scissors,  nextLabel: 'Mark edited'    },
-  { key: 'edited',    label: 'Edited',    next: 'published', icon: Upload,    nextLabel: 'Publish'        },
-  { key: 'published', label: 'Published', next: null,        icon: Globe,     nextLabel: null             },
-]
+import { episodes as episodesApi } from '../lib/api'
 
 const STATUS_COLORS = {
-  draft:     { border: '#222',         text: '#555',     bg: '#0d0d0d'   },
-  ready:     { border: '#c8b89a40',    text: '#c8b89a',  bg: '#c8b89a08' },
-  recorded:  { border: '#4080c840',    text: '#4080c8',  bg: '#4080c808' },
-  edited:    { border: '#8060c840',    text: '#8060c8',  bg: '#8060c808' },
-  published: { border: '#40a06040',    text: '#40a060',  bg: '#40a06008' },
+  draft:     '#555',
+  generated: '#60a5fa',
+  recorded:  '#c084fc',
+  edited:    '#f59e0b',
+  published: '#4ade80',
 }
 
-const ACTION_ICONS = {
-  RECORD:    Mic,
-  GENERATE:  Sparkles,
-  EDIT:      Scissors,
-  PUBLISH:   Globe,
-  VAULT:     BookMarked,
-  ANALYTICS: BarChart2,
+function downloadFile(content, filename) {
+  const blob = new Blob([content], { type: 'text/plain' })
+  const url  = URL.createObjectURL(blob)
+  const a    = document.createElement('a')
+  a.href = url; a.download = filename; a.click()
+  URL.revokeObjectURL(url)
 }
 
-// ── Pipeline kanban ───────────────────────────────────────────────────────────
-function PipelineBoard({ lanes, onAdvance, advancing }) {
-  const [expanded, setExpanded] = useState('ready')
-
-  return (
-    <div className="space-y-2">
-      {LANES.map(lane => {
-        const eps     = lanes[lane.key] || []
-        const isOpen  = expanded === lane.key
-        const colors  = STATUS_COLORS[lane.key]
-        const LaneIcon = lane.icon
-
-        return (
-          <div
-            key={lane.key}
-            className="border rounded overflow-hidden transition-all"
-            style={{ borderColor: isOpen ? colors.border : '#1a1a1a' }}
-          >
-            {/* Lane header */}
-            <button
-              onClick={() => setExpanded(isOpen ? null : lane.key)}
-              className="w-full flex items-center gap-3 px-4 py-3 text-left transition-colors"
-              style={{ background: isOpen ? colors.bg : 'transparent' }}
-            >
-              <LaneIcon size={13} style={{ color: colors.text, flexShrink: 0 }}/>
-              <span className="text-sm font-medium" style={{ color: isOpen ? colors.text : '#666' }}>
-                {lane.label}
-              </span>
-              <span className="ml-auto text-xs px-2 py-0.5 rounded-full"
-                style={{
-                  background: eps.length ? colors.bg : '#0d0d0d',
-                  color:      eps.length ? colors.text : '#444',
-                  border:     `1px solid ${eps.length ? colors.border : '#1a1a1a'}`,
-                }}
-              >
-                {eps.length}
-              </span>
-              <ChevronRight size={12} className="text-[#444] transition-transform"
-                style={{ transform: isOpen ? 'rotate(90deg)' : 'none' }}/>
-            </button>
-
-            {/* Lane cards */}
-            {isOpen && (
-              <div className="border-t divide-y"
-                style={{ borderColor: '#1a1a1a' }}>
-                {eps.length === 0 ? (
-                  <div className="px-4 py-3 text-xs text-[#444] italic">Nothing here yet</div>
-                ) : (
-                  eps.map(ep => (
-                    <EpisodeCard
-                      key={ep.id}
-                      ep={ep}
-                      lane={lane}
-                      colors={colors}
-                      onAdvance={onAdvance}
-                      advancing={advancing === ep.id}
-                    />
-                  ))
-                )}
-              </div>
-            )}
-          </div>
-        )
-      })}
-    </div>
-  )
-}
-
-function EpisodeCard({ ep, lane, colors, onAdvance, advancing }) {
-  return (
-    <div className="flex items-center gap-3 px-4 py-3 group hover:bg-[#0d0d0d] transition-colors">
-      <span className="text-xs font-mono text-[#444] w-7 shrink-0">#{ep.episode_number}</span>
-      <div className="flex-1 min-w-0">
-        <div className="text-sm text-[#ccc] truncate">{ep.track_name}</div>
-        {ep.track_mood && <div className="text-xs text-[#444] mt-0.5">{ep.track_mood}</div>}
-      </div>
-      {ep.yt_retention_score && (
-        <span className="text-xs shrink-0" style={{ color: colors.text }}>
-          {ep.yt_retention_score}%
-        </span>
-      )}
-      {lane.next && (
-        <button
-          onClick={() => onAdvance(ep.id, lane.next)}
-          disabled={advancing}
-          className="shrink-0 flex items-center gap-1.5 px-2.5 py-1 rounded border text-[10px] opacity-0 group-hover:opacity-100 transition-all disabled:opacity-40"
-          style={{
-            borderColor: colors.border,
-            color:       colors.text,
-            background:  colors.bg,
-          }}
-        >
-          {advancing ? <RefreshCw size={9} className="animate-spin"/> : <ArrowRight size={9}/>}
-          {lane.nextLabel}
-        </button>
-      )}
-    </div>
-  )
-}
-
-// ── Daily directive card ──────────────────────────────────────────────────────
-function DirectiveCard({ brief, loading, onRefresh }) {
+export default function SeriesPage() {
+  const { activeCategoryId, activeCategory } = useStore()
+  const cat      = activeCategory?.()
   const navigate = useNavigate()
 
-  if (loading) return (
-    <div className="border border-[#1a1a1a] rounded p-5 space-y-3 animate-pulse">
-      <div className="h-3 w-24 bg-[#1a1a1a] rounded"/>
-      <div className="h-5 w-3/4 bg-[#1a1a1a] rounded"/>
-      <div className="h-8 w-32 bg-[#1a1a1a] rounded"/>
-    </div>
-  )
-
-  if (!brief) return null
-
-  const Icon = ACTION_ICONS[brief.action] || Sparkles
-
-  return (
-    <div className="border border-[#c8b89a]/25 rounded p-5 bg-[#c8b89a]/4 space-y-4">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Zap size={12} className="text-[var(--accent)]"/>
-          <span className="text-[10px] font-medium uppercase tracking-wider text-[var(--accent)]/70">
-            Today's focus
-          </span>
-          {brief.fromCache && (
-            <span className="text-[10px] text-[#444]">· cached</span>
-          )}
-        </div>
-        <button
-          onClick={onRefresh}
-          className="text-[#444] hover:text-[#888] transition-colors"
-          title="Refresh directive"
-        >
-          <RefreshCw size={12}/>
-        </button>
-      </div>
-
-      <p className="text-base text-[#eeeaf2] leading-snug font-medium">
-        {brief.directive}
-      </p>
-
-      {brief.route && (
-        <button
-          onClick={() => navigate(brief.route)}
-          className="flex items-center gap-2 px-4 py-2 bg-[#c8b89a] text-[#080808] rounded text-sm font-medium hover:bg-[#e8c87a] transition-all"
-        >
-          <Icon size={13}/>
-          {brief.action === 'RECORD'    ? 'Open Teleprompter' :
-           brief.action === 'GENERATE'  ? 'Generate episode'  :
-           brief.action === 'EDIT'      ? 'Open Editor'       :
-           brief.action === 'PUBLISH'   ? 'Open Series'       :
-           brief.action === 'VAULT'     ? 'Open Vault'        :
-           brief.action === 'ANALYTICS' ? 'Open Analytics'    : 'Get started'}
-          <ChevronRight size={13}/>
-        </button>
-      )}
-    </div>
-  )
-}
-
-// ── Main Dashboard ────────────────────────────────────────────────────────────
-export default function Dashboard() {
-  const { activeCategoryId, activeCategory, notify } = useStore()
-  const cat = activeCategory?.()
-
-  // Brief state (07)
-  const [brief,       setBrief]       = useState(null)
-  const [briefLoading, setBriefLoading] = useState(false)
-
-  // Pipeline state (08)
-  const [lanes,       setLanes]       = useState({})
-  const [pipeLoading, setPipeLoading] = useState(false)
-  const [advancing,   setAdvancing]   = useState(null)
-
-  // Existing sidebar data
-  const [vaultStats,     setVaultStats]     = useState(null)
-  const [recommendations, setRecs]          = useState([])
-  const [kpis,           setKpis]           = useState(null)
-  const [latestInsights, setInsights]       = useState(null)
-  const [sideLoading,    setSideLoading]    = useState(true)
-
-  const loadBrief = useCallback(async (force = false) => {
-    if (!activeCategoryId) return
-    setBriefLoading(true)
-    try {
-      // Force refresh busts the server cache by re-requesting
-      const data = await dashboardApi.brief(activeCategoryId + (force ? `&bust=${Date.now()}` : ''))
-      setBrief(data)
-    } catch (err) {
-      console.warn('Brief failed:', err.message)
-    }
-    setBriefLoading(false)
-  }, [activeCategoryId])
-
-  const loadPipeline = useCallback(async () => {
-    if (!activeCategoryId) return
-    setPipeLoading(true)
-    try {
-      const data = await dashboardApi.pipeline(activeCategoryId)
-      setLanes(data.lanes || {})
-    } catch (err) {
-      console.warn('Pipeline failed:', err.message)
-    }
-    setPipeLoading(false)
-  }, [activeCategoryId])
-
-  const loadSidePanel = useCallback(async () => {
-    if (!activeCategoryId) return
-    setSideLoading(true)
-    try {
-      const [stats, recs, analytics, eps] = await Promise.all([
-        vaultApi.stats({ categoryId: activeCategoryId }),
-        vaultApi.recommendations({ categoryId: activeCategoryId }),
-        analyticsApi.list({ categoryId: activeCategoryId }),
-        episodesApi.list({ categoryId: activeCategoryId, limit: 20 }),
-      ])
-      setVaultStats(stats)
-      setRecs(recs.recommendations || [])
-      setInsights(analytics.uploads?.[0]?.insights || null)
-
-      const withData = (eps.episodes || []).filter(e => e.yt_retention_score)
-      if (withData.length) {
-        const avg  = Math.round(withData.reduce((s, e) => s + (e.yt_retention_score || 0), 0) / withData.length)
-        const best = withData.reduce((a, b) => (a.yt_retention_score || 0) > (b.yt_retention_score || 0) ? a : b, withData[0])
-        setKpis({ avgRetention: avg, episodesWithData: withData.length, bestEp: best })
-      }
-    } catch (err) {
-      console.warn('Side panel failed:', err.message)
-    }
-    setSideLoading(false)
-  }, [activeCategoryId])
+  const [episodes,  setEpisodes]  = useState([])
+  const [loading,   setLoading]   = useState(true)
+  const [duping,    setDuping]    = useState(null)
+  const [selected,  setSelected]  = useState(null)  // full episode object for drawer
+  const [loadingEp, setLoadingEp] = useState(null)
 
   useEffect(() => {
     if (!activeCategoryId) return
-    loadBrief()
-    loadPipeline()
-    loadSidePanel()
+    setLoading(true)
+    episodesApi.list({ categoryId: activeCategoryId, limit: 50 })
+      .then(({ episodes }) => { setEpisodes(episodes || []); setLoading(false) })
+      .catch(() => setLoading(false))
   }, [activeCategoryId])
 
-  // 08 — Advance episode status from kanban
-  async function handleAdvance(episodeId, newStatus) {
-    setAdvancing(episodeId)
+  async function openEpisode(ep) {
+    setLoadingEp(ep.id)
     try {
-      await dashboardApi.advanceStatus(episodeId, newStatus)
-      // Optimistically update pipeline
-      setLanes(prev => {
-        const next = { ...prev }
-        let movedEp = null
-        // Remove from current lane
-        for (const lane of Object.keys(next)) {
-          const idx = next[lane].findIndex(e => e.id === episodeId)
-          if (idx !== -1) {
-            movedEp = { ...next[lane][idx], status: newStatus }
-            next[lane] = next[lane].filter(e => e.id !== episodeId)
-            break
-          }
-        }
-        // Add to new lane
-        if (movedEp && next[newStatus]) {
-          next[newStatus] = [movedEp, ...next[newStatus]]
-        }
-        return next
-      })
-      // Refresh brief — status change might update the directive
-      loadBrief(true)
-      notify(`Episode moved to ${newStatus}`, 'success')
-    } catch (err) {
-      notify('Failed to update: ' + err.message, 'error')
-    }
-    setAdvancing(null)
+      const { episode } = await episodesApi.get(ep.id)
+      setSelected(episode)
+    } catch {}
+    setLoadingEp(null)
   }
 
-  if (!activeCategoryId) return (
-    <div className="flex items-center justify-center h-64">
-      <div className="text-center space-y-3">
-        <div className="text-[#444] text-sm">Create a category to get started</div>
-        <Link to="/settings" className="text-xs text-[var(--accent)] hover:underline">Set up your workspace</Link>
-      </div>
-    </div>
-  )
+  async function duplicateEp(ep, e) {
+    e.stopPropagation()
+    setDuping(ep.id)
+    try {
+      const { episode: clone } = await episodesApi.duplicate(ep.id)
+      const params = new URLSearchParams({
+        episodeNumber: clone.episode_number,
+        trackName:     clone.track_name     || '',
+        mood:          clone.track_mood     || '',
+        genre:         clone.track_genre    || '',
+      })
+      navigate('/generate?' + params.toString())
+    } catch {}
+    setDuping(null)
+  }
 
   return (
-    <div className="space-y-7 max-w-4xl">
-
-      {/* Header */}
-      <div className="flex items-end justify-between">
-        <div>
-          <h1 className="text-2xl font-serif text-[#f0ede8]">Dashboard</h1>
-          {cat && <p className="text-sm text-[#555] mt-1">{cat.name} · {cat.niche}</p>}
-        </div>
-        <Link to="/generate"
-          className="flex items-center gap-2 px-4 py-2 bg-[#c8b89a] text-[#080808] rounded text-sm font-medium hover:bg-[#e8c87a] transition-all">
-          <Sparkles size={13}/> New episode
-        </Link>
+    <div className="max-w-4xl mx-auto space-y-6">
+      <div>
+        <h1 className="text-2xl font-serif" style={{ color: 'var(--text)' }}>Series</h1>
+        {cat && <p className="text-sm mt-1" style={{ color: 'var(--text3)' }}>{cat.name} · {episodes.length} episodes</p>}
       </div>
 
-      {/* 07 — Daily directive */}
-      <DirectiveCard
-        brief={brief}
-        loading={briefLoading}
-        onRefresh={() => loadBrief(true)}
-      />
-
-      {/* KPI strip */}
-      {kpis && (
-        <div className="grid grid-cols-3 gap-3">
-          {[
-            { label: 'Avg retention',    value: kpis.avgRetention + '%',  sub: `${kpis.episodesWithData} ep with data` },
-            { label: 'Best episode',     value: `Ep ${kpis.bestEp?.episode_number}`, sub: kpis.bestEp?.track_name },
-            { label: 'Best score',       value: kpis.bestEp?.yt_retention_score + '%', sub: 'retention score' },
-          ].map(({ label, value, sub }) => (
-            <div key={label} className="bg-[#0a0a0a] border border-[#111] rounded p-4">
-              <div className="text-[10px] text-[#444] uppercase tracking-wide mb-1">{label}</div>
-              <div className="text-xl font-serif text-[var(--accent)]">{value}</div>
-              <div className="text-[10px] text-[#444] mt-0.5 truncate">{sub}</div>
+      {loading ? (
+        <div style={{ color: 'var(--text3)', padding: '40px 0', textAlign: 'center' }}>Loading...</div>
+      ) : episodes.length ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {episodes.map(ep => (
+            <div
+              key={ep.id}
+              onClick={() => openEpisode(ep)}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 16,
+                padding: '14px 18px', background: 'var(--surface)',
+                border: '1px solid var(--border)', borderRadius: 'var(--r)',
+                cursor: 'pointer', transition: 'border-color 0.15s',
+              }}
+              onMouseEnter={e => e.currentTarget.style.borderColor = 'var(--border2)'}
+              onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--border)'}
+            >
+              <span style={{ fontSize: '0.8125rem', fontFamily: 'monospace', color: 'var(--text3)', width: 32, flexShrink: 0 }}>
+                #{ep.episode_number}
+              </span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: '0.9375rem', color: 'var(--text)', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {ep.track_name}
+                </div>
+                <div style={{ fontSize: '0.8125rem', color: 'var(--text3)', marginTop: 2 }}>
+                  {ep.track_mood}{ep.track_genre ? ` · ${ep.track_genre}` : ''}
+                </div>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0 }}>
+                {ep.yt_retention_score && (
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: '0.8125rem', color: '#d4a853' }}>
+                    <TrendingUp size={11}/> {ep.yt_retention_score}%
+                  </span>
+                )}
+                {ep.published_at && (
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: '0.8125rem', color: 'var(--text3)' }}>
+                    <Clock size={11}/> {new Date(ep.published_at).toLocaleDateString()}
+                  </span>
+                )}
+                <button
+                  onClick={e => duplicateEp(ep, e)}
+                  disabled={duping === ep.id}
+                  style={{ padding: 6, background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer' }}
+                  title="Duplicate as starting point"
+                >
+                  <Copy size={13}/>
+                </button>
+                <span style={{ padding: '2px 8px', borderRadius: 99, fontSize: '0.6875rem', border: `1px solid ${STATUS_COLORS[ep.status]}40`, color: STATUS_COLORS[ep.status] }}>
+                  {ep.status}
+                </span>
+                <ChevronRight size={14} style={{ color: 'var(--text3)', opacity: loadingEp === ep.id ? 0.3 : 1 }}/>
+              </div>
             </div>
           ))}
         </div>
+      ) : (
+        <div style={{ border: '1px dashed var(--border2)', borderRadius: 'var(--r)', padding: '3rem', textAlign: 'center', color: 'var(--text3)' }}>
+          <div style={{ marginBottom: 8, fontWeight: 500, color: 'var(--text2)' }}>No episodes yet</div>
+          <div style={{ fontSize: '0.875rem' }}>Generate your first episode to start the series</div>
+        </div>
       )}
 
-      {/* Main grid */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-
-        {/* 08 — Pipeline kanban (left 2/3) */}
-        <div className="md:col-span-2 space-y-3">
-          <div className="flex items-center justify-between">
-            <h2 className="text-sm text-[#888]">Episode pipeline</h2>
-            <button
-              onClick={loadPipeline}
-              className="text-xs text-[#444] hover:text-[#888] flex items-center gap-1.5 transition-colors"
-            >
-              <RefreshCw size={10} className={pipeLoading ? 'animate-spin' : ''}/>
-              Refresh
-            </button>
-          </div>
-          {pipeLoading && Object.keys(lanes).length === 0 ? (
-            <div className="space-y-2">
-              {[...Array(3)].map((_, i) => (
-                <div key={i} className="h-12 bg-[#0d0d0d] border border-[#111] rounded animate-pulse"/>
-              ))}
-            </div>
-          ) : (
-            <PipelineBoard
-              lanes={lanes}
-              onAdvance={handleAdvance}
-              advancing={advancing}
-            />
-          )}
-        </div>
-
-        {/* Right sidebar */}
-        <div className="space-y-4">
-
-          {/* Quick nav — 2-col grid on mobile, stacked on desktop */}
-          <div className="grid grid-cols-2 md:grid-cols-1 gap-2 md:gap-1.5">
-            {[
-              { to: '/series',    icon: Film,      label: 'Series'    },
-              { to: '/vault',     icon: BookMarked, label: 'Vault'    },
-              { to: '/analytics', icon: BarChart2,  label: 'Analytics'},
-              { to: '/editor',    icon: Scissors,   label: 'Editor'   },
-            ].map(({ to, icon: Icon, label }) => (
-              <Link key={to} to={to}
-                className="flex items-center justify-center md:justify-start gap-3 px-3 py-2.5 rounded border border-[var(--border)] text-[var(--text3)] hover:border-[var(--border2)] hover:text-[var(--text2)] transition-all text-sm">
-                <Icon size={13}/> {label}
-              </Link>
-            ))}
-          </div>
-
-          {/* Vault stats */}
-          {vaultStats && (
-            <div className="border border-[var(--border)] rounded p-4 space-y-3">
-              <h3 className="text-xs text-[var(--text3)] uppercase tracking-wide">Vault</h3>
-              <div className="space-y-1.5">
-                {[
-                  { label: 'Total ideas', value: vaultStats.total      },
-                  { label: 'Favourites',  value: vaultStats.favourites },
-                  { label: 'Unused',      value: vaultStats.unused     },
-                ].map(({ label, value }) => (
-                  <div key={label} className="flex justify-between text-xs">
-                    <span className="text-[var(--text3)]">{label}</span>
-                    <span className="text-[var(--text2)]">{value}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Vault recommendations */}
-          {recommendations.length > 0 && (
-            <div className="border border-[var(--border)] rounded p-4 space-y-3">
-              <div className="flex items-center gap-2">
-                <TrendingUp size={12} className="text-[var(--accent)]"/>
-                <h3 className="text-xs text-[var(--text3)] uppercase tracking-wide">Ready to use</h3>
-              </div>
-              {recommendations.slice(0, 3).map((rec, i) => (
-                <div key={i} className="text-xs space-y-1">
-                  <div className="text-[var(--text)] truncate">{rec.title}</div>
-                  <div className="text-[var(--text3)] leading-relaxed line-clamp-2">{rec.reason}</div>
-                  <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] ${
-                    rec.urgency === 'high' ? 'bg-[#c8b89a]/10 text-[var(--accent)]' : 'bg-[var(--surface2)] text-[var(--text3)]'
-                  }`}>{rec.urgency}</span>
+      {/* Episode content drawer */}
+      {selected && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 50,
+          background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)',
+          display: 'flex', justifyContent: 'flex-end',
+        }} onClick={() => setSelected(null)}>
+          <div
+            style={{
+              width: '100%', maxWidth: 680, height: '100%',
+              background: 'var(--surface)', borderLeft: '1px solid var(--border)',
+              overflowY: 'auto', padding: '24px 28px',
+              display: 'flex', flexDirection: 'column', gap: 24,
+            }}
+            onClick={e => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
+              <div>
+                <div style={{ fontSize: '0.75rem', color: 'var(--text3)', marginBottom: 4 }}>Episode #{selected.episode_number}</div>
+                <h2 style={{ fontFamily: 'Syne, sans-serif', fontWeight: 800, fontSize: '1.4rem', color: 'var(--text)', margin: 0 }}>
+                  {selected.track_name}
+                </h2>
+                <div style={{ fontSize: '0.875rem', color: 'var(--text3)', marginTop: 4 }}>
+                  {selected.track_mood}{selected.track_genre ? ` · ${selected.track_genre}` : ''}
+                  {selected.bpm ? ` · ${selected.bpm} BPM` : ''}
                 </div>
-              ))}
-            </div>
-          )}
-
-          {/* Latest analytics insight */}
-          {latestInsights && (
-            <div className="border border-[#1a1a1a] rounded p-4 space-y-2">
-              <div className="flex items-center gap-2">
-                <BarChart2 size={12} className="text-[var(--accent)]"/>
-                <h3 className="text-xs text-[var(--text3)] uppercase tracking-wide">Latest insight</h3>
               </div>
-              <p className="text-xs text-[var(--text3)] leading-relaxed line-clamp-4">{latestInsights}</p>
-              <Link to="/analytics" className="text-xs text-[var(--accent)] hover:underline">View analytics →</Link>
+              <button onClick={() => setSelected(null)}
+                style={{ background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer', padding: 4, flexShrink: 0 }}>
+                <X size={20}/>
+              </button>
             </div>
-          )}
 
+            {/* Downloads */}
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              {selected.vo_script && (
+                <button
+                  onClick={() => downloadFile(selected.vo_script, `ep${selected.episode_number}-script.txt`)}
+                  style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', background: 'var(--accent-lo)', border: '1px solid var(--accent-mid)', borderRadius: 'var(--r-sm)', color: 'var(--accent)', fontSize: '0.875rem', fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit' }}
+                >
+                  <Download size={13}/> VO Script
+                </button>
+              )}
+              {selected.edl_clip_map && (
+                <button
+                  onClick={() => {
+                    // Build EDL
+                    const lines = selected.edl_clip_map.trim().split('\n')
+                    let edl = 'TITLE: episode\nFCM: NON-DROP FRAME\n\n'
+                    let n = 1
+                    for (const line of lines) {
+                      const parts = line.split('|').map(s => s.trim())
+                      if (parts.length < 3) continue
+                      const tc = t => { const p = t.split(':').map(Number); return p.length === 4 ? ((p[0]*3600+p[1]*60+p[2])*25)+p[3] : 0 }
+                      const fmt = f => { const s=Math.floor(f/25); return `${String(Math.floor(s/3600)).padStart(2,'0')}:${String(Math.floor((s%3600)/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}:${String(f%25).padStart(2,'0')}` }
+                      const srcIn=tc(parts[0]), srcOut=tc(parts[1])
+                      edl += `${String(n).padStart(3,'0')}  AX  V  C  ${fmt(srcIn)} ${fmt(srcOut)} ${fmt(srcIn)} ${fmt(srcOut)}\n* FROM CLIP NAME: ${parts[2]||''}\n\n`
+                      n++
+                    }
+                    downloadFile(edl, `ep${selected.episode_number}.edl`)
+                  }}
+                  style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', background: 'rgba(96,165,250,0.06)', border: '1px solid rgba(96,165,250,0.2)', borderRadius: 'var(--r-sm)', color: '#60a5fa', fontSize: '0.875rem', fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit' }}
+                >
+                  <Scissors size={13}/> EDL for DaVinci
+                </button>
+              )}
+              {selected.shorts_scripts && (
+                <button
+                  onClick={() => downloadFile(JSON.stringify(selected.shorts_scripts, null, 2), `ep${selected.episode_number}-shorts.json`)}
+                  style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', background: 'rgba(167,139,250,0.06)', border: '1px solid rgba(167,139,250,0.2)', borderRadius: 'var(--r-sm)', color: '#a78bfa', fontSize: '0.875rem', fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit' }}
+                >
+                  <Zap size={13}/> Shorts
+                </button>
+              )}
+            </div>
+
+            {/* VO Script */}
+            {selected.vo_script && (
+              <div>
+                <div style={{ fontSize: '0.75rem', color: 'var(--text3)', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <FileText size={11}/> VO Script
+                </div>
+                <pre style={{
+                  background: 'var(--bg)', border: '1px solid var(--border)',
+                  borderRadius: 'var(--r-sm)', padding: '16px', fontSize: '0.875rem',
+                  color: 'var(--text2)', lineHeight: 1.7, whiteSpace: 'pre-wrap',
+                  wordBreak: 'break-word', maxHeight: 400, overflowY: 'auto', margin: 0,
+                  fontFamily: "'Figtree', system-ui, sans-serif",
+                }}>
+                  {selected.vo_script}
+                </pre>
+              </div>
+            )}
+
+            {/* Shorts */}
+            {selected.shorts_scripts?.length > 0 && (
+              <div>
+                <div style={{ fontSize: '0.75rem', color: 'var(--text3)', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 10 }}>
+                  Short-form cuts
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  {selected.shorts_scripts.map((s, i) => (
+                    <div key={i} style={{ background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 'var(--r-sm)', padding: '14px' }}>
+                      <div style={{ fontSize: '0.8125rem', fontWeight: 600, color: 'var(--text)', marginBottom: 6 }}>{s.title || `Short ${i+1}`}</div>
+                      <div style={{ fontSize: '0.8125rem', color: 'var(--text3)', lineHeight: 1.6 }}>{s.script || s.description || JSON.stringify(s)}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Metadata */}
+            {(selected.hook || selected.tiktok_caption) && (
+              <div>
+                <div style={{ fontSize: '0.75rem', color: 'var(--text3)', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 10 }}>
+                  Metadata
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  {selected.hook && (
+                    <div style={{ background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 'var(--r-sm)', padding: '12px' }}>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text3)', marginBottom: 4 }}>HOOK</div>
+                      <div style={{ fontSize: '0.875rem', color: 'var(--text2)' }}>{selected.hook}</div>
+                    </div>
+                  )}
+                  {selected.tiktok_caption && (
+                    <div style={{ background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 'var(--r-sm)', padding: '12px' }}>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text3)', marginBottom: 4 }}>CAPTION</div>
+                      <div style={{ fontSize: '0.875rem', color: 'var(--text2)' }}>{selected.tiktok_caption}</div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   )
 }
