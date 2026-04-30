@@ -110,6 +110,7 @@ export default function Companion() {
   const sessionIdRef     = useRef(null)
   const longPressRef     = useRef(null)
   const audioMimeRef     = useRef('audio/webm')  // set on startSession, used in transcribeChunk
+  const transcribeBufferRef = useRef([])          // accumulates ALL chunks for valid Whisper input
   const wakeLockRef      = useRef(null)          // Screen Wake Lock — keeps display on while recording
   const offlineQueue     = useRef([])
 
