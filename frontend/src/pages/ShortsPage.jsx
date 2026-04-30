@@ -29,45 +29,45 @@ function ShortCard({ short, index }) {
   const [expanded, setExpanded] = useState(index === 0)
 
   return (
-    <div className="border border-[#1a1a1a] rounded overflow-hidden">
+    <div className="border border-[var(--border)] rounded overflow-hidden">
       <button
         onClick={() => setExpanded(e => !e)}
-        className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-[#0d0d0d] transition-colors"
+        className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-[var(--surface)] transition-colors"
       >
-        <div className="w-6 h-6 rounded bg-[#c8b89a]/10 border border-[#c8b89a]/20 flex items-center justify-center shrink-0">
-          <span className="text-[10px] font-bold text-[#c8b89a]">{index + 1}</span>
+        <div className="w-6 h-6 rounded bg-[var(--accent)]/10 border border-[var(--accent)]/20 flex items-center justify-center shrink-0">
+          <span className="text-[10px] font-bold text-[var(--accent)]">{index + 1}</span>
         </div>
         <div className="flex-1 min-w-0">
-          <div className="text-sm font-medium text-[#ccc] truncate">{short.title}</div>
-          <div className="text-xs text-[#555] mt-0.5">
+          <div className="text-sm font-medium text-[var(--text)] truncate">{short.title}</div>
+          <div className="text-xs text-[var(--text3)] mt-0.5">
             {short.hookStrategy} · {short.wordCount || '~'} words · {short.sourceTimecode || ''}
           </div>
         </div>
-        {expanded ? <ChevronUp size={13} className="text-[#444] shrink-0"/> : <ChevronDown size={13} className="text-[#444] shrink-0"/>}
+        {expanded ? <ChevronUp size={13} className="text-[var(--text3)] shrink-0"/> : <ChevronDown size={13} className="text-[var(--text3)] shrink-0"/>}
       </button>
 
       {expanded && (
-        <div className="border-t border-[#1a1a1a] p-4 space-y-4 bg-[#060606]">
+        <div className="border-t border-[var(--border)] p-4 space-y-4 bg-[#060606]">
 
           {/* Hook callout */}
-          <div className="bg-[#c8b89a]/5 border border-[#c8b89a]/15 rounded p-3">
-            <div className="text-[10px] text-[#c8b89a]/60 uppercase tracking-wider mb-1.5">Opening hook</div>
+          <div className="bg-[var(--accent)]/5 border border-[var(--accent)]/15 rounded p-3">
+            <div className="text-[10px] text-[var(--accent)]/60 uppercase tracking-wider mb-1.5">Opening hook</div>
             <p className="text-sm text-[#ddd] leading-relaxed italic">"{short.hook}"</p>
           </div>
 
           {/* Full script */}
           <div className="space-y-2">
             <div className="flex items-center justify-between">
-              <div className="text-[10px] text-[#555] uppercase tracking-wider">Full script</div>
+              <div className="text-[10px] text-[var(--text3)] uppercase tracking-wider">Full script</div>
               <button
                 onClick={() => copy(short.script, `script-${short.id}`)}
-                className="flex items-center gap-1.5 text-[10px] text-[#444] hover:text-[#c8b89a] transition-colors"
+                className="flex items-center gap-1.5 text-[10px] text-[var(--text3)] hover:text-[var(--accent)] transition-colors"
               >
                 {copied === `script-${short.id}` ? <Check size={10}/> : <Copy size={10}/>}
                 {copied === `script-${short.id}` ? 'Copied' : 'Copy'}
               </button>
             </div>
-            <div className="text-sm text-[#888] leading-relaxed whitespace-pre-wrap font-mono bg-[#0a0a0a] border border-[#111] rounded p-3 text-xs">
+            <div className="text-sm text-[var(--text2)] leading-relaxed whitespace-pre-wrap font-mono bg-[var(--surface)] border border-[var(--border)] rounded p-3 text-xs">
               {short.script}
             </div>
           </div>
@@ -75,15 +75,15 @@ function ShortCard({ short, index }) {
           {/* CTA + thumbnail concept */}
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1">
-              <div className="text-[10px] text-[#555] uppercase tracking-wider">CTA</div>
-              <div className="text-xs text-[#777] bg-[#0a0a0a] border border-[#111] rounded p-2">
+              <div className="text-[10px] text-[var(--text3)] uppercase tracking-wider">CTA</div>
+              <div className="text-xs text-[var(--text2)] bg-[var(--surface)] border border-[var(--border)] rounded p-2">
                 {short.cta}
               </div>
             </div>
             {short.thumbnailConcept && (
               <div className="space-y-1">
-                <div className="text-[10px] text-[#555] uppercase tracking-wider">Thumbnail brief</div>
-                <div className="text-xs text-[#777] bg-[#0a0a0a] border border-[#111] rounded p-2">
+                <div className="text-[10px] text-[var(--text3)] uppercase tracking-wider">Thumbnail brief</div>
+                <div className="text-xs text-[var(--text2)] bg-[var(--surface)] border border-[var(--border)] rounded p-2">
                   {short.thumbnailConcept}
                 </div>
               </div>
@@ -99,7 +99,7 @@ function ShortCard({ short, index }) {
               a.download = `short-${index + 1}-${short.title.replace(/\s+/g, '-').toLowerCase()}.txt`
               a.click(); URL.revokeObjectURL(url)
             }}
-            className="flex items-center gap-1.5 text-xs text-[#444] hover:text-[#c8b89a] transition-colors"
+            className="flex items-center gap-1.5 text-xs text-[var(--text3)] hover:text-[var(--accent)] transition-colors"
           >
             <Download size={11}/> Download script
           </button>
@@ -115,39 +115,39 @@ function ThumbnailCard({ concept, index }) {
   const [expanded, setExpanded] = useState(index === 0)
 
   return (
-    <div className="border border-[#1a1a1a] rounded overflow-hidden">
+    <div className="border border-[var(--border)] rounded overflow-hidden">
       <button
         onClick={() => setExpanded(e => !e)}
-        className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-[#0d0d0d] transition-colors"
+        className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-[var(--surface)] transition-colors"
       >
-        <div className="w-6 h-6 rounded bg-[#4080c8]/10 border border-[#4080c8]/20 flex items-center justify-center shrink-0">
-          <span className="text-[10px] font-bold text-[#4080c8]">{index + 1}</span>
+        <div className="w-6 h-6 rounded bg-[#60a5fa]/10 border border-[#60a5fa]/20 flex items-center justify-center shrink-0">
+          <span className="text-[10px] font-bold text-[#60a5fa]">{index + 1}</span>
         </div>
         <div className="flex-1 min-w-0">
-          <div className="text-sm font-medium text-[#ccc]">{concept.label}</div>
-          <div className="text-xs text-[#555] mt-0.5">{concept.strategy}</div>
+          <div className="text-sm font-medium text-[var(--text)]">{concept.label}</div>
+          <div className="text-xs text-[var(--text3)] mt-0.5">{concept.strategy}</div>
         </div>
-        {expanded ? <ChevronUp size={13} className="text-[#444] shrink-0"/> : <ChevronDown size={13} className="text-[#444] shrink-0"/>}
+        {expanded ? <ChevronUp size={13} className="text-[var(--text3)] shrink-0"/> : <ChevronDown size={13} className="text-[var(--text3)] shrink-0"/>}
       </button>
 
       {expanded && (
-        <div className="border-t border-[#1a1a1a] p-4 space-y-3 bg-[#060606]">
+        <div className="border-t border-[var(--border)] p-4 space-y-3 bg-[#060606]">
 
           {/* Text overlay — the most important element */}
           <div className="flex items-center gap-3">
-            <div className="flex-1 bg-[#0a0a0a] border border-[#333] rounded p-3 text-center">
-              <div className="text-[10px] text-[#444] mb-1">Text overlay</div>
+            <div className="flex-1 bg-[var(--surface)] border border-[var(--border2)] rounded p-3 text-center">
+              <div className="text-[10px] text-[var(--text3)] mb-1">Text overlay</div>
               <div className="text-lg font-bold text-white tracking-tight leading-tight">
                 {concept.overlayText}
               </div>
             </div>
             {concept.abTestVariant && (
-              <div className="flex-1 bg-[#0a0a0a] border border-dashed border-[#333] rounded p-3 text-center">
-                <div className="text-[10px] text-[#444] mb-1">A/B variant</div>
-                <div className="text-lg font-bold text-[#888] tracking-tight leading-tight">
+              <div className="flex-1 bg-[var(--surface)] border border-dashed border-[var(--border2)] rounded p-3 text-center">
+                <div className="text-[10px] text-[var(--text3)] mb-1">A/B variant</div>
+                <div className="text-lg font-bold text-[var(--text2)] tracking-tight leading-tight">
                   {concept.abTestVariant.overlayText}
                 </div>
-                <div className="text-[10px] text-[#444] mt-1">{concept.abTestVariant.change}</div>
+                <div className="text-[10px] text-[var(--text3)] mt-1">{concept.abTestVariant.change}</div>
               </div>
             )}
           </div>
@@ -161,8 +161,8 @@ function ThumbnailCard({ concept, index }) {
               { label: 'Why it works',value: concept.whyItWorks        },
             ].filter(d => d.value).map(({ label, value }) => (
               <div key={label} className="flex gap-3">
-                <span className="w-20 shrink-0 text-[#444] pt-0.5">{label}</span>
-                <span className="text-[#777] flex-1">{value}</span>
+                <span className="w-20 shrink-0 text-[var(--text3)] pt-0.5">{label}</span>
+                <span className="text-[var(--text2)] flex-1">{value}</span>
               </div>
             ))}
           </div>
@@ -173,7 +173,7 @@ function ThumbnailCard({ concept, index }) {
               `Thumbnail concept ${index + 1}: ${concept.label}\nStrategy: ${concept.strategy}\nText overlay: "${concept.overlayText}"\nVisual: ${concept.visualDescription}\nExpression: ${concept.facialExpression}\nColours: ${concept.colourDirection}\nA/B variant: "${concept.abTestVariant?.overlayText}" (${concept.abTestVariant?.change})`,
               `thumb-${concept.id}`
             )}
-            className="flex items-center gap-1.5 text-xs text-[#444] hover:text-[#4080c8] transition-colors"
+            className="flex items-center gap-1.5 text-xs text-[var(--text3)] hover:text-[#60a5fa] transition-colors"
           >
             {copied === `thumb-${concept.id}` ? <Check size={10}/> : <Copy size={10}/>}
             {copied === `thumb-${concept.id}` ? 'Copied to clipboard' : 'Copy brief for Canva'}
@@ -279,20 +279,20 @@ export default function ShortsPage() {
       {/* Header */}
       <div>
         <h1 className="text-2xl font-serif text-[#f0ede8]">Shorts & Thumbnails</h1>
-        {cat && <p className="text-sm text-[#555] mt-1">{cat.name} · one episode, three assets</p>}
+        {cat && <p className="text-sm text-[var(--text3)] mt-1">{cat.name} · one episode, three assets</p>}
       </div>
 
       {/* Episode picker */}
       <div className="space-y-1">
-        <label className="text-xs text-[#666] uppercase tracking-wide">Episode</label>
+        <label className="text-xs text-[var(--text2)] uppercase tracking-wide">Episode</label>
         {loadingEps ? (
-          <div className="h-10 bg-[#0d0d0d] border border-[#111] rounded animate-pulse"/>
+          <div className="h-10 bg-[var(--surface)] border border-[var(--border)] rounded animate-pulse"/>
         ) : (
           <div className="relative">
             <select
               value={selectedEpId}
               onChange={e => setSelectedEpId(e.target.value)}
-              className="w-full bg-[#0d0d0d] border border-[#1e1e1e] rounded px-3 py-2.5 text-sm text-[#f0ede8] outline-none focus:border-[#c8b89a]/40 appearance-none pr-8"
+              className="w-full bg-[var(--surface)] border border-[#1e1e1e] rounded px-3 py-2.5 text-sm text-[#f0ede8] outline-none focus:border-[var(--accent)]/40 appearance-none pr-8"
             >
               <option value="">— select an episode —</option>
               {episodes.map(ep => (
@@ -301,7 +301,7 @@ export default function ShortsPage() {
                 </option>
               ))}
             </select>
-            <ChevronDown size={13} className="absolute right-3 top-3.5 text-[#444] pointer-events-none"/>
+            <ChevronDown size={13} className="absolute right-3 top-3.5 text-[var(--text3)] pointer-events-none"/>
           </div>
         )}
       </div>
@@ -309,7 +309,7 @@ export default function ShortsPage() {
       {selectedEpId && (
         <>
           {/* Tab switcher */}
-          <div className="flex gap-1 border-b border-[#1a1a1a]">
+          <div className="flex gap-1 border-b border-[var(--border)]">
             {[
               { key: 'shorts',     label: 'Shorts / Reels',    icon: Film  },
               { key: 'thumbnails', label: 'Thumbnail concepts', icon: Image },
@@ -319,8 +319,8 @@ export default function ShortsPage() {
                 onClick={() => setTab(key)}
                 className={`flex items-center gap-2 px-4 py-2.5 text-sm border-b-2 transition-all ${
                   tab === key
-                    ? 'border-[#c8b89a] text-[#c8b89a]'
-                    : 'border-transparent text-[#555] hover:text-[#888]'
+                    ? 'border-[var(--accent)] text-[var(--accent)]'
+                    : 'border-transparent text-[var(--text3)] hover:text-[var(--text2)]'
                 }`}
               >
                 <Icon size={13}/> {label}
@@ -332,7 +332,7 @@ export default function ShortsPage() {
           {tab === 'shorts' && (
             <div className="space-y-4">
               <div className="flex items-center justify-between">
-                <div className="text-xs text-[#555]">
+                <div className="text-xs text-[var(--text3)]">
                   {shorts.length
                     ? `${shorts.length} scripts ready — regenerate to refresh`
                     : 'Generate 3 standalone 45-60s scripts from this episode'}
@@ -341,7 +341,7 @@ export default function ShortsPage() {
                   {shorts.length > 0 && (
                     <button
                       onClick={downloadAllShorts}
-                      className="flex items-center gap-1.5 px-3 py-1.5 border border-[#1a1a1a] text-[#555] rounded text-xs hover:border-[#333] hover:text-[#888] transition-all"
+                      className="flex items-center gap-1.5 px-3 py-1.5 border border-[var(--border)] text-[var(--text3)] rounded text-xs hover:border-[var(--border2)] hover:text-[var(--text2)] transition-all"
                     >
                       <Download size={11}/> All scripts
                     </button>
@@ -349,7 +349,7 @@ export default function ShortsPage() {
                   <button
                     onClick={generateShorts}
                     disabled={generatingShorts}
-                    className="flex items-center gap-2 px-4 py-1.5 bg-[#c8b89a]/10 border border-[#c8b89a]/20 text-[#c8b89a] rounded text-sm hover:bg-[#c8b89a]/20 disabled:opacity-40 transition-all"
+                    className="flex items-center gap-2 px-4 py-1.5 bg-[var(--accent)]/10 border border-[var(--accent)]/20 text-[var(--accent)] rounded text-sm hover:bg-[var(--accent)]/20 disabled:opacity-40 transition-all"
                   >
                     {generatingShorts
                       ? <RefreshCw size={12} className="animate-spin"/>
@@ -364,16 +364,16 @@ export default function ShortsPage() {
               {generatingShorts && (
                 <div className="space-y-2">
                   {[...Array(3)].map((_, i) => (
-                    <div key={i} className="h-14 bg-[#0d0d0d] border border-[#111] rounded animate-pulse"/>
+                    <div key={i} className="h-14 bg-[var(--surface)] border border-[var(--border)] rounded animate-pulse"/>
                   ))}
                 </div>
               )}
 
               {!generatingShorts && shorts.length === 0 && (
-                <div className="border border-dashed border-[#1a1a1a] rounded p-10 text-center space-y-2">
-                  <Film size={24} className="mx-auto text-[#333]"/>
-                  <div className="text-sm text-[#555]">Each short is fully self-contained</div>
-                  <div className="text-xs text-[#444]">Different hook strategy per short — question / in-media-res / tension</div>
+                <div className="border border-dashed border-[var(--border)] rounded p-10 text-center space-y-2">
+                  <Film size={24} className="mx-auto text-[var(--text3)]"/>
+                  <div className="text-sm text-[var(--text3)]">Each short is fully self-contained</div>
+                  <div className="text-xs text-[var(--text3)]">Different hook strategy per short — question / in-media-res / tension</div>
                 </div>
               )}
 
@@ -387,7 +387,7 @@ export default function ShortsPage() {
           {tab === 'thumbnails' && (
             <div className="space-y-4">
               <div className="flex items-center justify-between">
-                <div className="text-xs text-[#555]">
+                <div className="text-xs text-[var(--text3)]">
                   {thumbConcepts.length
                     ? `${thumbConcepts.length} concepts ready — each includes an A/B test variant`
                     : 'Generate 3 thumbnail concepts with A/B variants'}
@@ -395,7 +395,7 @@ export default function ShortsPage() {
                 <button
                   onClick={generateThumbnails}
                   disabled={generatingThumbs}
-                  className="flex items-center gap-2 px-4 py-1.5 bg-[#4080c8]/10 border border-[#4080c8]/20 text-[#4080c8] rounded text-sm hover:bg-[#4080c8]/20 disabled:opacity-40 transition-all"
+                  className="flex items-center gap-2 px-4 py-1.5 bg-[#60a5fa]/10 border border-[#60a5fa]/20 text-[#60a5fa] rounded text-sm hover:bg-[#60a5fa]/20 disabled:opacity-40 transition-all"
                 >
                   {generatingThumbs
                     ? <RefreshCw size={12} className="animate-spin"/>
@@ -409,16 +409,16 @@ export default function ShortsPage() {
               {generatingThumbs && (
                 <div className="space-y-2">
                   {[...Array(3)].map((_, i) => (
-                    <div key={i} className="h-14 bg-[#0d0d0d] border border-[#111] rounded animate-pulse"/>
+                    <div key={i} className="h-14 bg-[var(--surface)] border border-[var(--border)] rounded animate-pulse"/>
                   ))}
                 </div>
               )}
 
               {!generatingThumbs && thumbConcepts.length === 0 && (
-                <div className="border border-dashed border-[#1a1a1a] rounded p-10 text-center space-y-2">
-                  <Image size={24} className="mx-auto text-[#333]"/>
-                  <div className="text-sm text-[#555]">Briefing-level concepts for Canva or Photoshop</div>
-                  <div className="text-xs text-[#444]">Each concept: visual direction, expression cue, text overlay, colour palette, A/B variant</div>
+                <div className="border border-dashed border-[var(--border)] rounded p-10 text-center space-y-2">
+                  <Image size={24} className="mx-auto text-[var(--text3)]"/>
+                  <div className="text-sm text-[var(--text3)]">Briefing-level concepts for Canva or Photoshop</div>
+                  <div className="text-xs text-[var(--text3)]">Each concept: visual direction, expression cue, text overlay, colour palette, A/B variant</div>
                 </div>
               )}
 

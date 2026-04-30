@@ -27,16 +27,16 @@ function useCopy() {
 function BibleSection({ title, children, defaultOpen = true }) {
   const [open, setOpen] = useState(defaultOpen)
   return (
-    <div className="border border-[#1a1a1a] rounded overflow-hidden">
+    <div className="border border-[var(--border)] rounded overflow-hidden">
       <button
         onClick={() => setOpen(o => !o)}
-        className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-[#0d0d0d] transition-colors"
+        className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-[var(--surface)] transition-colors"
       >
-        <span className="text-sm font-medium text-[#ccc]">{title}</span>
-        {open ? <ChevronUp size={13} className="text-[#444]"/> : <ChevronDown size={13} className="text-[#444]"/>}
+        <span className="text-sm font-medium text-[var(--text)]">{title}</span>
+        {open ? <ChevronUp size={13} className="text-[var(--text3)]"/> : <ChevronDown size={13} className="text-[var(--text3)]"/>}
       </button>
       {open && (
-        <div className="border-t border-[#1a1a1a] px-4 py-4 bg-[#060606]">
+        <div className="border-t border-[var(--border)] px-4 py-4 bg-[#060606]">
           {children}
         </div>
       )}
@@ -45,11 +45,11 @@ function BibleSection({ title, children, defaultOpen = true }) {
 }
 
 function TagList({ items }) {
-  if (!items?.length) return <span className="text-xs text-[#444]">None identified yet</span>
+  if (!items?.length) return <span className="text-xs text-[var(--text3)]">None identified yet</span>
   return (
     <div className="flex flex-wrap gap-2">
       {items.map((item, i) => (
-        <span key={i} className="text-xs px-2.5 py-1 rounded-full border border-[#1a1a1a] text-[#777] bg-[#0a0a0a]">
+        <span key={i} className="text-xs px-2.5 py-1 rounded-full border border-[var(--border)] text-[var(--text2)] bg-[var(--surface)]">
           {item}
         </span>
       ))}
@@ -162,13 +162,13 @@ export default function SeriesBiblePage() {
       <div className="flex items-end justify-between">
         <div>
           <h1 className="text-2xl font-serif text-[#f0ede8]">Series Bible</h1>
-          {cat && <p className="text-sm text-[#555] mt-1">{cat.name}</p>}
+          {cat && <p className="text-sm text-[var(--text3)] mt-1">{cat.name}</p>}
         </div>
         <div className="flex gap-2">
           {bible?.available && (
             <button
               onClick={downloadBible}
-              className="flex items-center gap-1.5 px-3 py-1.5 border border-[#1a1a1a] text-[#555] rounded text-xs hover:border-[#333] hover:text-[#888] transition-all"
+              className="flex items-center gap-1.5 px-3 py-1.5 border border-[var(--border)] text-[var(--text3)] rounded text-xs hover:border-[var(--border2)] hover:text-[var(--text2)] transition-all"
             >
               <Download size={11}/> Export
             </button>
@@ -176,7 +176,7 @@ export default function SeriesBiblePage() {
           <button
             onClick={regenerate}
             disabled={loading || regen}
-            className="flex items-center gap-2 px-4 py-1.5 bg-[#c8b89a]/10 border border-[#c8b89a]/20 text-[#c8b89a] rounded text-sm hover:bg-[#c8b89a]/20 disabled:opacity-40 transition-all"
+            className="flex items-center gap-2 px-4 py-1.5 bg-[var(--accent)]/10 border border-[var(--accent)]/20 text-[var(--accent)] rounded text-sm hover:bg-[var(--accent)]/20 disabled:opacity-40 transition-all"
           >
             {regen
               ? <RefreshCw size={12} className="animate-spin"/>
@@ -189,22 +189,22 @@ export default function SeriesBiblePage() {
       {loading ? (
         <div className="space-y-3">
           {[...Array(5)].map((_, i) => (
-            <div key={i} className="h-12 bg-[#0d0d0d] border border-[#111] rounded animate-pulse"
+            <div key={i} className="h-12 bg-[var(--surface)] border border-[var(--border)] rounded animate-pulse"
               style={{ opacity: 1 - i * 0.15 }}/>
           ))}
         </div>
       ) : !bible?.available ? (
-        <div className="border border-dashed border-[#1a1a1a] rounded p-12 text-center space-y-3">
-          <BookOpen size={28} className="mx-auto text-[#333]"/>
-          <div className="text-sm text-[#555]">{bible?.reason || 'No episodes yet'}</div>
-          <div className="text-xs text-[#444]">
+        <div className="border border-dashed border-[var(--border)] rounded p-12 text-center space-y-3">
+          <BookOpen size={28} className="mx-auto text-[var(--text3)]"/>
+          <div className="text-sm text-[var(--text3)]">{bible?.reason || 'No episodes yet'}</div>
+          <div className="text-xs text-[var(--text3)]">
             Generate your first episode to start building the series bible
           </div>
         </div>
       ) : (
         <>
           {/* Meta strip */}
-          <div className="flex items-center gap-4 text-xs text-[#444]">
+          <div className="flex items-center gap-4 text-xs text-[var(--text3)]">
             <span>{bible.episodeCount} episodes · {bible.publishedCount} published</span>
             {bible.generatedAt && (
               <span className="flex items-center gap-1">
@@ -223,13 +223,13 @@ export default function SeriesBiblePage() {
 
           {/* Previously on — shown prominently, most immediately useful */}
           <BibleSection title="Previously on…" defaultOpen>
-            <div className="bg-[#c8b89a]/5 border border-[#c8b89a]/15 rounded p-4 space-y-3">
+            <div className="bg-[var(--accent)]/5 border border-[var(--accent)]/15 rounded p-4 space-y-3">
               <p className="text-sm text-[#ddd] leading-relaxed italic">
                 "{bible.previouslyOn}"
               </p>
               <button
                 onClick={() => copy(bible.previouslyOn, 'prev-on')}
-                className="flex items-center gap-1.5 text-xs text-[#444] hover:text-[#c8b89a] transition-colors"
+                className="flex items-center gap-1.5 text-xs text-[var(--text3)] hover:text-[var(--accent)] transition-colors"
               >
                 {copied === 'prev-on' ? <Check size={10}/> : <Copy size={10}/>}
                 {copied === 'prev-on' ? 'Copied' : 'Copy for episode intro'}
@@ -239,7 +239,7 @@ export default function SeriesBiblePage() {
 
           {/* Creator voice */}
           <BibleSection title="Creator voice" defaultOpen>
-            <p className="text-sm text-[#888] leading-relaxed">{bible.creatorVoice}</p>
+            <p className="text-sm text-[var(--text2)] leading-relaxed">{bible.creatorVoice}</p>
           </BibleSection>
 
           {/* Recurring themes */}
@@ -252,13 +252,13 @@ export default function SeriesBiblePage() {
             {bible.narrativeThreads?.length ? (
               <div className="space-y-3">
                 {bible.narrativeThreads.map((t, i) => (
-                  <div key={i} className="border border-[#1a1a1a] rounded p-3 space-y-1.5">
-                    <div className="text-sm font-medium text-[#ccc]">{t.thread}</div>
-                    <div className="text-xs text-[#666] leading-relaxed">{t.description}</div>
+                  <div key={i} className="border border-[var(--border)] rounded p-3 space-y-1.5">
+                    <div className="text-sm font-medium text-[var(--text)]">{t.thread}</div>
+                    <div className="text-xs text-[var(--text2)] leading-relaxed">{t.description}</div>
                     {t.episodes?.length > 0 && (
                       <div className="flex gap-1.5 flex-wrap">
                         {t.episodes.map(n => (
-                          <span key={n} className="text-[10px] px-1.5 py-0.5 rounded bg-[#1a1a1a] text-[#555]">Ep {n}</span>
+                          <span key={n} className="text-[10px] px-1.5 py-0.5 rounded bg-[#1a1a1a] text-[var(--text3)]">Ep {n}</span>
                         ))}
                       </div>
                     )}
@@ -266,7 +266,7 @@ export default function SeriesBiblePage() {
                 ))}
               </div>
             ) : (
-              <span className="text-xs text-[#444]">No threads identified yet — more episodes needed</span>
+              <span className="text-xs text-[var(--text3)]">No threads identified yet — more episodes needed</span>
             )}
           </BibleSection>
 
@@ -276,14 +276,14 @@ export default function SeriesBiblePage() {
               <div className="space-y-3">
                 {bible.bestPerformingStructures.map((s, i) => (
                   <div key={i} className="space-y-1">
-                    <div className="text-sm font-medium text-[#c8b89a]">{s.structure}</div>
-                    <div className="text-xs text-[#666]">{s.description}</div>
-                    <div className="text-[10px] text-[#444]">Example: {s.episodeExample}</div>
+                    <div className="text-sm font-medium text-[var(--accent)]">{s.structure}</div>
+                    <div className="text-xs text-[var(--text2)]">{s.description}</div>
+                    <div className="text-[10px] text-[var(--text3)]">Example: {s.episodeExample}</div>
                   </div>
                 ))}
               </div>
             ) : (
-              <span className="text-xs text-[#444]">Upload analytics for at least 3 episodes to identify patterns</span>
+              <span className="text-xs text-[var(--text3)]">Upload analytics for at least 3 episodes to identify patterns</span>
             )}
           </BibleSection>
 
@@ -293,16 +293,16 @@ export default function SeriesBiblePage() {
               <div className="space-y-3">
                 {bible.callbackOpportunities.map((c, i) => (
                   <div key={i} className="flex gap-3 text-xs">
-                    <div className="w-1 rounded-full bg-[#c8b89a]/30 shrink-0"/>
+                    <div className="w-1 rounded-full bg-[var(--accent)]/30 shrink-0"/>
                     <div className="space-y-0.5">
-                      <div className="text-[#666]">From: {c.from}</div>
-                      <div className="text-[#888]">{c.suggestion}</div>
+                      <div className="text-[var(--text2)]">From: {c.from}</div>
+                      <div className="text-[var(--text2)]">{c.suggestion}</div>
                     </div>
                   </div>
                 ))}
               </div>
             ) : (
-              <span className="text-xs text-[#444]">No callbacks identified yet</span>
+              <span className="text-xs text-[var(--text3)]">No callbacks identified yet</span>
             )}
           </BibleSection>
 
@@ -311,24 +311,24 @@ export default function SeriesBiblePage() {
             {bible.upcomingDirections?.length ? (
               <ul className="space-y-1.5">
                 {bible.upcomingDirections.map((d, i) => (
-                  <li key={i} className="flex items-start gap-2 text-sm text-[#777]">
-                    <Sparkles size={10} className="mt-1 text-[#c8b89a]/50 shrink-0"/>
+                  <li key={i} className="flex items-start gap-2 text-sm text-[var(--text2)]">
+                    <Sparkles size={10} className="mt-1 text-[var(--accent)]/50 shrink-0"/>
                     {d}
                   </li>
                 ))}
               </ul>
             ) : (
-              <span className="text-xs text-[#444]">More episodes needed to identify directions</span>
+              <span className="text-xs text-[var(--text3)]">More episodes needed to identify directions</span>
             )}
           </BibleSection>
 
           {/* Collaborator brief */}
           <BibleSection title="Collaborator brief" defaultOpen>
             <div className="space-y-3">
-              <p className="text-sm text-[#888] leading-relaxed">{bible.collaboratorBrief}</p>
+              <p className="text-sm text-[var(--text2)] leading-relaxed">{bible.collaboratorBrief}</p>
               <button
                 onClick={() => copy(bible.collaboratorBrief, 'collab-brief')}
-                className="flex items-center gap-1.5 text-xs text-[#444] hover:text-[#c8b89a] transition-colors"
+                className="flex items-center gap-1.5 text-xs text-[var(--text3)] hover:text-[var(--accent)] transition-colors"
               >
                 {copied === 'collab-brief' ? <Check size={10}/> : <Copy size={10}/>}
                 {copied === 'collab-brief' ? 'Copied' : 'Copy brief'}

@@ -53,14 +53,14 @@ function CalendarGrid({ publishedDates, recommendedDate }) {
       <div className="flex items-center justify-between">
         <button
           onClick={() => setViewDate(new Date(year, month - 1, 1))}
-          className="p-1.5 text-[#444] hover:text-[#888] transition-colors"
+          className="p-1.5 text-[var(--text3)] hover:text-[var(--text2)] transition-colors"
         >
           <ChevronLeft size={14}/>
         </button>
-        <span className="text-sm font-medium text-[#ccc]">{monthName}</span>
+        <span className="text-sm font-medium text-[var(--text)]">{monthName}</span>
         <button
           onClick={() => setViewDate(new Date(year, month + 1, 1))}
-          className="p-1.5 text-[#444] hover:text-[#888] transition-colors"
+          className="p-1.5 text-[var(--text3)] hover:text-[var(--text2)] transition-colors"
         >
           <ChevronRight size={14}/>
         </button>
@@ -69,7 +69,7 @@ function CalendarGrid({ publishedDates, recommendedDate }) {
       {/* Day headers */}
       <div className="grid grid-cols-7 gap-1">
         {['Su','Mo','Tu','We','Th','Fr','Sa'].map(d => (
-          <div key={d} className="text-center text-[10px] text-[#444] py-1">{d}</div>
+          <div key={d} className="text-center text-[10px] text-[var(--text3)] py-1">{d}</div>
         ))}
       </div>
 
@@ -85,10 +85,10 @@ function CalendarGrid({ publishedDates, recommendedDate }) {
               key={i}
               className={`aspect-square flex items-center justify-center text-xs rounded transition-all ${
                 !d                 ? ''                                         :
-                isPub              ? 'bg-[#c8b89a] text-[#080808] font-bold'   :
+                isPub              ? 'bg-[var(--accent)] text-[#080808] font-bold'   :
                 isRec && !isPub    ? 'bg-[#40a060]/20 border border-[#40a060]/40 text-[#40a060]' :
-                isToday && !isPub  ? 'border border-[#c8b89a]/30 text-[#c8b89a]' :
-                'text-[#555] hover:text-[#888]'
+                isToday && !isPub  ? 'border border-[var(--accent)]/30 text-[var(--accent)]' :
+                'text-[var(--text3)] hover:text-[var(--text2)]'
               }`}
             >
               {d}
@@ -100,7 +100,7 @@ function CalendarGrid({ publishedDates, recommendedDate }) {
       {/* Legend */}
       <div className="flex gap-4 text-[10px] flex-wrap">
         <span className="flex items-center gap-1.5">
-          <span className="w-3 h-3 rounded bg-[#c8b89a] inline-block"/>
+          <span className="w-3 h-3 rounded bg-[var(--accent)] inline-block"/>
           Published
         </span>
         {recStr && (
@@ -178,30 +178,30 @@ function PushPanel() {
   }
 
   if (loading) return (
-    <div className="h-20 bg-[#0d0d0d] border border-[#111] rounded animate-pulse"/>
+    <div className="h-20 bg-[var(--surface)] border border-[var(--border)] rounded animate-pulse"/>
   )
 
   const isActive = status?.active
 
   return (
     <div className={`border rounded p-4 space-y-3 ${
-      isActive ? 'border-[#40a060]/25 bg-[#40a060]/4' : 'border-[#1a1a1a]'
+      isActive ? 'border-[#40a060]/25 bg-[#40a060]/4' : 'border-[var(--border)]'
     }`}>
       <div className="flex items-center gap-3">
         <div className={`w-8 h-8 rounded flex items-center justify-center shrink-0 ${
           isActive
             ? 'bg-[#40a060]/15 border border-[#40a060]/25'
-            : 'bg-[#1a1a1a] border border-[#222]'
+            : 'bg-[#1a1a1a] border border-[var(--border2)]'
         }`}>
           {isActive
             ? <Bell size={14} className="text-[#40a060]"/>
-            : <BellOff size={14} className="text-[#555]"/>}
+            : <BellOff size={14} className="text-[var(--text3)]"/>}
         </div>
         <div className="flex-1">
-          <div className="text-sm font-medium text-[#ccc]">
+          <div className="text-sm font-medium text-[var(--text)]">
             {isActive ? 'Push notifications active' : 'Push notifications off'}
           </div>
-          <div className="text-xs text-[#555] mt-0.5">
+          <div className="text-xs text-[var(--text3)] mt-0.5">
             {!status?.vapidConfigured
               ? 'Requires VAPID_PUBLIC_KEY + VAPID_PRIVATE_KEY in Railway env vars'
               : isActive
@@ -215,7 +215,7 @@ function PushPanel() {
             <button
               onClick={handleTest}
               disabled={testing}
-              className="flex items-center gap-1.5 px-3 py-1.5 border border-[#1a1a1a] text-[#555] rounded text-xs hover:border-[#333] hover:text-[#888] disabled:opacity-40 transition-all"
+              className="flex items-center gap-1.5 px-3 py-1.5 border border-[var(--border)] text-[var(--text3)] rounded text-xs hover:border-[var(--border2)] hover:text-[var(--text2)] disabled:opacity-40 transition-all"
             >
               {testing ? <RefreshCw size={9} className="animate-spin"/> : <Send size={9}/>}
               Test
@@ -227,7 +227,7 @@ function PushPanel() {
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded border text-xs disabled:opacity-40 transition-all ${
               isActive
                 ? 'border-red-800/40 text-red-400 hover:bg-red-900/10'
-                : 'border-[#c8b89a]/25 text-[#c8b89a] bg-[#c8b89a]/8 hover:bg-[#c8b89a]/15'
+                : 'border-[var(--accent)]/25 text-[var(--accent)] bg-[var(--accent)]/8 hover:bg-[var(--accent)]/15'
             }`}
           >
             {toggling
@@ -239,7 +239,7 @@ function PushPanel() {
       </div>
 
       {isActive && (
-        <div className="text-[10px] text-[#444] leading-relaxed border-t border-[#1a1a1a] pt-2 mt-1">
+        <div className="text-[10px] text-[var(--text3)] leading-relaxed border-t border-[var(--border)] pt-2 mt-1">
           Reminders fire when your publish gap exceeds 1.5× your normal cadence.
           Weekly analytics syncs send a notification when new data is pulled.
         </div>
@@ -323,13 +323,13 @@ export default function SchedulePage() {
 
       <div>
         <h1 className="text-2xl font-serif text-[#f0ede8]">Schedule</h1>
-        {cat && <p className="text-sm text-[#555] mt-1">{cat.name} · publishing cadence</p>}
+        {cat && <p className="text-sm text-[var(--text3)] mt-1">{cat.name} · publishing cadence</p>}
       </div>
 
       {loading ? (
         <div className="space-y-3">
           {[...Array(3)].map((_, i) => (
-            <div key={i} className="h-24 bg-[#0d0d0d] border border-[#111] rounded animate-pulse"/>
+            <div key={i} className="h-24 bg-[var(--surface)] border border-[var(--border)] rounded animate-pulse"/>
           ))}
         </div>
       ) : (
@@ -342,7 +342,7 @@ export default function SchedulePage() {
                   label: 'Avg cadence',
                   value: `Every ${cadenceInfo.avgGapDays}d`,
                   sub:   `${cadenceInfo.publishedCount} published`,
-                  color: '#c8b89a',
+                  color: 'var(--accent)',
                 },
                 {
                   label: 'Days since last',
@@ -354,18 +354,18 @@ export default function SchedulePage() {
                   label: 'Consistency',
                   value: `${cadenceInfo.consistency}%`,
                   sub:   cadenceInfo.consistency >= 80 ? 'Very consistent' : cadenceInfo.consistency >= 60 ? 'Mostly regular' : 'Irregular',
-                  color: cadenceInfo.consistency >= 70 ? '#40a060' : '#c8a030',
+                  color: cadenceInfo.consistency >= 70 ? '#40a060' : '#d4a853',
                 },
               ].map(({ label, value, sub, color }) => (
-                <div key={label} className="bg-[#0a0a0a] border border-[#111] rounded p-4">
-                  <div className="text-[10px] text-[#444] uppercase tracking-wide mb-1">{label}</div>
+                <div key={label} className="bg-[var(--surface)] border border-[var(--border)] rounded p-4">
+                  <div className="text-[10px] text-[var(--text3)] uppercase tracking-wide mb-1">{label}</div>
                   <div className="text-xl font-serif" style={{ color }}>{value}</div>
                   <div className="text-[10px] mt-0.5" style={{ color }}>{sub}</div>
                 </div>
               ))}
             </div>
           ) : (
-            <div className="border border-[#1a1a1a] rounded p-4 text-sm text-[#444] text-center">
+            <div className="border border-[var(--border)] rounded p-4 text-sm text-[var(--text3)] text-center">
               Publish at least 2 episodes to see cadence data
             </div>
           )}
@@ -379,7 +379,7 @@ export default function SchedulePage() {
               </div>
               {readyEps.length > 0 && (
                 <a href="/teleprompter"
-                  className="text-xs px-3 py-1.5 bg-[#c8b89a]/10 border border-[#c8b89a]/25 text-[#c8b89a] rounded hover:bg-[#c8b89a]/20 transition-all shrink-0">
+                  className="text-xs px-3 py-1.5 bg-[var(--accent)]/10 border border-[var(--accent)]/25 text-[var(--accent)] rounded hover:bg-[var(--accent)]/20 transition-all shrink-0">
                   Record now →
                 </a>
               )}
@@ -399,13 +399,13 @@ export default function SchedulePage() {
 
           {/* In-flight episodes */}
           {(readyEps.length > 0 || inFlight.length > 0) && (
-            <div className="border border-[#1a1a1a] rounded p-4 space-y-3">
-              <div className="text-xs text-[#666] uppercase tracking-wide">In progress</div>
+            <div className="border border-[var(--border)] rounded p-4 space-y-3">
+              <div className="text-xs text-[var(--text2)] uppercase tracking-wide">In progress</div>
               {[...readyEps, ...inFlight].slice(0, 5).map(ep => (
                 <div key={ep.id} className="flex items-center gap-3 text-sm">
-                  <span className="text-[10px] font-mono text-[#444] w-6">#{ep.episode_number}</span>
-                  <span className="flex-1 text-[#888] truncate">{ep.track_name}</span>
-                  <span className="text-[10px] px-2 py-0.5 rounded border text-[#c8b89a] border-[#c8b89a]/20 capitalize">
+                  <span className="text-[10px] font-mono text-[var(--text3)] w-6">#{ep.episode_number}</span>
+                  <span className="flex-1 text-[var(--text2)] truncate">{ep.track_name}</span>
+                  <span className="text-[10px] px-2 py-0.5 rounded border text-[var(--accent)] border-[var(--accent)]/20 capitalize">
                     {ep.status}
                   </span>
                 </div>
@@ -415,10 +415,10 @@ export default function SchedulePage() {
 
           {/* Calendar */}
           {cadenceInfo?.hasData && (
-            <div className="border border-[#1a1a1a] rounded p-5">
+            <div className="border border-[var(--border)] rounded p-5">
               <div className="flex items-center gap-2 mb-4">
-                <Calendar size={13} className="text-[#555]"/>
-                <span className="text-xs text-[#666] uppercase tracking-wide">Publishing calendar</span>
+                <Calendar size={13} className="text-[var(--text3)]"/>
+                <span className="text-xs text-[var(--text2)] uppercase tracking-wide">Publishing calendar</span>
               </div>
               <CalendarGrid
                 publishedDates={cadenceInfo.publishedDates}
@@ -430,8 +430,8 @@ export default function SchedulePage() {
           {/* Push notifications */}
           <div className="space-y-2">
             <div className="flex items-center gap-2">
-              <Bell size={13} className="text-[#555]"/>
-              <span className="text-xs text-[#666] uppercase tracking-wide">Schedule reminders</span>
+              <Bell size={13} className="text-[var(--text3)]"/>
+              <span className="text-xs text-[var(--text2)] uppercase tracking-wide">Schedule reminders</span>
             </div>
             <PushPanel/>
           </div>
