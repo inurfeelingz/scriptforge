@@ -120,6 +120,8 @@ export default function Companion() {
   const swipeOffset   = useRef(0)
   const [sessionTitle, setSessionTitle] = useState('')
   const [editingTitle, setEditingTitle] = useState(false)
+  const [uploadProgress,  setUploadProgress]  = useState(0)
+  const [processProgress, setProcessProgress] = useState(0)
   const isDragging    = useRef(false)
 
   // Keep session ID ref in sync
@@ -445,14 +447,21 @@ export default function Companion() {
       formData.append('timestampMs', String(timestampMs))
       formData.append('isCumulative', 'true')
 
-      const res = await fetch(
-        `${import.meta.env.VITE_API_URL || '/api'}/session/${sid}/transcribe`,
-        {
-          method:  'POST',
-          headers: { Authorization: `Bearer ${session?.access_token}` },
-          body:    formData,
+      // Use XHR for upload progress tracking
+      const res = await new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest()
+        xhr.open('POST', `${import.meta.env.VITE_API_URL || '/api'}/session/${sid}/transcribe`)
+        xhr.setRequestHeader('Authorization', `Bearer ${session?.access_token}`)
+        xhr.upload.onprogress = e => {
+          if (e.lengthComputable) setUploadProgress(Math.round((e.loaded / e.total) * 100))
         }
-      )
+        xhr.onload = () => {
+          setUploadProgress(0)
+          resolve({ ok: xhr.status < 400, json: () => Promise.resolve(JSON.parse(xhr.responseText)) })
+        }
+        xhr.onerror = () => { setUploadProgress(0); reject(new Error('Upload failed')) }
+        xhr.send(formData)
+      })
 
       if (res.ok) {
         const data = await res.json()
@@ -531,8 +540,20 @@ export default function Companion() {
     // 2s delay to let final transcription save before processing
     await new Promise(r => setTimeout(r, 2000))
 
+    // Animate progress bar during memo generation (estimated 20-40s)
+    let prog = 0
+    const progInterval = setInterval(() => {
+      // Fast at start, slow near end — never reaches 100 until done
+      prog = prog < 70 ? prog + 2 : prog < 90 ? prog + 0.5 : prog + 0.1
+      setProcessProgress(Math.min(prog, 95))
+    }, 400)
+
     try {
       const result = await api.post(`/session/${sessionIdRef.current}/process`)
+      clearInterval(progInterval)
+      setProcessProgress(100)
+      await new Promise(r => setTimeout(r, 400))  // brief flash of 100%
+      setProcessProgress(0)
       console.info('[process] Result:', JSON.stringify(result).slice(0, 200))
       const voiceMemoText = result?.voiceMemoText || result?.voice_memo_text || ''
       const keyMoments    = result?.keyMoments    || result?.key_moments    || []
@@ -541,6 +562,8 @@ export default function Companion() {
       navigator.vibrate?.([100, 50, 100, 50, 200])
       window.location.href = '/'
     } catch (err) {
+      clearInterval(progInterval)
+      setProcessProgress(0)
       console.error('[process] Error:', err.message)
       set({ processing: false, orbMood: 'idle', error: err.message || 'Processing failed', status: 'ready' })
     }
@@ -772,6 +795,19 @@ export default function Companion() {
             </div>
           )}
 
+          {/* Upload progress — shown while sending audio to Whisper */}
+          {uploadProgress > 0 && (
+            <div style={{ width: '100%', padding: '0 4px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)' }}>Transcribing audio...</span>
+                <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)' }}>{uploadProgress}%</span>
+              </div>
+              <div style={{ height: 3, background: 'rgba(255,255,255,0.08)', borderRadius: 2, overflow: 'hidden' }}>
+                <div style={{ height: '100%', width: `${uploadProgress}%`, background: 'rgba(140,170,220,0.7)', borderRadius: 2, transition: 'width 0.2s ease' }}/>
+              </div>
+            </div>
+          )}
+
           {/* ── BIG RECORD BUTTON ─────────────────────────────────────────── */}
           <div className="record-section">
 
@@ -864,6 +900,36 @@ export default function Companion() {
               >
                 Skip — view session in app →
               </button>
+            </div>
+          )}
+
+          {/* Processing overlay with progress bar */}
+          {state.processing && (
+            <div style={{
+              position: 'fixed', inset: 0, zIndex: 80,
+              background: 'rgba(8,12,16,0.92)',
+              display: 'flex', flexDirection: 'column',
+              alignItems: 'center', justifyContent: 'center', gap: 16,
+              backdropFilter: 'blur(8px)',
+            }}>
+              <Loader2 size={36} style={{ color: '#d4a853', animation: 'spin 1s linear infinite' }}/>
+              <div style={{ fontFamily: 'Syne, sans-serif', fontWeight: 700, fontSize: 18, color: '#e8eaed' }}>
+                Writing your memo...
+              </div>
+              <div style={{ width: 260, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)' }}>
+                    {processProgress < 30 ? 'Reading your session...'
+                      : processProgress < 60 ? 'Finding key moments...'
+                      : processProgress < 85 ? 'Writing your memo...'
+                      : 'Almost done...'}
+                  </span>
+                  <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)' }}>{Math.round(processProgress)}%</span>
+                </div>
+                <div style={{ height: 4, background: 'rgba(255,255,255,0.08)', borderRadius: 2, overflow: 'hidden' }}>
+                  <div style={{ height: '100%', width: `${processProgress}%`, background: 'linear-gradient(90deg, #d4a853, #e8c46a)', borderRadius: 2, transition: 'width 0.4s ease' }}/>
+                </div>
+              </div>
             </div>
           )}
         </div>
