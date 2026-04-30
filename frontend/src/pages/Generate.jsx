@@ -151,6 +151,15 @@ export default function Generate() {
       } catch {}
       sessionStorage.removeItem('companion_memo')
     }
+    // Pick up vault hook from Dashboard recommendations
+    const hook = sessionStorage.getItem('vault_hook')
+    if (hook) {
+      try {
+        const { title } = JSON.parse(hook)
+        if (title) setForm(prev => ({ ...prev, voiceMemoText: (prev.voiceMemoText ? prev.voiceMemoText + '\n\n' : '') + `Hook idea: ${title}` }))
+      } catch {}
+      sessionStorage.removeItem('vault_hook')
+    }
   }, [])
 
   useEffect(() => {

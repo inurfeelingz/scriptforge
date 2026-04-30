@@ -434,12 +434,26 @@ export default function Dashboard() {
                 <h3 className="text-xs text-[var(--text3)] uppercase tracking-wide">Ready to use</h3>
               </div>
               {recommendations.slice(0, 3).map((rec, i) => (
-                <div key={i} className="text-xs space-y-1">
-                  <div className="text-[var(--text)] truncate">{rec.title}</div>
+                <div
+                  key={i}
+                  onClick={() => {
+                    // Pass vault entry to Generate via sessionStorage
+                    sessionStorage.setItem('vault_hook', JSON.stringify({ id: rec.id, title: rec.title }))
+                    navigate('/generate')
+                  }}
+                  style={{ cursor: 'pointer', borderRadius: 8, padding: '8px 10px', margin: '0 -10px', transition: 'background 0.15s' }}
+                  onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.04)'}
+                  onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                  className="text-xs space-y-1"
+                >
+                  <div className="text-[var(--text)] truncate font-medium">{rec.title}</div>
                   <div className="text-[var(--text3)] leading-relaxed line-clamp-2">{rec.reason}</div>
-                  <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] ${
-                    rec.urgency === 'high' ? 'bg-[#c8b89a]/10 text-[var(--accent)]' : 'bg-[var(--surface2)] text-[var(--text3)]'
-                  }`}>{rec.urgency}</span>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 4 }}>
+                    <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] ${
+                      rec.urgency === 'high' ? 'bg-[var(--accent-lo)] text-[var(--accent)]' : 'bg-[var(--surface2)] text-[var(--text3)]'
+                    }`}>{rec.urgency}</span>
+                    <span style={{ fontSize: 10, color: 'var(--text3)', opacity: 0.6 }}>Use in episode →</span>
+                  </div>
                 </div>
               ))}
             </div>

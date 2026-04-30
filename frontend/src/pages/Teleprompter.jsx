@@ -361,7 +361,12 @@ export default function Teleprompter() {
   return (
     <div
       className={`${fullscreen ? 'fixed inset-0 z-50' : 'rounded overflow-hidden'} flex flex-col`}
-      style={{ minHeight: fullscreen ? undefined : 600, background: '#080c10', position: 'relative' }}
+      style={{
+        height: fullscreen ? undefined : 'calc(100dvh - 120px)',
+        minHeight: fullscreen ? undefined : 500,
+        background: '#080c10',
+        position: 'relative',
+      }}
     >
       {/* Progress bar */}
       <div className="h-0.5 bg-[#111] shrink-0">
