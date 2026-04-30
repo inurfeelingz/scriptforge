@@ -404,18 +404,20 @@ export default function Companion() {
 
     mediaRecorderRef.current.stop()
     mediaRecorderRef.current.stream.getTracks().forEach(t => t.stop())
-    mediaRecorderRef.current = null  // release so next session starts clean
+    mediaRecorderRef.current = null
 
-    // Final chunk
-    await transcribeChunk(sessionIdRef.current)
+    // Final chunk — with timeout so stop never hangs
+    await Promise.race([
+      transcribeChunk(sessionIdRef.current),
+      new Promise(r => setTimeout(r, 8000))  // give up after 8s, session still saves
+    ])
 
-    // Release wake lock
     if (wakeLockRef.current) {
       wakeLockRef.current.release().catch(() => {})
       wakeLockRef.current = null
     }
     set({ recording: false, status: 'ready', orbMood: 'idle' })
-    navigator.vibrate?.([80, 40, 80])  // double buzz = stopped
+    navigator.vibrate?.([80, 40, 80])
   }
 
   // ── TRANSCRIPTION ──────────────────────────────────────────────────────────

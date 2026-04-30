@@ -107,6 +107,7 @@ router.post('/:id/entries/batch', async (req, res) => {
 // ─── PROCESS SESSION → VOICE MEMO ────────────────────────────────────────────
 
 router.post('/:id/process', async (req, res) => {
+  console.info('[process] Request received for session:', req.params.id)
   const { data: session } = await supabase
     .from('session_journals')
     .select('*')
@@ -159,6 +160,7 @@ router.post('/:id/process', async (req, res) => {
     .join('\n')
 
   // Ask Claude to synthesise into a coherent voice memo
+  console.info('[process] Calling Claude, transcript length:', transcript.length)
   let response
   try {
     response = await client.messages.create({
