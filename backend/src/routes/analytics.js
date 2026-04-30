@@ -24,6 +24,17 @@ router.get('/youtube/status', async (req, res) => {
 })
 
 // ─── YOUTUBE OAUTH: CONNECT ───────────────────────────────────────────────────
+// Temporary debug — remove after YouTube is working
+router.get('/youtube/debug', async (req, res) => {
+  res.json({
+    hasClientId:     !!process.env.YOUTUBE_CLIENT_ID,
+    hasClientSecret: !!process.env.YOUTUBE_CLIENT_SECRET,
+    hasRedirectUri:  !!process.env.YOUTUBE_REDIRECT_URI,
+    redirectUri:     process.env.YOUTUBE_REDIRECT_URI,
+    clientIdPrefix:  process.env.YOUTUBE_CLIENT_ID?.slice(0, 8),
+  })
+})
+
 // GET /api/analytics/youtube/connect?categoryId=xxx
 // Redirects to Google consent screen.
 // Accepts token as query param since this is a browser redirect (no auth header possible)
