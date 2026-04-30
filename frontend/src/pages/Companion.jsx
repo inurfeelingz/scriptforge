@@ -322,7 +322,8 @@ export default function Companion() {
 
       sessionIdRef.current = session.id
       sessionStartRef.current = Date.now()
-      audioChunksRef.current  = []
+      audioChunksRef.current      = []
+      transcribeBufferRef.current = []  // fresh accumulation buffer for each session
 
       // MediaRecorder
       // iOS Safari only supports audio/mp4 — must be in the chain
@@ -419,17 +420,27 @@ export default function Companion() {
   // ── TRANSCRIPTION ──────────────────────────────────────────────────────────
 
   async function transcribeChunk(sid) {
-    const chunks = audioChunksRef.current.splice(0)
-    if (!chunks.length || !sid) return
+    const newChunks = audioChunksRef.current.splice(0)
+    if (!newChunks.length || !sid) return
 
-    const blob        = new Blob(chunks, { type: audioMimeRef.current || 'audio/webm' })
+    // Accumulate ALL chunks — Whisper needs the container header (first chunk)
+    // to parse the audio correctly. Sending only new chunks produces invalid files.
+    if (!transcribeBufferRef.current) transcribeBufferRef.current = []
+    transcribeBufferRef.current.push(...newChunks)
+
+    const mimeType    = audioMimeRef.current || 'audio/webm'
+    const blob        = new Blob(transcribeBufferRef.current, { type: mimeType })
     const timestampMs = Date.now() - (sessionStartRef.current || Date.now())
+    const ext         = mimeType.split(';')[0].split('/')[1] || 'webm'
+
+    if (blob.size < 8000) return  // too small — just the container header, no audio yet
 
     try {
       const session  = await getSession()
       const formData = new FormData()
-      formData.append('audio', blob, 'chunk.webm')
+      formData.append('audio', blob, `recording.${ext}`)
       formData.append('timestampMs', String(timestampMs))
+      formData.append('isCumulative', 'true')
 
       const res = await fetch(
         `${import.meta.env.VITE_API_URL || '/api'}/session/${sid}/transcribe`,
