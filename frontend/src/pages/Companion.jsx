@@ -72,6 +72,7 @@ function reducer(state, action) {
   switch (action.type) {
     case 'SET':             return { ...state, ...action.payload }
     case 'ADD_ENTRY':       return { ...state, entries: [...state.entries, action.entry] }
+    case 'REPLACE_SPEECH_ENTRY': return { ...state, entries: [...state.entries.filter(e => e.type !== 'speech'), action.entry] }
     case 'REMOVE_ENTRY':    return { ...state, entries: state.entries.filter(e => e.id !== action.id) }
     case 'SET_WAVEFORM':    return { ...state, waveform: action.data, audioLevel: action.level }
     case 'RESET_SESSION':   return { ...state, sessionId: null, recording: false, elapsedMs: 0, entries: [], processed: null, status: 'idle', error: null, justMarked: false }
@@ -517,13 +518,11 @@ export default function Companion() {
       const voiceMemoText = result?.voiceMemoText || result?.voice_memo_text || ''
       const keyMoments    = result?.keyMoments    || result?.key_moments    || []
       if (!voiceMemoText) throw new Error('No memo generated — speak clearly during recording, or check OPENAI_API_KEY is set in Railway')
-      set({ processed: { voiceMemoText, keyMoments }, processing: false, orbMood: 'idle' })
-      set({ screen: 2 })
-      loadPastSessions()
+      set({ processing: false, orbMood: 'idle', status: 'idle', entries: [], sessionId: null, elapsedMs: 0 })
       navigator.vibrate?.([100, 50, 100, 50, 200])
+      window.location.href = '/'
     } catch (err) {
-      set({ processing: false, orbMood: 'idle', error: err.message || 'Processing failed' })
-      set({ screen: 2 })
+      set({ processing: false, orbMood: 'idle', error: err.message || 'Processing failed', status: 'idle' })
     }
   }
 
@@ -558,7 +557,7 @@ export default function Companion() {
     isDragging.current = true
     // Resist at edges (screens 0 and 2)
     let resistance = 1
-    if ((state.screen === 0 && dx > 0) || (state.screen === 2 && dx < 0)) {
+    if (state.screen === 0 && dx > 0) {
       resistance = 0.25
     }
     setDragX(dx * resistance)
@@ -645,7 +644,7 @@ export default function Companion() {
           <span style={{ fontFamily: 'Syne, sans-serif', fontWeight: 800, fontSize: 16, letterSpacing: '-0.3px', color: '#e8eaed' }}>
             Whispa<span style={{ color: '#d4a853' }}>Cuts</span>
           </span>
-          {cat && <span className="brand-cat">{cat.name}</span>}
+          {cat && <span style={{fontSize:11,color:'rgba(255,255,255,0.35)',marginLeft:4}}>{cat.name}</span>}
         </div>
 
         <div className="header-right">
@@ -655,7 +654,7 @@ export default function Companion() {
               {state.isDJI
                 ? <Radio size={10} className="text-[#40a060]"/>
                 : state.isExternal
-                ? <Volume2 size={10} className="text-[#c8b89a]"/>
+                ? <Volume2 size={10} style={{color:"rgba(255,255,255,0.5)"}}/>
                 : <Mic size={10} className="text-[#555]"/>
               }
               <span>{state.micLabel}</span>
@@ -664,7 +663,7 @@ export default function Companion() {
           {/* Online status */}
           {state.online
             ? <Wifi size={13} className="text-[#444]"/>
-            : <WifiOff size={13} className="text-[#c8a030]"/>
+            : <WifiOff size={13} style={{color:"#d4a853"}}/>
           }
           {/* Clock while recording */}
           {state.recording && (
@@ -707,7 +706,7 @@ export default function Companion() {
                     }
                   }}
                   onKeyDown={e => e.key === 'Enter' && e.target.blur()}
-                  style={{background:'transparent',border:'none',borderBottom:'1px solid rgba(200,184,154,0.3)',color:'#c8b89a',fontSize:'12px',textAlign:'center',outline:'none',width:'200px',padding:'2px 4px'}}
+                  style={{background:'transparent',border:'none',borderBottom:'1px solid rgba(255,255,255,0.15)',color:'rgba(255,255,255,0.6)',fontSize:'12px',textAlign:'center',outline:'none',width:'200px',padding:'2px 4px'}}
                 />
               ) : (
                 <button
@@ -720,39 +719,39 @@ export default function Companion() {
             </div>
           )}
 
-          {/* Mascot orb */}
-          <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '8px 0' }}>
-            <MascotOrb mood={state.orbMood} audioLevel={state.audioLevel} size={200}/>
-          </div>
-
-          {/* Idle instructions */}
-          {state.status === 'idle' && (
-            <div className="idle-hint">
-              <p className="idle-title">Hold to start recording</p>
-              <p className="idle-body">
-                Open this before your DAW. Describe what you're hearing, what's working, what you're trying — in the moment, in your own words. It becomes your episode voice memo.
-              </p>
-              {state.micLabel && (
-                <p className="mic-hint">
-                  {state.isExternal
-                    ? `🎙 ${state.micInfo || state.micLabel}`
-                    : `Built-in mic — enable processing for best quality`}
-                </p>
-              )}
+          {/* Orb OR transcript — orb when idle/no entries, transcript when recording */}
+          {state.entries.length > 0 ? (
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', minHeight: 0 }}>
+              <div className="entry-feed" ref={el => { if (el) el.scrollTop = el.scrollHeight }}>
+                {state.entries.map(e => (
+                  <EntryRow
+                    key={e.id}
+                    entry={e}
+                    elapsed={state.elapsedMs}
+                    onDelete={() => dispatch({ type: 'REMOVE_ENTRY', id: e.id })}
+                  />
+                ))}
+              </div>
             </div>
-          )}
-
-          {/* Live entry feed — all entries, scrolls to latest */}
-          {state.entries.length > 0 && (
-            <div className="entry-feed" ref={el => { if (el) el.scrollTop = el.scrollHeight }}>
-              {state.entries.map(e => (
-                <EntryRow
-                  key={e.id}
-                  entry={e}
-                  elapsed={state.elapsedMs}
-                  onDelete={() => dispatch({ type: 'REMOVE_ENTRY', id: e.id })}
-                />
-              ))}
+          ) : (
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center' }}>
+              <MascotOrb mood={state.orbMood} audioLevel={state.audioLevel} size={220}/>
+              {/* Idle instructions */}
+              {state.status === 'idle' && (
+                <div className="idle-hint">
+                  <p className="idle-title">Hold to start recording</p>
+                  <p className="idle-body">
+                    Open this before your DAW. Describe what you're hearing, what's working, what you're trying — in the moment, in your own words. It becomes your episode voice memo.
+                  </p>
+                  {state.micLabel && (
+                    <p className="mic-hint">
+                      {state.isExternal
+                        ? `🎙 ${state.micInfo || state.micLabel}`
+                        : `Built-in mic — tap to improve quality`}
+                    </p>
+                  )}
+                </div>
+              )}
             </div>
           )}
 
@@ -824,7 +823,7 @@ export default function Companion() {
               {state.status === 'stopping'  && 'Saving session...'}
               {state.status === 'recording' && `${state.entries.filter(e=>e.type!=='marker').length} utterances · ${state.entries.filter(e=>e.type==='marker').length} marks`}
               {state.status === 'idle'      && 'Hold 0.6s to start'}
-              {state.status === 'ready'     && `Session ready — swipe → to review`}
+              {state.status === 'ready'     && ''}
               {state.status === 'error'     && 'Tap to retry'}
             </p>
           </div>
@@ -927,7 +926,7 @@ function RecordButton({ recording, status, audioLevel, onPressStart, onPressEnd 
           <circle
             cx="50" cy="50" r="46"
             fill="none"
-            stroke="rgba(200,184,154,0.8)"
+            stroke="rgba(255,255,255,0.6)"
             strokeWidth="4"
             strokeDasharray={`${holdPct * 2.89} 289`}
             strokeLinecap="round"
@@ -959,8 +958,8 @@ function EntryRow({ entry, onDelete }) {
   return (
     <div className={`entry-row ${isMarker ? 'entry-row-marker' : ''}`} title={lowConf ? 'Low confidence — Whisper may have misheard this' : undefined}>
       <span className="entry-time">{fmt(entry.timestamp_ms)}</span>
-      {isMarker && <Flag size={9} className="text-[#c8b89a] shrink-0"/>}
-      <span className="entry-text" style={lowConf ? {color:'#666',textDecoration:'underline dotted rgba(200,184,154,0.4)'} : {}}>
+      {isMarker && <Flag size={9} style={{color:"rgba(255,255,255,0.5)",flexShrink:0}}/>}
+      <span className="entry-text" style={lowConf ? {color:'rgba(255,255,255,0.4)',textDecoration:'underline dotted rgba(255,255,255,0.2)'} : {}}>
         {entry.text}
       </span>
       {lowConf && <span style={{fontSize:'8px',color:'#555',marginLeft:'4px',flexShrink:0}}>?</span>}
@@ -1004,7 +1003,7 @@ function SwipeableEntry({ entry, onDelete }) {
       onTouchEnd={onSwipeEnd}
     >
       <span className="entry-time">{fmt(entry.timestamp_ms)}</span>
-      {isMarker && <Flag size={10} className="text-[#c8b89a] shrink-0"/>}
+      {isMarker && <Flag size={10} style={{color:"rgba(255,255,255,0.5)",flexShrink:0}}/>}
       <span className="entry-text flex-1">{entry.text}</span>
       {/* Delete hint revealed on swipe */}
       {offsetX < -30 && (

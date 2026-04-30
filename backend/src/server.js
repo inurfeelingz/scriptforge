@@ -66,9 +66,10 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }))
 
 // Request timeout — SSE routes and session processing exempt
 app.use((req, res, next) => {
-  const isSSE     = req.path.endsWith('/generate') || req.path.endsWith('/message')
-  const isProcess = req.path.includes('/process')
-  if (isSSE || isProcess) return next()
+  const isSSE        = req.path.endsWith('/generate') || req.path.endsWith('/message')
+  const isProcess    = req.path.includes('/process')
+  const isTranscribe = req.path.includes('/transcribe')
+  if (isSSE || isProcess || isTranscribe) return next()
   const t = setTimeout(() => {
     if (!res.headersSent) res.status(503).json({ error: 'Request timed out — try again' })
   }, 30000)
