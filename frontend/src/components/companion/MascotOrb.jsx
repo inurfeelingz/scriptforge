@@ -43,12 +43,12 @@ function cssVarRgb(varName, fallback) {
 function getMoods() {
   const isDark = document.documentElement.getAttribute('data-theme') !== 'light'
   return {
-    idle:       { r: 52,  speed: 0.0008, rgb: isDark ? [100, 115, 155] : [130, 140, 180], bloom: 0.20, wobble: 0.06, pulse: 0.010 },
-    listening:  { r: 60,  speed: 0.022,  rgb: isDark ? [140, 170, 220] : [100, 130, 210], bloom: 1.20, wobble: 0.70, pulse: 0.16  },
-    discovery:  { r: 68,  speed: 0.034,  rgb: [212, 168,  83],                             bloom: 2.00, wobble: 1.30, pulse: 0.28  },
-    marking:    { r: 64,  speed: 0.026,  rgb: [212, 168,  83],                             bloom: 1.80, wobble: 0.55, pulse: 0.30  },
-    processing: { r: 56,  speed: 0.018,  rgb: isDark ? [ 96, 165, 250] : [ 60, 120, 230], bloom: 1.40, wobble: 0.85, pulse: 0.10  },
-    offline:    { r: 42,  speed: 0.0002, rgb: isDark ? [ 55,  58,  70] : [180, 182, 190], bloom: 0.04, wobble: 0.02, pulse: 0.003 },
+    idle:       { r: 52,  speed: 0.008, rgb: isDark ? [100, 115, 155] : [130, 140, 180], bloom: 0.15, wobble: 0.20, pulse: 0.030 },
+    listening:  { r: 60,  speed: 0.022, rgb: isDark ? [140, 170, 220] : [100, 130, 210], bloom: 0.55, wobble: 0.70, pulse: 0.16  },
+    discovery:  { r: 68,  speed: 0.034, rgb: [212, 168,  83],                             bloom: 1.00, wobble: 1.30, pulse: 0.28  },
+    marking:    { r: 64,  speed: 0.026, rgb: [212, 168,  83],                             bloom: 0.90, wobble: 0.55, pulse: 0.30  },
+    processing: { r: 56,  speed: 0.024, rgb: isDark ? [ 96, 165, 250] : [ 60, 120, 230], bloom: 0.60, wobble: 0.85, pulse: 0.10  },
+    offline:    { r: 42,  speed: 0.003, rgb: isDark ? [ 55,  58,  70] : [180, 182, 190], bloom: 0.04, wobble: 0.08, pulse: 0.008 },
   }
 }
 
@@ -102,8 +102,7 @@ export default function MascotOrb({ mood = 'idle', audioLevel = 0, size = 280 })
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas) return
-    const ctx = canvas.getContext('2d', { alpha: true, willReadFrequently: false })
-    // Use a larger internal draw area so bloom glow isn't clipped at edges
+    const ctx = canvas.getContext('2d')
     const W   = size
     const H   = size
     const cx  = W / 2
@@ -113,8 +112,8 @@ export default function MascotOrb({ mood = 'idle', audioLevel = 0, size = 280 })
       const s = stateRef.current
       ctx.clearRect(0, 0, W, H)
 
-      // Lerp current mood toward target — slower when settling into idle
-      const sp = s.prevMood === 'idle' ? 0.008 : 0.032
+      // Lerp current mood toward target
+      const sp = 0.032
       const cm = s.currentMood
       const tm = s.targetMood
       cm.r      = lerp(cm.r,      tm.r,      sp)
@@ -123,12 +122,14 @@ export default function MascotOrb({ mood = 'idle', audioLevel = 0, size = 280 })
       cm.pulse  = lerp(cm.pulse,  tm.pulse,  sp)
       cm.rgb    = cm.rgb.map((v, i) => lerp(v, tm.rgb[i], sp))
 
-      // Energy from audio level + mood pulse
-      // audioLevel is 0–1 from the analyser average — boost it significantly
-      // so even quiet speech makes the orb visibly react
-      const audioDriven = Math.pow(audioRef.current, 0.6) * 1.2  // curve + amplify
+      // Energy — aggressive audio response so even quiet speech makes orb react
+      const raw         = audioRef.current
+      const audioDriven = Math.pow(Math.max(0, raw), 0.45) * 1.8  // heavy curve + amplify
       const moodDriven  = Math.sin(s.t * cm.speed * 200) * cm.pulse
-      s.energy = lerp(s.energy, audioDriven + moodDriven, 0.15)  // faster lerp = snappier response
+      // Fast attack, slow release — snappy on voice, drifts back slowly
+      const target      = audioDriven + moodDriven
+      const lerpRate    = target > s.energy ? 0.28 : 0.08
+      s.energy = lerp(s.energy, target, lerpRate)
 
       drawRipples(ctx, s, cx, cy)
       drawOrb(ctx, s, cm, cx, cy, W)
@@ -148,15 +149,7 @@ export default function MascotOrb({ mood = 'idle', audioLevel = 0, size = 280 })
       ref={canvasRef}
       width={size}
       height={size}
-      style={{
-        display: 'block',
-        width: size,
-        height: size,
-        background: 'transparent',
-        // Radial mask fades the canvas edges to transparent — eliminates the square
-        WebkitMaskImage: 'radial-gradient(ellipse 48% 48% at 50% 50%, black 55%, transparent 78%)',
-        maskImage: 'radial-gradient(ellipse 48% 48% at 50% 50%, black 55%, transparent 78%)',
-      }}
+      style={{ display: 'block', width: size, height: size }}
     />
   )
 }
@@ -167,12 +160,11 @@ function drawOrb(ctx, s, cm, cx, cy, W) {
   const { r, bloom, wobble, rgb: [rr, rg, rb], speed } = cm
   const energy = s.energy
 
-  // Outer bloom glow — larger radius and higher opacity
-  const bloomR = r * (3.2 + bloom * 1.8)
-  const grd = ctx.createRadialGradient(cx, cy, r * 0.2, cx, cy, bloomR)
-  grd.addColorStop(0,   `rgba(${rr},${rg},${rb},${0.18 + bloom * 0.14})`)
-  grd.addColorStop(0.3, `rgba(${rr},${rg},${rb},${0.08 + bloom * 0.06})`)
-  grd.addColorStop(0.6, `rgba(${rr},${rg},${rb},${0.03 + bloom * 0.02})`)
+  // Outer bloom glow
+  const bloomR = r * (2.1 + bloom * 0.9)
+  const grd = ctx.createRadialGradient(cx, cy, r * 0.3, cx, cy, bloomR)
+  grd.addColorStop(0,   `rgba(${rr},${rg},${rb},${0.10 + bloom * 0.06})`)
+  grd.addColorStop(0.4, `rgba(${rr},${rg},${rb},${0.04 + bloom * 0.02})`)
   grd.addColorStop(1,   `rgba(${rr},${rg},${rb},0)`)
   ctx.beginPath()
   ctx.arc(cx, cy, bloomR, 0, Math.PI * 2)
@@ -201,7 +193,7 @@ function drawOrb(ctx, s, cm, cx, cy, W) {
     const n2 = Math.cos(a * 5 + t * speed * 55 + 1.3) * wobble * 2.8
     const n3 = Math.sin(a * 7 + t * speed * 38 + 2.6) * wobble * 1.6
     const n4 = Math.cos(a * 2 + t * speed * 90 + 0.7) * wobble * 1.2   // low-freq sway
-    const rad = r + n1 + n2 + n3 + n4 + energy * r * 0.18
+    const rad = r + n1 + n2 + n3 + n4 + energy * r * 0.35
     const x  = cx + Math.cos(a) * rad
     const y  = cy + Math.sin(a) * rad
     if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y)
@@ -229,7 +221,7 @@ function drawOrb(ctx, s, cm, cx, cy, W) {
   const hy = cy - r * 0.30 + Math.cos(s.t * speed * 25) * wobble * 0.5
   ctx.beginPath()
   ctx.ellipse(hx, hy, r * 0.16, r * 0.09, -Math.PI / 5, 0, Math.PI * 2)
-  ctx.fillStyle = `rgba(${rr},${rg},${rb},0.32)`
+  ctx.fillStyle = `rgba(${rr},${rg},${rb},${0.32 + energy * 0.4})`
   ctx.fill()
 
   // Slow inner swirl — 3 orbiting sub-glows

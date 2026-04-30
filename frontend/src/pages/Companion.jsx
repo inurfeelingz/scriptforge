@@ -26,7 +26,7 @@ import {
 import {
   Mic, MicOff, Square, Flag, Send, Wifi, WifiOff,
   ChevronLeft, ChevronRight, Trash2, Check, Loader2,
-  Volume2, Radio, Clock, Bookmark, RefreshCw
+  Volume2, Radio, Clock, RefreshCw
 } from 'lucide-react'
 import { useStore } from '../store'
 import { api } from '../lib/api'
@@ -35,7 +35,7 @@ import { detectMic, buildConstraints, getRecordingBitrate, needsStereoSum, descr
 import MascotOrb from '../components/companion/MascotOrb'
 
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
-const SCREENS         = ['record', 'journal', 'memo']
+const SCREENS = ['record']
 const CHUNK_MS        = 12000      // transcribe every 12s
 const WAVEFORM_BARS   = 48         // number of bars in visualiser
 const LONG_PRESS_MS   = 600        // ms for long-press start
@@ -44,7 +44,7 @@ const SWIPE_VELOCITY  = 0.3        // px/ms minimum velocity
 
 // ─── STATE REDUCER ────────────────────────────────────────────────────────────
 const initialState = {
-  screen:      0,         // 0=record, 1=journal, 2=memo
+  screen:      0,
   sessionId:   null,
   recording:   false,
   elapsedMs:   0,
@@ -72,7 +72,6 @@ function reducer(state, action) {
   switch (action.type) {
     case 'SET':             return { ...state, ...action.payload }
     case 'ADD_ENTRY':       return { ...state, entries: [...state.entries, action.entry] }
-    case 'REPLACE_SPEECH_ENTRY': return { ...state, entries: [...state.entries.filter(e => e.type !== 'speech'), action.entry] }
     case 'REMOVE_ENTRY':    return { ...state, entries: state.entries.filter(e => e.id !== action.id) }
     case 'SET_WAVEFORM':    return { ...state, waveform: action.data, audioLevel: action.level }
     case 'RESET_SESSION':   return { ...state, sessionId: null, recording: false, elapsedMs: 0, entries: [], processed: null, status: 'idle', error: null, justMarked: false }
@@ -110,7 +109,6 @@ export default function Companion() {
   const sessionIdRef     = useRef(null)
   const longPressRef     = useRef(null)
   const audioMimeRef     = useRef('audio/webm')  // set on startSession, used in transcribeChunk
-  const transcribeBufferRef = useRef([])          // accumulates ALL chunks for valid Whisper input
   const wakeLockRef      = useRef(null)          // Screen Wake Lock — keeps display on while recording
   const offlineQueue     = useRef([])
 
@@ -118,11 +116,8 @@ export default function Companion() {
   const touchStart    = useRef({ x: 0, y: 0, t: 0 })
   const touchCurrent  = useRef({ x: 0, y: 0 })
   const swipeOffset   = useRef(0)
-  const [dragX, setDragX]       = useState(0)
   const [sessionTitle, setSessionTitle] = useState('')
   const [editingTitle, setEditingTitle] = useState(false)
-  const [pastSessions, setPastSessions] = useState([])
-  const [loadingSessions, setLoadingSessions] = useState(false)
   const isDragging    = useRef(false)
 
   // Keep session ID ref in sync
@@ -328,22 +323,20 @@ export default function Companion() {
       sessionStartRef.current = Date.now()
       audioChunksRef.current  = []
 
-      // MediaRecorder mime type — prefer mp4/aac as it produces self-contained
-      // chunks that Whisper handles reliably. webm produces fragmented chunks
-      // that Whisper rejects even though it lists webm as supported.
+      // MediaRecorder
+      // iOS Safari only supports audio/mp4 — must be in the chain
       const mimeType = [
-        'audio/mp4;codecs=aac',    // Chrome 130+, iOS Safari (best for Whisper)
-        'audio/mp4',               // Chrome/iOS fallback
-        'audio/webm;codecs=opus',  // Android fallback
-        'audio/webm',              // last resort
+        'audio/webm;codecs=opus',  // Chrome/Android (best quality)
+        'audio/webm',              // Chrome fallback
+        'audio/mp4;codecs=aac',    // iOS Safari 14.3+
+        'audio/mp4',               // iOS Safari fallback
+        'audio/ogg',               // Firefox
       ].find(t => MediaRecorder.isTypeSupported(t)) || 'audio/mp4'
 
       // Use bitrate from micDetect.js — each brand has optimal value
       const audioBitrate = bitrate || (isExternal ? 192000 : 128000)
 
       audioMimeRef.current = mimeType
-      transcribeBufferRef.current = []  // fresh buffer for each session
-      console.info('[companion] Recording format:', mimeType)
       const recorder = new MediaRecorder(stream, { mimeType, audioBitsPerSecond: audioBitrate })
       mediaRecorderRef.current = recorder
 
@@ -425,38 +418,17 @@ export default function Companion() {
   // ── TRANSCRIPTION ──────────────────────────────────────────────────────────
 
   async function transcribeChunk(sid) {
-    // We need ALL chunks including the header chunk (first chunk) to produce
-    // a valid audio file. Splice only takes new chunks but keeps old ones for context.
-    const newChunks = audioChunksRef.current.splice(0)
-    if (!newChunks.length || !sid) return
+    const chunks = audioChunksRef.current.splice(0)
+    if (!chunks.length || !sid) return
 
-    // Add new chunks to accumulated buffer
-    if (!transcribeBufferRef.current) transcribeBufferRef.current = []
-    transcribeBufferRef.current.push(...newChunks)
-
-    // Build complete audio blob from ALL chunks so far — this gives Whisper
-    // a valid self-contained file with the container header included
-    const allChunks   = transcribeBufferRef.current
-    const mimeType    = audioMimeRef.current || 'audio/webm'
-    const blob        = new Blob(allChunks, { type: mimeType })
+    const blob        = new Blob(chunks, { type: audioMimeRef.current || 'audio/webm' })
     const timestampMs = Date.now() - (sessionStartRef.current || Date.now())
-
-    // Skip if too small — likely just the header with no audio yet
-    if (blob.size < 8000) {
-      console.info('[transcribe] Skipping — blob too small:', blob.size, 'bytes')
-      return
-    }
-
-    console.info('[transcribe] Sending', Math.round(blob.size/1024), 'KB of', mimeType, 'to Whisper')
-
-    const ext = mimeType.split(';')[0].split('/')[1] || 'webm'
 
     try {
       const session  = await getSession()
       const formData = new FormData()
-      formData.append('audio', blob, `recording.${ext}`)
+      formData.append('audio', blob, 'chunk.webm')
       formData.append('timestampMs', String(timestampMs))
-      formData.append('isCumulative', 'true')  // tells backend to deduplicate entries
 
       const res = await fetch(
         `${import.meta.env.VITE_API_URL || '/api'}/session/${sid}/transcribe`,
@@ -481,18 +453,15 @@ export default function Companion() {
           }
         }
         if (data.clientSideRequired) {
+          // Server has no OPENAI_API_KEY — transcription handled client-side by Whisper worker
+          // Entries will be added via the clipIndexer worker's CLIP_INDEXED event
+          // For now: log so the developer knows to add the key or use client-side Whisper
           console.info('[companion] Server-side transcription unavailable — add OPENAI_API_KEY or implement client-side Whisper path')
         } else if (data.entries?.length) {
-          console.info('[transcribe] Got', data.entries.length, 'entries:', data.entries.map(e => e.text?.slice(0,40)))
-          // Cumulative mode — replace the single speech entry rather than appending
-          // so the UI shows the growing transcript without duplicates
-          data.entries.forEach(e => dispatch({ type: e.type === 'speech' ? 'REPLACE_SPEECH_ENTRY' : 'ADD_ENTRY', entry: e }))
-        } else {
-          console.info('[transcribe] Response OK but no entries. Text:', data.text?.slice(0,80))
+          data.entries.forEach(e => dispatch({ type: 'ADD_ENTRY', entry: e }))
         }
       }
-    } catch (err) {
-      console.error('[transcribe] Failed:', err.message)
+    } catch {
       // Queue for offline sync — will retry on reconnect
     }
   }
@@ -543,30 +512,18 @@ export default function Companion() {
   async function processSession() {
     if (!sessionIdRef.current) return
     set({ processing: true, orbMood: 'processing', error: null })
-
-    // Small delay to let the final transcription chunk finish saving to DB
-    // before we ask Claude to process it
-    await new Promise(r => setTimeout(r, 2000))
-
-    const timeoutId = setTimeout(() => {
-      set({ processing: false, orbMood: 'idle', error: 'Memo generation timed out — try again', screen: 2 })
-    }, 180000)  // 3 min — matches server timeout
-
     try {
       const result = await api.post(`/session/${sessionIdRef.current}/process`)
-      clearTimeout(timeoutId)
-      console.info('[process] Result:', JSON.stringify(result).slice(0, 200))
       const voiceMemoText = result?.voiceMemoText || result?.voice_memo_text || ''
       const keyMoments    = result?.keyMoments    || result?.key_moments    || []
-      if (!voiceMemoText) throw new Error('No memo generated — speak clearly during recording')
-      // Single dispatch — avoids race between two set() calls
-      set({ processed: { voiceMemoText, keyMoments }, processing: false, orbMood: 'idle', screen: 2 })
+      if (!voiceMemoText) throw new Error('No memo generated — speak clearly during recording, or check OPENAI_API_KEY is set in Railway')
+      set({ processed: { voiceMemoText, keyMoments }, processing: false, orbMood: 'idle' })
+      set({ screen: 2 })
       loadPastSessions()
       navigator.vibrate?.([100, 50, 100, 50, 200])
     } catch (err) {
-      clearTimeout(timeoutId)
-      console.error('[process] Error:', err.message)
-      set({ processing: false, orbMood: 'idle', error: err.message || 'Processing failed', screen: 2 })
+      set({ processing: false, orbMood: 'idle', error: err.message || 'Processing failed' })
+      set({ screen: 2 })
     }
   }
 
@@ -684,10 +641,7 @@ export default function Companion() {
       {/* ── STATUS BAR ──────────────────────────────────────────────────────── */}
       <header className="companion-header">
         <div className="companion-brand">
-          <img src="/icon-mark.svg" alt="WhispaCuts" style={{ width: 26, height: 26 }}/>
-          <span style={{ fontFamily: 'Syne, sans-serif', fontWeight: 800, fontSize: 16, letterSpacing: '-0.3px', color: '#e8eaed' }}>
-            Whispa<span style={{ color: '#d4a853' }}>Cuts</span>
-          </span>
+          <span className="brand-word">SF</span>
           {cat && <span className="brand-cat">{cat.name}</span>}
         </div>
 
@@ -719,26 +673,10 @@ export default function Companion() {
         </div>
       </header>
 
-      {/* ── SCREEN DOTS ─────────────────────────────────────────────────────── */}
-      <div className="screen-dots">
-        {SCREENS.map((_, i) => (
-          <button
-            key={i}
-            onClick={() => set({ screen: i })}
-            className={`dot ${state.screen === i ? 'dot-active' : ''}`}
-          />
-        ))}
-      </div>
+
 
       {/* ── SLIDING SCREENS ─────────────────────────────────────────────────── */}
-      {process.env.NODE_ENV !== 'production' && console.log('[render] screen:', state.screen, 'processed:', !!state.processed, 'processing:', state.processing)}
-      <div
-        className="screens-container"
-        style={{
-          transform: `translateX(calc(${-state.screen * 100}% + ${dragX}px))`,
-          transition: isDragging.current ? 'none' : 'transform 0.32s cubic-bezier(0.25,0.46,0.45,0.94)',
-        }}
-      >
+      <div className="screens-container">
 
         {/* ══ SCREEN 0: RECORD ═══════════════════════════════════════════════ */}
         <div className="screen">
@@ -779,32 +717,12 @@ export default function Companion() {
             </div>
           )}
 
-          {/* When transcript entries exist: show centered, hide orb */}
-          {state.entries.length > 0 ? (
-            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', padding: '8px 0' }}>
-              <div className="entry-feed" ref={el => {
-                if (el) el.scrollTop = el.scrollHeight
-              }} key={state.entries.length} style={{ maxHeight: '55vh' }}>
-                {state.entries.map(e => (
-                  <EntryRow
-                    key={e.id}
-                    entry={e}
-                    elapsed={state.elapsedMs}
-                    onDelete={() => dispatch({ type: 'REMOVE_ENTRY', id: e.id })}
-                  />
-                ))}
-              </div>
-            </div>
-          ) : (
-            /* Orb — only shown when no transcript yet */
-            <div style={{
-              flex: 1, display: 'flex', justifyContent: 'center', alignItems: 'center',
-            }}>
-              <MascotOrb mood={state.orbMood} audioLevel={state.audioLevel} size={260}/>
-            </div>
-          )}
+          {/* Mascot orb */}
+          <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '8px 0' }}>
+            <MascotOrb mood={state.orbMood} audioLevel={state.audioLevel} size={200}/>
+          </div>
 
-          {/* Idle instructions — only when not recording */}
+          {/* Idle instructions */}
           {state.status === 'idle' && (
             <div className="idle-hint">
               <p className="idle-title">Hold to start recording</p>
@@ -818,6 +736,20 @@ export default function Companion() {
                     : `Built-in mic — enable processing for best quality`}
                 </p>
               )}
+            </div>
+          )}
+
+          {/* Live entry feed — all entries, scrolls to latest */}
+          {state.entries.length > 0 && (
+            <div className="entry-feed" ref={el => { if (el) el.scrollTop = el.scrollHeight }}>
+              {state.entries.map(e => (
+                <EntryRow
+                  key={e.id}
+                  entry={e}
+                  elapsed={state.elapsedMs}
+                  onDelete={() => dispatch({ type: 'REMOVE_ENTRY', id: e.id })}
+                />
+              ))}
             </div>
           )}
 
@@ -896,230 +828,28 @@ export default function Companion() {
 
           {/* Process button */}
           {state.status === 'ready' && !state.processed && (
-            <button
-              className="process-btn"
-              onClick={processSession}
-              disabled={state.processing}
-            >
-              {state.processing
-                ? <><Loader2 size={16} className="animate-spin"/> Building memo...</>
-                : <><Send size={16}/> Generate voice memo</>
-              }
-            </button>
-          )}
-
-          {/* Processing overlay — visible even after swiping away */}
-          {state.processing && (
-            <div style={{
-              position: 'fixed', inset: 0, zIndex: 80,
-              background: 'rgba(8,12,16,0.85)',
-              display: 'flex', flexDirection: 'column',
-              alignItems: 'center', justifyContent: 'center', gap: 16,
-              backdropFilter: 'blur(4px)',
-            }}>
-              <Loader2 size={36} style={{ color: '#d4a853', animation: 'spin 1s linear infinite' }}/>
-              <div style={{ fontFamily: 'Syne, sans-serif', fontWeight: 700, fontSize: 18, color: '#e8eaed' }}>
-                Writing your memo...
-              </div>
-              <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.35)', textAlign: 'center', maxWidth: 220 }}>
-                Claude is processing your session notes
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* ══ SCREEN 1: JOURNAL ══════════════════════════════════════════════ */}
-        <div className="screen screen-journal"
-          onTouchStart={e => { e._pullY = e.touches[0].clientY }}
-          onTouchEnd={e => {
-            const dist = e.changedTouches[0].clientY - (e._pullY || 0)
-            if (dist > 60) loadPastSessions()
-          }}
-        >
-
-          <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:4}}>
-            <div className="screen-title" style={{margin:0}}>Sessions</div>
-            <button onClick={loadPastSessions} disabled={loadingSessions}
-              style={{background:'none',border:'none',color:'rgba(255,255,255,0.3)',cursor:'pointer',display:'flex',alignItems:'center',gap:4,fontSize:12,padding:'4px 8px',fontFamily:'inherit'}}>
-              <RefreshCw size={12} style={{animation:loadingSessions?'spin 1s linear infinite':'none'}}/>
-              {loadingSessions ? 'Loading...' : 'Refresh'}
-            </button>
-          </div>
-
-          {state.entries.length > 0 && (
-            <>
-              <div className="screen-title" style={{marginTop:8}}>This session</div>
-              <div className="journal-list">
-                {state.entries.map((e) => (
-                  <SwipeableEntry key={e.id} entry={e} onDelete={() => dispatch({ type: 'REMOVE_ENTRY', id: e.id })}/>
-                ))}
-              </div>
-            </>
-          )}
-
-          {pastSessions.length > 0 && (
-            <div className="journal-list" style={{marginTop: state.entries.length ? 12 : 4}}>
-              {pastSessions.map(s => (
-                <div key={s.id} className="swipeable-entry"
-                  style={{flexDirection:'column',gap:5,alignItems:'flex-start'}}
-                >
-                  <div style={{display:'flex',justifyContent:'space-between',width:'100%',alignItems:'center'}}>
-                    <span
-                      style={{fontSize:14,color:'#e8eaed',fontWeight:500,flex:1,cursor:s.voice_memo_text?'pointer':'default'}}
-                      onClick={() => { if (s.voice_memo_text) set({ processed: { voiceMemoText: s.voice_memo_text, keyMoments: s.key_moments||[] }, screen: 2 }) }}
-                    >{s.title||'Session'}</span>
-                    <div style={{display:'flex',alignItems:'center',gap:8,flexShrink:0}}>
-                      <span style={{fontSize:11,color:'rgba(255,255,255,0.25)'}}>{new Date(s.recorded_at||s.created_at).toLocaleDateString()}</span>
-                      <button
-                        onClick={() => {
-                          api.delete(`/session/${s.id}`).then(() => {
-                            setPastSessions(prev => prev.filter(x => x.id !== s.id))
-                          }).catch(() => {})
-                        }}
-                        style={{background:'none',border:'none',color:'rgba(255,255,255,0.2)',cursor:'pointer',padding:'2px 4px',fontSize:16,lineHeight:1}}
-                        title="Delete session"
-                      >×</button>
-                    </div>
-                  </div>
-                  <span style={{fontSize:10,padding:'1px 6px',borderRadius:99,background:s.voice_memo_text?'rgba(74,222,128,0.1)':'rgba(255,255,255,0.05)',color:s.voice_memo_text?'#4ade80':'rgba(255,255,255,0.3)',border:s.voice_memo_text?'1px solid rgba(74,222,128,0.2)':'1px solid rgba(255,255,255,0.08)'}}>
-                    {s.voice_memo_text ? 'tap to view memo' : (s.status||'recorded')}
-                  </span>
-                  {s.voice_memo_text && (
-                    <div
-                      style={{fontSize:12,color:'rgba(255,255,255,0.4)',lineHeight:1.4,display:'-webkit-box',WebkitLineClamp:2,WebkitBoxOrient:'vertical',overflow:'hidden',cursor:'pointer'}}
-                      onClick={() => set({ processed: { voiceMemoText: s.voice_memo_text, keyMoments: s.key_moments||[] }, screen: 2 })}
-                    >
-                      {s.voice_memo_text}
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-
-          {!loadingSessions && pastSessions.length === 0 && state.entries.length === 0 && (
-            <div className="empty-journal">
-              <Bookmark size={28} style={{color:'rgba(255,255,255,0.1)'}}/>
-              <p style={{color:'rgba(255,255,255,0.3)'}}>No sessions yet</p>
-              <button onClick={() => set({ screen: 0 })}
-                style={{marginTop:8,padding:'10px 20px',background:'#d4a853',color:'#080c10',border:'none',borderRadius:10,fontSize:14,fontWeight:700,fontFamily:'inherit',cursor:'pointer'}}>
-                Start recording
-              </button>
-            </div>
-          )}
-        </div>
-
-        {/* ══ SCREEN 2: MEMO ═════════════════════════════════════════════════ */}
-        <div className="screen screen-memo">
-          <div className="screen-title">Voice memo</div>
-          {/* DEBUG — remove after fix */}
-          <div style={{fontSize:11,color:'#888',padding:'4px 0'}}>
-            screen:{state.screen} processed:{state.processed?'YES':'NO'} processing:{state.processing?'Y':'N'} error:{state.error?'Y':'N'}
-          </div>
-
-          {!state.processed && !state.processing && (
-            <div className="empty-memo">
-              {state.error
-                ? <p style={{color:'#f87171',textAlign:'center',lineHeight:1.5,padding:'0 8px'}}>{state.error}</p>
-                : <>
-                    <Clock size={28} style={{color:'rgba(255,255,255,0.1)'}}/>
-                    <p style={{color:'rgba(255,255,255,0.3)'}}>
-                      {state.status === 'ready' ? 'Go back and tap Generate voice memo' : 'Record a session first'}
-                    </p>
-                  </>
-              }
-            </div>
-          )}
-
-          {state.processing && (
-            <div className="memo-loading">
-              <Loader2 size={24} className="animate-spin" style={{color:'#d4a853'}}/>
-              <p>Claude is writing your voice memo...</p>
-            </div>
-          )}
-
-          {state.processed && (
-            <div className="memo-content">
-              {/* Key moments */}
-              {state.processed.keyMoments?.length > 0 && (
-                <div className="memo-moments">
-                  <div className="memo-section-label">Key moments</div>
-                  {state.processed.keyMoments.map((m, i) => (
-                    <div key={i} className="moment-row">
-                      <span className="moment-time">{m.timestampFmt}</span>
-                      <span className="moment-text">{m.description}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {/* The memo — editable before copying */}
-              <div className="memo-section-label" style={{display:'flex',alignItems:'center',justifyContent:'space-between'}}>
-                Voice memo
-                <span style={{fontSize:'10px',color:'#444',letterSpacing:'1px'}}>tap to edit</span>
-              </div>
-              <textarea
-                className="memo-text"
-                value={state.processed.voiceMemoText}
-                onChange={e => set({ processed: { ...state.processed, voiceMemoText: e.target.value } })}
-                rows={8}
-                style={{resize:'vertical',outline:'none',border:'1px solid rgba(255,255,255,0.1)',background:'#0f1318',borderRadius:'12px',padding:'16px',fontFamily:'inherit',fontSize:'15px',color:'#e8eaed',lineHeight:'1.7',width:'100%',boxSizing:'border-box'}}
-              />
-
-              {/* Actions */}
-              <div className="memo-actions">
-                <button
-                  className="memo-action-btn memo-action-primary"
-                  onClick={() => {
-                    navigator.clipboard?.writeText(state.processed.voiceMemoText)
-                    navigator.vibrate?.([50])
-                  }}
-                >
-                  <Send size={15}/> Copy to episode form
-                </button>
-                <button
-                  className="memo-action-btn memo-action-secondary"
-                  onClick={() => {
-                    navigator.share?.({
-                      title: 'Session memo',
-                      text:  state.processed.voiceMemoText,
-                    })
-                  }}
-                >
-                  Share
-                </button>
-              </div>
-
+            <div style={{display:'flex',flexDirection:'column',gap:10,width:'100%'}}>
               <button
-                className="new-session-btn"
-                onClick={() => {
-                  dispatch({ type: 'RESET_SESSION' })
-                  set({ screen: 0 })
-                }}
+                className="process-btn"
+                onClick={processSession}
+                disabled={state.processing}
               >
-                Start new session
+                {state.processing
+                  ? <><Loader2 size={16} className="animate-spin"/> Writing your memo...</>
+                  : <><Send size={16}/> Generate memo &amp; open in app</>
+                }
+              </button>
+              <button
+                onClick={() => { window.location.href = '/' }}
+                style={{background:'none',border:'none',color:'rgba(255,255,255,0.3)',cursor:'pointer',fontSize:13,fontFamily:'inherit',padding:'8px 0'}}
+              >
+                Skip — view session in app →
               </button>
             </div>
           )}
         </div>
 
       </div>{/* end screens */}
-
-      {/* ── BOTTOM NAV HINT ─────────────────────────────────────────────────── */}
-      <footer className="companion-footer">
-        <button onClick={() => set({ screen: 0 })} className={`footer-tab ${state.screen===0?'footer-tab-active':''}`}>
-          <Mic size={16}/>
-          <span>Record</span>
-        </button>
-        <button onClick={() => set({ screen: 1 })} className={`footer-tab ${state.screen===1?'footer-tab-active':''}`}>
-          <Bookmark size={16}/>
-          <span>Journal</span>
-        </button>
-        <button onClick={() => set({ screen: 2 })} className={`footer-tab ${state.screen===2?'footer-tab-active':''}`}>
-          <Send size={16}/>
-          <span>Memo</span>
-        </button>
-      </footer>
 
     </div>
   )
