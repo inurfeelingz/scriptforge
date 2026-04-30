@@ -3,13 +3,13 @@
 // Desktop: collapsible sidebar (icon-only or full)
 // Fonts: all nav labels at 1rem, top bar at 0.9375rem
 
-import { FileText, Outlet, NavLink, useNavigate } from 'react-router-dom'
+import { Outlet, NavLink, useNavigate } from 'react-router-dom'
 import { useState, useEffect, useRef } from 'react'
 import {
   LayoutDashboard, Sparkles, Film, BookMarked,
   BarChart2, Mic, Music2, Scissors, Smartphone, Settings, LogOut,
   ChevronLeft, ChevronRight, Plus, RefreshCw, MessageSquare,
-  Calendar, Menu, X,
+  Calendar, Menu, X, FileText,
 } from 'lucide-react'
 import { useStore } from '../../store'
 import { categories as catApi } from '../../lib/api'
