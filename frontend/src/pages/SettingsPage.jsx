@@ -2,7 +2,9 @@
 // Modernized: readable fonts, admin tier panel, usage bar, better layout
 
 import { useState, useEffect } from 'react'
-import { Send, Check, AlertCircle, Shield, ChevronRight } from 'lucide-react'
+import { Send, Check, AlertCircle, Shield, ChevronRight, LogOut } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
+import { signOut } from '../lib/supabase'
 import { useStore } from '../store'
 import { users as usersApi, categories as catApi, episodes as episodesApi, testWebhook } from '../lib/api'
 
@@ -96,6 +98,7 @@ function UsageBar({ used, max, label }) {
 
 export default function SettingsPage() {
   const { profile, setProfile, activeCategoryId, activeCategory, notify, theme, setTheme } = useStore()
+  const navigate = useNavigate()
   const cat = activeCategory?.()
 
   const [name,           setName]          = useState(profile?.display_name || '')
@@ -614,6 +617,22 @@ export default function SettingsPage() {
               </button>
             ))}
           </div>
+        </div>
+      </Section>
+
+      {/* ── Account ───────────────────────────────────────────────────────── */}
+      <Section title="Account">
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div>
+            <div style={{ fontSize: '0.9375rem', fontWeight: 500, color: 'var(--text)' }}>Sign out</div>
+            <div style={{ fontSize: '0.8125rem', color: 'var(--text2)', marginTop: 2 }}>Sign out of your WhispaCuts account</div>
+          </div>
+          <button
+            onClick={async () => { await signOut(); navigate('/auth') }}
+            style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 16px', borderRadius: 'var(--r-sm)', border: '1px solid rgba(248,113,113,0.3)', background: 'rgba(248,113,113,0.06)', color: '#f87171', cursor: 'pointer', fontFamily: 'inherit', fontSize: '0.875rem', fontWeight: 500 }}
+          >
+            <LogOut size={14}/> Sign out
+          </button>
         </div>
       </Section>
     </div>

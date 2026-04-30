@@ -329,3 +329,78 @@
   h1   { font-size: 1.5rem; }
   h2   { font-size: 1.25rem; }
 }
+
+/* ── Premium glossy surfaces ──────────────────────────────────────────────── */
+
+/* Sidebar and surface panels */
+.wc-surface {
+  background: linear-gradient(160deg, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0.01) 100%);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+/* Buttons — gold accent glossy */
+button[class*="process-btn"],
+.btn-primary {
+  background: linear-gradient(145deg, #e8b84b 0%, #c89830 60%, #d4a853 100%);
+  box-shadow: 0 2px 12px rgba(212,168,83,0.25), inset 0 1px 0 rgba(255,255,255,0.15);
+}
+
+/* Cards and surfaces get a subtle top highlight */
+[style*="var(--surface)"],
+[style*="var(--surface2)"] {
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
+}
+
+/* Nav active state gets a glossy left border */
+a[style*="rgba(255,255,255,0.08)"] {
+  border-left: 2px solid var(--accent);
+  box-shadow: inset 0 0 12px rgba(212,168,83,0.06);
+}
+
+/* Header glass effect */
+header[style*="sticky"] {
+  background: rgba(15,19,24,0.85) !important;
+  backdrop-filter: blur(16px) saturate(180%);
+  -webkit-backdrop-filter: blur(16px) saturate(180%);
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+  box-shadow: 0 1px 0 rgba(255,255,255,0.04), 0 4px 24px rgba(0,0,0,0.3);
+}
+
+/* Sidebar glass */
+aside[style*="sticky"] {
+  background: rgba(15,19,24,0.92) !important;
+  backdrop-filter: blur(20px) saturate(160%);
+  -webkit-backdrop-filter: blur(20px) saturate(160%);
+  box-shadow: 1px 0 0 rgba(255,255,255,0.04), 4px 0 24px rgba(0,0,0,0.2);
+}
+
+/* Input fields */
+input, textarea, select {
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+input:focus, textarea:focus, select:focus {
+  box-shadow: 0 0 0 2px rgba(212,168,83,0.12), 0 0 0 1px rgba(212,168,83,0.3);
+  border-color: rgba(212,168,83,0.4) !important;
+  outline: none;
+}
+
+/* Smooth transitions on interactive elements */
+button, a, [role="button"] {
+  transition: opacity 0.15s, transform 0.1s, box-shadow 0.15s, background 0.15s;
+}
+button:active, [role="button"]:active {
+  transform: scale(0.98);
+}
+
+/* Gold accent glow on hover for primary actions */
+.process-btn:hover, button[style*="#d4a853"]:hover {
+  box-shadow: 0 4px 20px rgba(212,168,83,0.35), inset 0 1px 0 rgba(255,255,255,0.2);
+  transform: translateY(-1px);
+}
+
+/* Scrollbars — premium thin style */
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 2px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.14); }

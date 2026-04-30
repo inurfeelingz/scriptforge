@@ -27,6 +27,11 @@ const NAV_GROUPS = [
     ]
   },
   {
+    label: null,
+    items: [],
+    isRefresh: true,
+  },
+  {
     label: 'Content',
     items: [
       { to: '/series',       icon: Film,       label: 'Series'  },
@@ -88,7 +93,15 @@ function NavGroup({ group, showLabels, isMobile, setCurrentMode, setMobileOpen, 
           <ChevronRight size={11} style={{ transform: open ? 'rotate(90deg)' : 'none', transition: '0.15s' }}/>
         </button>
       )}
-      {(open || !hasLabel) && group.items.map(({ to, icon: Icon, label }) => (
+      {group.isRefresh && showLabels && (
+        <button
+          onClick={() => { /* handled via store */ document.dispatchEvent(new CustomEvent('wc:refresh-trends')) }}
+          style={{ ...NAV_INACTIVE, justifyContent: 'flex-start', padding: '8px 14px', width: '100%', cursor: 'pointer', fontSize: 'inherit', fontFamily: 'inherit' }}
+        >
+          <RefreshCw size={18} style={{ flexShrink: 0 }}/> <span style={{ marginLeft: 8 }}>Refresh trends</span>
+        </button>
+      )}
+      {!group.isRefresh && (open || !hasLabel) && group.items.map(({ to, icon: Icon, label }) => (
         <NavLink
           key={to}
           to={to}
@@ -135,6 +148,12 @@ export default function AppLayout() {
 
   useEffect(() => { loadCategories() }, [])
 
+  useEffect(() => {
+    const handler = () => handleManualRefresh()
+    document.addEventListener('wc:refresh-trends', handler)
+    return () => document.removeEventListener('wc:refresh-trends', handler)
+  }, [activeCategoryId])
+
   async function handleSignOut() { await signOut(); navigate('/auth') }
 
   async function handleCategorySwitch(id) {
@@ -165,11 +184,6 @@ export default function AppLayout() {
           overflow: 'hidden',
         }}>
           <img src="/icon-mark.svg" alt="WhispaCuts" style={{ width: 30, height: 30, flexShrink: 0 }}/>
-          {showLabels && (
-            <span style={{ fontFamily: 'Syne, sans-serif', fontWeight: 800, fontSize: 17, letterSpacing: '-0.3px', color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-              Whispa<span style={{ color: 'var(--accent)' }}>Cuts</span>
-            </span>
-          )}
           {/* Collapse toggle — desktop only */}
           {!isMobile && (
             <button
@@ -236,20 +250,13 @@ export default function AppLayout() {
 
         {/* Bottom */}
         <div style={{ padding: '8px', borderTop: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: 2, flexShrink: 0 }}>
-          {activeCategory && showLabels && (
-            <button
-              onClick={handleManualRefresh}
-              style={{ ...NAV_INACTIVE, justifyContent: 'flex-start' }}
-            >
-              <RefreshCw size={18}/> <span>Refresh trends</span>
-            </button>
-          )}
+
           <a
             href="/companion" target="_blank" rel="noopener noreferrer"
-            style={{ ...NAV_INACTIVE, justifyContent: (!showLabels && !isMobile) ? 'center' : 'flex-start', padding: (!showLabels && !isMobile) ? '10px' : '10px 14px' }}
+            style={{ ...NAV_INACTIVE, justifyContent: (!showLabels && !isMobile) ? 'center' : 'flex-start', padding: (!showLabels && !isMobile) ? '10px' : '8px 14px' }}
             title={(!showLabels && !isMobile) ? 'Companion' : undefined}
           >
-            <Smartphone size={20} style={{ flexShrink: 0 }}/>
+            <Smartphone size={18} style={{ flexShrink: 0 }}/>
             {showLabels && <span>Companion</span>}
           </a>
           <NavLink
@@ -258,21 +265,12 @@ export default function AppLayout() {
             style={({ isActive }) => ({
               ...(isActive ? NAV_ACTIVE : NAV_INACTIVE),
               justifyContent: (!showLabels && !isMobile) ? 'center' : 'flex-start',
-              padding: (!showLabels && !isMobile) ? '10px' : '10px 14px',
+              padding: (!showLabels && !isMobile) ? '10px' : '8px 14px',
             })}
           >
-            <Settings size={20} style={{ flexShrink: 0 }}/>
+            <Settings size={18} style={{ flexShrink: 0 }}/>
             {showLabels && <span>Settings</span>}
           </NavLink>
-          <button
-            onClick={handleSignOut}
-            style={{ ...NAV_INACTIVE, color: 'var(--text3)', justifyContent: (!showLabels && !isMobile) ? 'center' : 'flex-start', padding: (!showLabels && !isMobile) ? '10px' : '10px 14px' }}
-            onMouseEnter={e => e.currentTarget.style.color = '#f87171'}
-            onMouseLeave={e => e.currentTarget.style.color = 'var(--text3)'}
-          >
-            <LogOut size={20} style={{ flexShrink: 0 }}/>
-            {showLabels && <span>Sign out</span>}
-          </button>
 
           {/* Profile strip — name + tier only, no avatar */}
           {showLabels && (

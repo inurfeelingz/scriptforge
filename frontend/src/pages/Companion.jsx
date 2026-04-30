@@ -652,11 +652,8 @@ export default function Companion() {
       {/* ── STATUS BAR ──────────────────────────────────────────────────────── */}
       <header className="companion-header">
         <div className="companion-brand">
-          <img src="/icon-mark.svg" alt="WhispaCuts" style={{ width: 26, height: 26 }}/>
-          <span style={{ fontFamily: 'Syne, sans-serif', fontWeight: 800, fontSize: 16, letterSpacing: '-0.3px', color: '#e8eaed' }}>
-            Whispa<span style={{ color: '#d4a853' }}>Cuts</span>
-          </span>
-          {cat && <span style={{fontSize:11,color:'rgba(255,255,255,0.35)',marginLeft:4}}>{cat.name}</span>}
+          <img src="/icon-mark.svg" alt="WhispaCuts" style={{ width: 28, height: 28 }}/>
+          {cat && <span style={{fontSize:11,color:'rgba(255,255,255,0.35)',marginLeft:6,letterSpacing:'0.05em',textTransform:'uppercase'}}>{cat.name}</span>}
         </div>
 
         <div className="header-right">
