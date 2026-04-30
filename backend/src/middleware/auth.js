@@ -2,12 +2,15 @@
 const { supabase } = require('../utils/supabase');
 
 module.exports = async function authMiddleware(req, res, next) {
-  const authHeader = req.headers.authorization;
-  if (!authHeader?.startsWith('Bearer ')) {
-    return res.status(401).json({ error: 'Missing or invalid authorization header' });
-  }
+  const authHeader = req.headers.authorization
+  // Also accept token as query param — needed for browser redirects (YouTube OAuth)
+  const queryToken = req.query?.token
 
-  const token = authHeader.replace('Bearer ', '');
+  const raw = authHeader?.startsWith('Bearer ') ? authHeader.replace('Bearer ', '') : queryToken
+  if (!raw) {
+    return res.status(401).json({ error: 'Missing or invalid authorization header' })
+  }
+  const token = raw
 
   const { data: { user }, error } = await supabase.auth.getUser(token);
   if (error || !user) {

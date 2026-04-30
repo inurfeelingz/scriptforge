@@ -122,8 +122,6 @@ app.use('/api/categories', authMiddleware, categoryRoutes)
 app.use('/api/episodes',   authMiddleware, episodeRoutes)
 app.use('/api/vault',      authMiddleware, vaultRoutes)
 // YouTube connect needs token via query param (browser redirect) — auth handled inside route
-app.use('/api/analytics/youtube/connect', analyticsRoutes)
-app.use('/api/analytics/youtube/callback', analyticsRoutes)
 app.use('/api/analytics',  authMiddleware, analyticsRoutes)
 app.use('/api/series',     authMiddleware, seriesRoutes)
 app.use('/api/chat',       authMiddleware, chatRoutes)
