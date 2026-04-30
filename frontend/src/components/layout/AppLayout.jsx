@@ -74,7 +74,7 @@ const NAV_INACTIVE = { ...NAV_ITEM_BASE, color: 'var(--text3)' }
 
 // ─── NAV GROUP ────────────────────────────────────────────────────────────────
 function NavGroup({ group, showLabels, isMobile, setCurrentMode, setMobileOpen, NAV_ACTIVE, NAV_INACTIVE }) {
-  const [open, setOpen] = useState(true)
+  const [open, setOpen] = useState(false)
   const hasLabel = group.label && showLabels
 
   return (
@@ -274,25 +274,20 @@ export default function AppLayout() {
             {showLabels && <span>Sign out</span>}
           </button>
 
-          {/* Profile strip */}
+          {/* Profile strip — name + tier only, no avatar */}
           {showLabels && (
-            <div style={{ margin: '6px 4px 0', padding: '10px 12px', background: 'var(--surface2)', borderRadius: 8, display: 'flex', alignItems: 'center', gap: 10 }}>
-              <div style={{ width: 34, height: 34, borderRadius: '50%', background: 'var(--surface3)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1rem', fontWeight: 700, color: 'var(--text2)', flexShrink: 0 }}>
-                {(profile?.display_name || profile?.email || '?')[0].toUpperCase()}
+            <div style={{ margin: '6px 4px 0', padding: '10px 12px', background: 'var(--surface2)', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {profile?.display_name || 'You'}
               </div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: '0.9375rem', fontWeight: 500, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {profile?.display_name || 'You'}
-                </div>
-                <span style={{
-                  fontSize: '0.75rem', padding: '1px 7px', borderRadius: 99,
-                  border: profile?.tier === 'studio' ? '1px solid var(--accent-mid)' : profile?.tier === 'pro' ? '1px solid rgba(96,165,250,0.4)' : '1px solid var(--border2)',
-                  color: profile?.tier === 'studio' ? 'var(--accent)' : profile?.tier === 'pro' ? '#60a5fa' : 'var(--text3)',
-                  background: profile?.tier === 'studio' ? 'var(--accent-lo)' : 'transparent',
-                }}>
-                  {profile?.tier || 'free'}
-                </span>
-              </div>
+              <span style={{
+                fontSize: '0.7rem', padding: '2px 8px', borderRadius: 99, flexShrink: 0,
+                border: profile?.tier === 'studio' ? '1px solid var(--accent-mid)' : profile?.tier === 'pro' ? '1px solid rgba(96,165,250,0.4)' : '1px solid var(--border2)',
+                color: profile?.tier === 'studio' ? 'var(--accent)' : profile?.tier === 'pro' ? '#60a5fa' : 'var(--text3)',
+                background: profile?.tier === 'studio' ? 'var(--accent-lo)' : 'transparent',
+              }}>
+                {profile?.tier || 'free'}
+              </span>
             </div>
           )}
         </div>
@@ -343,14 +338,17 @@ export default function AppLayout() {
       )}
 
       {/* ── MAIN ── */}
-      <main style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, overflow: 'hidden' }}>
+      <main style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, overflow: 'auto' }}>
 
-        {/* Top bar */}
+        {/* Top bar — sticky so it stays at top while content scrolls */}
         <header style={{
           height: 56, borderBottom: '1px solid var(--border)',
           display: 'flex', alignItems: 'center',
           padding: '0 20px', gap: 12, flexShrink: 0,
           background: 'var(--surface)',
+          position: 'sticky', top: 0, zIndex: 30,
+          backdropFilter: 'blur(12px)',
+          WebkitBackdropFilter: 'blur(12px)',
         }}>
           {/* Hamburger — mobile only */}
           {isMobile && (
