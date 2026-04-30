@@ -53,10 +53,11 @@
 }
 
 .brand-word {
-  font-family: 'DM Serif Display', serif;
-  color:       #c8b89a;
-  font-size:   18px;
-  letter-spacing: 2px;
+  font-family:    'Syne', system-ui, sans-serif;
+  font-weight:    800;
+  font-size:      16px;
+  letter-spacing: -0.3px;
+  color:          #e8eaed;
 }
 
 .brand-cat {

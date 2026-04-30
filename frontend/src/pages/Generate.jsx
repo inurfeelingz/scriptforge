@@ -141,6 +141,18 @@ export default function Generate() {
     } catch {}
   }, [form])
 
+  // Pick up memo from Session Journals page ("Use in episode" button)
+  useEffect(() => {
+    const stored = sessionStorage.getItem('companion_memo')
+    if (stored) {
+      try {
+        const { voiceMemoText } = JSON.parse(stored)
+        if (voiceMemoText) setForm(prev => ({ ...prev, voiceMemoText }))
+      } catch {}
+      sessionStorage.removeItem('companion_memo')
+    }
+  }, [])
+
   useEffect(() => {
     try {
       const raw = localStorage.getItem('wc_generate_draft')

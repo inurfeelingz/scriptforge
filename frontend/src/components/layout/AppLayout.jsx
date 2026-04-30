@@ -3,7 +3,7 @@
 // Desktop: collapsible sidebar (icon-only or full)
 // Fonts: all nav labels at 1rem, top bar at 0.9375rem
 
-import { Outlet, NavLink, useNavigate } from 'react-router-dom'
+import { FileText, Outlet, NavLink, useNavigate } from 'react-router-dom'
 import { useState, useEffect, useRef } from 'react'
 import {
   LayoutDashboard, Sparkles, Film, BookMarked,
@@ -24,6 +24,8 @@ const NAV = [
   { to: '/series',       icon: Film,            label: 'Series'       },
   { to: '/shorts',       icon: Scissors,        label: 'Shorts'       },
   { to: '/series-bible', icon: BookMarked,      label: 'Bible'        },
+  { to: '/journals',     icon: Mic,             label: 'Journals'     },
+  { to: '/scripts',      icon: FileText,        label: 'Scripts'      },
   { to: '/vault',        icon: BookMarked,      label: 'Vault'        },
   { to: '/analytics',    icon: BarChart2,       label: 'Analytics'    },
   { to: '/schedule',     icon: Calendar,        label: 'Schedule'     },

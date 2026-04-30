@@ -12,7 +12,9 @@ import SeriesPage      from './pages/SeriesPage'
 import ShortsPage      from './pages/ShortsPage'
 import SeriesBiblePage from './pages/SeriesBiblePage'
 import SchedulePage    from './pages/SchedulePage'
-import VaultPage    from './pages/VaultPage'
+import VaultPage          from './pages/VaultPage'
+import SessionJournalsPage from './pages/SessionJournalsPage'
+import ScriptLibraryPage   from './pages/ScriptLibraryPage'
 import AnalyticsPage  from './pages/AnalyticsPage'
 import EpisodeReview  from './pages/EpisodeReview'
 import Teleprompter from './pages/Teleprompter'
@@ -59,6 +61,8 @@ export default function App() {
           <Route path="shorts"        element={<ShortsPage />} />
           <Route path="series-bible"  element={<SeriesBiblePage />} />
           <Route path="schedule"      element={<SchedulePage />} />
+          <Route path="journals"     element={<SessionJournalsPage />} />
+          <Route path="scripts"      element={<ScriptLibraryPage />} />
           <Route path="vault"         element={<VaultPage />} />
           <Route path="analytics"              element={<AnalyticsPage />} />
           <Route path="analytics/review/:episodeId" element={<EpisodeReview />} />
