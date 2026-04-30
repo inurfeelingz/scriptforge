@@ -16,7 +16,9 @@ export default defineConfig({
 
   build: {
     outDir: 'dist',
+    target: 'es2020',        // modern browsers only — smaller output
     chunkSizeWarningLimit: 1000,
+    cssCodeSplit: true,
     rollupOptions: {
       output: {
         // Split vendor chunks for better caching
