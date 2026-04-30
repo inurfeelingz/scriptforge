@@ -138,7 +138,7 @@ PLATFORM_CTA:`;
 
     const stream = await client.messages.stream({
       model:      process.env.CLAUDE_MODEL || 'claude-sonnet-4-5',
-      max_tokens: parseInt(process.env.MAX_TOKENS) || 8000,
+      max_tokens: parseInt(process.env.MAX_TOKENS) || 16000,
       system:     systemContext,
       messages:   [{ role: 'user', content: userPrompt }],
     });
