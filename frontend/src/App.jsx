@@ -3,25 +3,42 @@ import { useEffect } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { useStore } from './store'
 
+import { lazy, Suspense } from 'react'
 import AppLayout    from './components/layout/AppLayout'
-import AuthPage     from './pages/AuthPage'
-import OnboardPage  from './pages/OnboardPage'
-import Dashboard    from './pages/Dashboard'
-import Generate     from './pages/Generate'
-import SeriesPage      from './pages/SeriesPage'
-import ShortsPage      from './pages/ShortsPage'
-import SeriesBiblePage from './pages/SeriesBiblePage'
-import SchedulePage    from './pages/SchedulePage'
-import VaultPage          from './pages/VaultPage'
-import SessionJournalsPage from './pages/SessionJournalsPage'
-import ScriptLibraryPage   from './pages/ScriptLibraryPage'
-import AnalyticsPage  from './pages/AnalyticsPage'
-import EpisodeReview  from './pages/EpisodeReview'
-import Teleprompter from './pages/Teleprompter'
-import SoundPage    from './pages/SoundPage'
-import SettingsPage from './pages/SettingsPage'
-import EditorPage   from './pages/EditorPage'
-import Companion    from './pages/Companion'
+
+// Lazy load all pages — each loads only when navigated to
+const AuthPage            = lazy(() => import('./pages/AuthPage'))
+const OnboardPage         = lazy(() => import('./pages/OnboardPage'))
+const Dashboard           = lazy(() => import('./pages/Dashboard'))
+const Generate            = lazy(() => import('./pages/Generate'))
+const SeriesPage          = lazy(() => import('./pages/SeriesPage'))
+const ShortsPage          = lazy(() => import('./pages/ShortsPage'))
+const SeriesBiblePage     = lazy(() => import('./pages/SeriesBiblePage'))
+const SchedulePage        = lazy(() => import('./pages/SchedulePage'))
+const VaultPage           = lazy(() => import('./pages/VaultPage'))
+const SessionJournalsPage = lazy(() => import('./pages/SessionJournalsPage'))
+const BillingPage         = lazy(() => import('./pages/BillingPage'))
+const PrivacyPage         = lazy(() => import('./pages/PrivacyPage'))
+const TermsPage           = lazy(() => import('./pages/TermsPage'))
+const ScriptLibraryPage   = lazy(() => import('./pages/ScriptLibraryPage'))
+const AnalyticsPage       = lazy(() => import('./pages/AnalyticsPage'))
+const EpisodeReview       = lazy(() => import('./pages/EpisodeReview'))
+const Teleprompter        = lazy(() => import('./pages/Teleprompter'))
+const SoundPage           = lazy(() => import('./pages/SoundPage'))
+const SettingsPage        = lazy(() => import('./pages/SettingsPage'))
+const EditorPage          = lazy(() => import('./pages/EditorPage'))
+const Companion           = lazy(() => import('./pages/Companion'))
+
+// Keep Railway backend warm — ping every 4 minutes to prevent cold starts
+function useKeepAlive() {
+  useEffect(() => {
+    const BASE = import.meta.env.VITE_API_URL || '/api'
+    const ping = () => fetch(`${BASE.replace('/api','')}/health`, { method: 'GET' }).catch(() => {})
+    ping()
+    const id = setInterval(ping, 4 * 60 * 1000)
+    return () => clearInterval(id)
+  }, [])
+}
 
 function AuthGuard({ children }) {
   const { user, initialized } = useStore()
@@ -51,6 +68,11 @@ export default function App() {
 
   return (
     <BrowserRouter>
+      <Suspense fallback={
+        <div style={{ minHeight: '100vh', background: 'var(--bg)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ width: 24, height: 24, border: '2px solid var(--border)', borderTopColor: 'var(--accent)', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }}/>
+        </div>
+      }>
       <Routes>
         <Route path="/auth"     element={<AuthPage />} />
         <Route path="/onboard"  element={<AuthGuard><OnboardPage /></AuthGuard>} />
@@ -61,6 +83,7 @@ export default function App() {
           <Route path="shorts"        element={<ShortsPage />} />
           <Route path="series-bible"  element={<SeriesBiblePage />} />
           <Route path="schedule"      element={<SchedulePage />} />
+          <Route path="billing"      element={<BillingPage />} />
           <Route path="journals"     element={<SessionJournalsPage />} />
           <Route path="scripts"      element={<ScriptLibraryPage />} />
           <Route path="vault"         element={<VaultPage />} />
@@ -72,8 +95,11 @@ export default function App() {
           <Route path="settings"      element={<SettingsPage />} />
         </Route>
         <Route path="/companion"  element={<AuthGuard><Companion /></AuthGuard>} />
+        <Route path="/privacy"    element={<PrivacyPage />} />
+        <Route path="/terms"      element={<TermsPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
+      </Suspense>
     </BrowserRouter>
   )
 }

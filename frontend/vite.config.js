@@ -1,4 +1,3 @@
-// frontend/vite.config.js
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
@@ -7,11 +6,6 @@ export default defineConfig({
 
   server: {
     port: 5173,
-    headers: {
-      // Required for SharedArrayBuffer used by Transformers.js ONNX runtime
-      'Cross-Origin-Opener-Policy':   'same-origin',
-      'Cross-Origin-Embedder-Policy': 'require-corp',
-    },
     proxy: {
       '/api': {
         target:       'http://localhost:3001',
@@ -22,16 +16,35 @@ export default defineConfig({
 
   build: {
     outDir: 'dist',
-    // Transformers.js bundles are large — raise the warning threshold
-    chunkSizeWarningLimit: 10000,
+    chunkSizeWarningLimit: 1000,
+    rollupOptions: {
+      output: {
+        // Split vendor chunks for better caching
+        manualChunks(id) {
+          if (id.includes('node_modules')) {
+            // React core — tiny, cache forever
+            if (id.includes('react-dom') || id.includes('react/')) return 'react'
+            // Router
+            if (id.includes('react-router')) return 'router'
+            // Lucide icons — large, rarely changes
+            if (id.includes('lucide-react')) return 'icons'
+            // Supabase
+            if (id.includes('@supabase')) return 'supabase'
+            // Anthropic SDK
+            if (id.includes('@anthropic')) return 'anthropic'
+            // Everything else vendor
+            return 'vendor'
+          }
+        },
+      },
+    },
   },
 
-  // ES module workers — enables `new Worker(new URL(...), { type: 'module' })`
   worker: {
     format: 'es',
   },
 
-  // Don't pre-bundle Transformers.js — it uses dynamic imports internally
+  // Only pre-bundle what's actually used — exclude the dead ML worker
   optimizeDeps: {
     exclude: ['@xenova/transformers', '@tensorflow/tfjs'],
   },

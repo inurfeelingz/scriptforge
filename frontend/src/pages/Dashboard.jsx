@@ -249,14 +249,13 @@ export default function Dashboard() {
     if (!activeCategoryId) return
     setSideLoading(true)
     try {
-      const [stats, recs, analytics, eps] = await Promise.all([
+      // Load fast data first — stats, analytics, episodes
+      const [stats, analytics, eps] = await Promise.all([
         vaultApi.stats({ categoryId: activeCategoryId }),
-        vaultApi.recommendations({ categoryId: activeCategoryId }),
         analyticsApi.list({ categoryId: activeCategoryId }),
         episodesApi.list({ categoryId: activeCategoryId, limit: 20 }),
       ])
       setVaultStats(stats)
-      setRecs(recs.recommendations || [])
       setInsights(analytics.uploads?.[0]?.insights || null)
 
       const withData = (eps.episodes || []).filter(e => e.yt_retention_score)
@@ -269,6 +268,11 @@ export default function Dashboard() {
       console.warn('Side panel failed:', err.message)
     }
     setSideLoading(false)
+
+    // Load AI recommendations separately — non-blocking so UI shows fast
+    vaultApi.recommendations({ categoryId: activeCategoryId })
+      .then(recs => setRecs(recs.recommendations || []))
+      .catch(() => {})
   }, [activeCategoryId])
 
   useEffect(() => {
