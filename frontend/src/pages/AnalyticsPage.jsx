@@ -21,6 +21,7 @@ function YouTubeConnectPanel({ categoryId, onPulled }) {
 
   useEffect(() => {
     if (!categoryId) return
+    setLoading(true)
     analyticsApi.youtubeStatus(categoryId)
       .then(setStatus)
       .catch(() => setStatus({ connected: false }))

@@ -45,7 +45,7 @@ export const useStore = create((set, get) => ({
 
   // ── Categories ────────────────────────────────────────────
   categories:       [],
-  activeCategoryId: null,
+  activeCategoryId: (() => { try { return localStorage.getItem('sf_active_category') || null } catch { return null } })(),
   categoryLoading:  false,
 
   setCategories: (categories) => set({ categories }),

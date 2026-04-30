@@ -19,8 +19,8 @@
 
   /* Text */
   --text:      #e8eaed;
-  --text2:     #8a8f9a;
-  --text3:     #454a54;
+  --text2:     #b0b5c0;
+  --text3:     #6b7280;
 
   /* Accent — gold, used ONLY for logo + primary CTA + tier badges */
   --accent:    #d4a853;
@@ -404,3 +404,11 @@ button:active, [role="button"]:active {
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 2px; }
 ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.14); }
+
+/* ── Remove skeleton ghosting / shimmer sitewide ─────────────────────────── */
+.animate-pulse { animation: none !important; }
+@keyframes shimmer { from { opacity: 1; } to { opacity: 1; } }
+[class*="skeleton"], [class*="loading"] {
+  animation: none !important;
+  background: var(--surface2) !important;
+}
