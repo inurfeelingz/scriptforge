@@ -18,21 +18,47 @@ import ChatPanel from '../chat/ChatPanel'
 import Notifications from './Notifications'
 import NewCategoryModal from './NewCategoryModal'
 
-const NAV = [
-  { to: '/',             icon: LayoutDashboard, label: 'Dashboard'    },
-  { to: '/generate',     icon: Sparkles,        label: 'Generate'     },
-  { to: '/series',       icon: Film,            label: 'Series'       },
-  { to: '/shorts',       icon: Scissors,        label: 'Shorts'       },
-  { to: '/series-bible', icon: BookMarked,      label: 'Bible'        },
-  { to: '/journals',     icon: Mic,             label: 'Journals'     },
-  { to: '/scripts',      icon: FileText,        label: 'Scripts'      },
-  { to: '/vault',        icon: BookMarked,      label: 'Vault'        },
-  { to: '/analytics',    icon: BarChart2,       label: 'Analytics'    },
-  { to: '/schedule',     icon: Calendar,        label: 'Schedule'     },
-  { to: '/teleprompter', icon: Mic,             label: 'Teleprompter' },
-  { to: '/sound',        icon: Music2,          label: 'Sound'        },
-  { to: '/editor',       icon: Scissors,        label: 'Editor'       },
+const NAV_GROUPS = [
+  {
+    label: null,
+    items: [
+      { to: '/',         icon: LayoutDashboard, label: 'Dashboard' },
+      { to: '/generate', icon: Sparkles,        label: 'Generate'  },
+    ]
+  },
+  {
+    label: 'Content',
+    items: [
+      { to: '/series',       icon: Film,       label: 'Series'  },
+      { to: '/shorts',       icon: Scissors,   label: 'Shorts'  },
+      { to: '/series-bible', icon: BookMarked, label: 'Bible'   },
+      { to: '/vault',        icon: BookMarked, label: 'Vault'   },
+    ]
+  },
+  {
+    label: 'Capture',
+    items: [
+      { to: '/journals', icon: Mic,      label: 'Journals' },
+      { to: '/scripts',  icon: FileText, label: 'Scripts'  },
+    ]
+  },
+  {
+    label: 'Production',
+    items: [
+      { to: '/teleprompter', icon: Mic,      label: 'Teleprompter' },
+      { to: '/sound',        icon: Music2,   label: 'Sound'        },
+      { to: '/editor',       icon: Scissors, label: 'Editor'       },
+    ]
+  },
+  {
+    label: 'Insights',
+    items: [
+      { to: '/analytics', icon: BarChart2, label: 'Analytics' },
+      { to: '/schedule',  icon: Calendar,  label: 'Schedule'  },
+    ]
+  },
 ]
+const NAV = NAV_GROUPS.flatMap(g => g.items)
 
 // Shared styles
 const NAV_ITEM_BASE = {
@@ -45,6 +71,43 @@ const NAV_ITEM_BASE = {
 }
 const NAV_ACTIVE   = { ...NAV_ITEM_BASE, background: 'rgba(255,255,255,0.08)', color: '#ffffff', fontWeight: 500 }
 const NAV_INACTIVE = { ...NAV_ITEM_BASE, color: 'var(--text3)' }
+
+// ─── NAV GROUP ────────────────────────────────────────────────────────────────
+function NavGroup({ group, showLabels, isMobile, setCurrentMode, setMobileOpen, NAV_ACTIVE, NAV_INACTIVE }) {
+  const [open, setOpen] = useState(true)
+  const hasLabel = group.label && showLabels
+
+  return (
+    <div>
+      {hasLabel && (
+        <button
+          onClick={() => setOpen(o => !o)}
+          style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', padding: '6px 10px 4px', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text3)', fontSize: '0.6875rem', letterSpacing: '0.08em', textTransform: 'uppercase', fontFamily: 'inherit' }}
+        >
+          {group.label}
+          <ChevronRight size={11} style={{ transform: open ? 'rotate(90deg)' : 'none', transition: '0.15s' }}/>
+        </button>
+      )}
+      {(open || !hasLabel) && group.items.map(({ to, icon: Icon, label }) => (
+        <NavLink
+          key={to}
+          to={to}
+          end={to === '/'}
+          onClick={() => { setCurrentMode(label.toLowerCase()); setMobileOpen(false) }}
+          style={({ isActive }) => ({
+            ...( isActive ? NAV_ACTIVE : NAV_INACTIVE ),
+            justifyContent: (!showLabels && !isMobile) ? 'center' : 'flex-start',
+            padding: (!showLabels && !isMobile) ? '10px' : '8px 14px',
+          })}
+          title={(!showLabels && !isMobile) ? label : undefined}
+        >
+          <Icon size={18} style={{ flexShrink: 0 }}/>
+          {showLabels && <span>{label}</span>}
+        </NavLink>
+      ))}
+    </div>
+  )
+}
 
 export default function AppLayout() {
   const {
@@ -164,22 +227,10 @@ export default function AppLayout() {
 
         {/* Nav */}
         <nav style={{ flex: 1, padding: '8px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 2 }}>
-          {NAV.map(({ to, icon: Icon, label }) => (
-            <NavLink
-              key={to}
-              to={to}
-              end={to === '/'}
-              onClick={() => { setCurrentMode(label.toLowerCase()); setMobileOpen(false) }}
-              style={({ isActive }) => ({
-                ...( isActive ? NAV_ACTIVE : NAV_INACTIVE ),
-                justifyContent: (!showLabels && !isMobile) ? 'center' : 'flex-start',
-                padding: (!showLabels && !isMobile) ? '10px' : '10px 14px',
-              })}
-              title={(!showLabels && !isMobile) ? label : undefined}
-            >
-              <Icon size={20} style={{ flexShrink: 0 }}/>
-              {showLabels && <span>{label}</span>}
-            </NavLink>
+          {NAV_GROUPS.map((group, gi) => (
+            <NavGroup key={gi} group={group} showLabels={showLabels} isMobile={isMobile}
+              setCurrentMode={setCurrentMode} setMobileOpen={setMobileOpen}
+              NAV_ACTIVE={NAV_ACTIVE} NAV_INACTIVE={NAV_INACTIVE}/>
           ))}
         </nav>
 
@@ -282,6 +333,10 @@ export default function AppLayout() {
           flexShrink: 0,
           transition: 'width 0.25s cubic-bezier(0.4,0,0.2,1)',
           overflow: 'hidden',
+          position: 'sticky',
+          top: 0,
+          height: '100vh',
+          alignSelf: 'flex-start',
         }}>
           <SidebarContent/>
         </aside>

@@ -360,29 +360,29 @@ export default function Teleprompter() {
 
   return (
     <div
-      className={`${fullscreen ? 'fixed inset-0 z-50' : 'rounded overflow-hidden'} bg-[#080808] flex flex-col`}
-      style={{ minHeight: fullscreen ? undefined : 600 }}
+      className={`${fullscreen ? 'fixed inset-0 z-50' : 'rounded overflow-hidden'} flex flex-col`}
+      style={{ minHeight: fullscreen ? undefined : 600, background: '#080c10', position: 'relative' }}
     >
       {/* Progress bar */}
       <div className="h-0.5 bg-[#111] shrink-0">
-        <div className="h-full bg-[#c8b89a] transition-all" style={{ width: `${pct}%` }}/>
+        <div className="h-full transition-all" style={{ width: `${pct}%`, background: '#d4a853' }}/>
       </div>
 
-      {/* Script area */}
+      {/* Script area — fills all space, controls overlay at bottom */}
       <div className="flex-1 overflow-hidden relative">
-        <div className="absolute inset-x-0 top-0 h-1/3 bg-gradient-to-b from-[#080808] to-transparent z-10 pointer-events-none"/>
-        <div className="absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-[#080808] to-transparent z-10 pointer-events-none"/>
-        <div className="absolute inset-x-0 z-20 pointer-events-none" style={{ top: '50%', height: 1, background: 'rgba(200,184,154,0.12)' }}/>
+        <div className="absolute inset-x-0 top-0 h-1/3 bg-gradient-to-b from-[#080c10] to-transparent z-10 pointer-events-none"/>
+        <div className="absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-[#080c10] to-transparent z-10 pointer-events-none"/>
+        <div className="absolute inset-x-0 z-20 pointer-events-none" style={{ top: '50%', height: 1, background: 'rgba(255,255,255,0.06)' }}/>
 
         <div
           ref={textRef}
           className={mirrored ? 'scale-x-[-1]' : ''}
-          style={{ paddingTop: '50vh', paddingBottom: '50vh', paddingLeft: '10vw', paddingRight: '10vw', transform: `translateY(-${position}px)` }}
+          style={{ paddingTop: '50vh', paddingBottom: '80px', paddingLeft: '10vw', paddingRight: '10vw', transform: `translateY(-${position}px)` }}
         >
           {lines.map(l => (
             <span
               key={l.key}
-              className={`block leading-relaxed mb-1 ${l.isHint ? 'text-[#333] font-mono' : 'text-[#f0ede8]'}`}
+              className={`block leading-relaxed mb-1 ${l.isHint ? 'text-[#555] font-mono' : 'text-[#f0ede8]'}`}
               style={{ fontSize: l.isHint ? fontSize * 0.38 : fontSize }}
             >
               {l.text || '\u00A0'}
@@ -391,8 +391,8 @@ export default function Teleprompter() {
         </div>
       </div>
 
-      {/* Controls bar */}
-      <div className="border-t border-[#111] shrink-0 bg-[#080808]">
+      {/* Controls bar — fixed to bottom of teleprompter */}
+      <div className="shrink-0 border-t border-[#1a1a1a]" style={{ background: '#080c10' }}>
 
         {/* 06 — Recording status strip (shown when not idle/done) */}
         {recState !== 'idle' && recState !== 'done' && (
