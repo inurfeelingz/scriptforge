@@ -159,8 +159,8 @@ function DirectiveCard({ brief, loading, onRefresh }) {
     <div className="border border-[#c8b89a]/25 rounded p-5 bg-[#c8b89a]/4 space-y-4">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <Zap size={12} className="text-[#c8b89a]"/>
-          <span className="text-[10px] font-medium uppercase tracking-wider text-[#c8b89a]/70">
+          <Zap size={12} className="text-[var(--accent)]"/>
+          <span className="text-[10px] font-medium uppercase tracking-wider text-[var(--accent)]/70">
             Today's focus
           </span>
           {brief.fromCache && (
@@ -315,7 +315,7 @@ export default function Dashboard() {
     <div className="flex items-center justify-center h-64">
       <div className="text-center space-y-3">
         <div className="text-[#444] text-sm">Create a category to get started</div>
-        <Link to="/settings" className="text-xs text-[#c8b89a] hover:underline">Set up your workspace</Link>
+        <Link to="/settings" className="text-xs text-[var(--accent)] hover:underline">Set up your workspace</Link>
       </div>
     </div>
   )
@@ -352,7 +352,7 @@ export default function Dashboard() {
           ].map(({ label, value, sub }) => (
             <div key={label} className="bg-[#0a0a0a] border border-[#111] rounded p-4">
               <div className="text-[10px] text-[#444] uppercase tracking-wide mb-1">{label}</div>
-              <div className="text-xl font-serif text-[#c8b89a]">{value}</div>
+              <div className="text-xl font-serif text-[var(--accent)]">{value}</div>
               <div className="text-[10px] text-[#444] mt-0.5 truncate">{sub}</div>
             </div>
           ))}
@@ -360,10 +360,10 @@ export default function Dashboard() {
       )}
 
       {/* Main grid */}
-      <div className="grid grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
 
         {/* 08 — Pipeline kanban (left 2/3) */}
-        <div className="col-span-2 space-y-3">
+        <div className="md:col-span-2 space-y-3">
           <div className="flex items-center justify-between">
             <h2 className="text-sm text-[#888]">Episode pipeline</h2>
             <button
@@ -392,8 +392,8 @@ export default function Dashboard() {
         {/* Right sidebar */}
         <div className="space-y-4">
 
-          {/* Quick nav */}
-          <div className="space-y-1.5">
+          {/* Quick nav — 2-col grid on mobile, stacked on desktop */}
+          <div className="grid grid-cols-2 md:grid-cols-1 gap-2 md:gap-1.5">
             {[
               { to: '/series',    icon: Film,      label: 'Series'    },
               { to: '/vault',     icon: BookMarked, label: 'Vault'    },
@@ -401,7 +401,7 @@ export default function Dashboard() {
               { to: '/editor',    icon: Scissors,   label: 'Editor'   },
             ].map(({ to, icon: Icon, label }) => (
               <Link key={to} to={to}
-                className="flex items-center gap-3 px-3 py-2 rounded border border-[#1a1a1a] text-[#555] hover:border-[#333] hover:text-[#aaa] transition-all text-sm">
+                className="flex items-center justify-center md:justify-start gap-3 px-3 py-2.5 rounded border border-[var(--border)] text-[var(--text3)] hover:border-[var(--border2)] hover:text-[var(--text2)] transition-all text-sm">
                 <Icon size={13}/> {label}
               </Link>
             ))}
@@ -409,8 +409,8 @@ export default function Dashboard() {
 
           {/* Vault stats */}
           {vaultStats && (
-            <div className="border border-[#1a1a1a] rounded p-4 space-y-3">
-              <h3 className="text-xs text-[#666] uppercase tracking-wide">Vault</h3>
+            <div className="border border-[var(--border)] rounded p-4 space-y-3">
+              <h3 className="text-xs text-[var(--text3)] uppercase tracking-wide">Vault</h3>
               <div className="space-y-1.5">
                 {[
                   { label: 'Total ideas', value: vaultStats.total      },
@@ -418,8 +418,8 @@ export default function Dashboard() {
                   { label: 'Unused',      value: vaultStats.unused     },
                 ].map(({ label, value }) => (
                   <div key={label} className="flex justify-between text-xs">
-                    <span className="text-[#555]">{label}</span>
-                    <span className="text-[#888]">{value}</span>
+                    <span className="text-[var(--text3)]">{label}</span>
+                    <span className="text-[var(--text2)]">{value}</span>
                   </div>
                 ))}
               </div>
@@ -428,17 +428,17 @@ export default function Dashboard() {
 
           {/* Vault recommendations */}
           {recommendations.length > 0 && (
-            <div className="border border-[#1a1a1a] rounded p-4 space-y-3">
+            <div className="border border-[var(--border)] rounded p-4 space-y-3">
               <div className="flex items-center gap-2">
-                <TrendingUp size={12} className="text-[#c8b89a]"/>
-                <h3 className="text-xs text-[#666] uppercase tracking-wide">Ready to use</h3>
+                <TrendingUp size={12} className="text-[var(--accent)]"/>
+                <h3 className="text-xs text-[var(--text3)] uppercase tracking-wide">Ready to use</h3>
               </div>
               {recommendations.slice(0, 3).map((rec, i) => (
                 <div key={i} className="text-xs space-y-1">
-                  <div className="text-[#bbb] truncate">{rec.title}</div>
-                  <div className="text-[#444] leading-relaxed line-clamp-2">{rec.reason}</div>
+                  <div className="text-[var(--text)] truncate">{rec.title}</div>
+                  <div className="text-[var(--text3)] leading-relaxed line-clamp-2">{rec.reason}</div>
                   <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] ${
-                    rec.urgency === 'high' ? 'bg-[#c8b89a]/10 text-[#c8b89a]' : 'bg-[#111] text-[#555]'
+                    rec.urgency === 'high' ? 'bg-[#c8b89a]/10 text-[var(--accent)]' : 'bg-[var(--surface2)] text-[var(--text3)]'
                   }`}>{rec.urgency}</span>
                 </div>
               ))}
@@ -449,11 +449,11 @@ export default function Dashboard() {
           {latestInsights && (
             <div className="border border-[#1a1a1a] rounded p-4 space-y-2">
               <div className="flex items-center gap-2">
-                <BarChart2 size={12} className="text-[#c8b89a]"/>
-                <h3 className="text-xs text-[#666] uppercase tracking-wide">Latest insight</h3>
+                <BarChart2 size={12} className="text-[var(--accent)]"/>
+                <h3 className="text-xs text-[var(--text3)] uppercase tracking-wide">Latest insight</h3>
               </div>
-              <p className="text-xs text-[#555] leading-relaxed line-clamp-4">{latestInsights}</p>
-              <Link to="/analytics" className="text-xs text-[#c8b89a] hover:underline">View analytics →</Link>
+              <p className="text-xs text-[var(--text3)] leading-relaxed line-clamp-4">{latestInsights}</p>
+              <Link to="/analytics" className="text-xs text-[var(--accent)] hover:underline">View analytics →</Link>
             </div>
           )}
 
