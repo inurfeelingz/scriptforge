@@ -527,16 +527,22 @@ export default function Companion() {
   async function processSession() {
     if (!sessionIdRef.current) return
     set({ processing: true, orbMood: 'processing', error: null })
+
+    // 2s delay to let final transcription save before processing
+    await new Promise(r => setTimeout(r, 2000))
+
     try {
       const result = await api.post(`/session/${sessionIdRef.current}/process`)
+      console.info('[process] Result:', JSON.stringify(result).slice(0, 200))
       const voiceMemoText = result?.voiceMemoText || result?.voice_memo_text || ''
       const keyMoments    = result?.keyMoments    || result?.key_moments    || []
-      if (!voiceMemoText) throw new Error('No memo generated — speak clearly during recording, or check OPENAI_API_KEY is set in Railway')
+      if (!voiceMemoText) throw new Error('No memo generated — speak clearly during recording')
       set({ processing: false, orbMood: 'idle', status: 'idle', entries: [], sessionId: null, elapsedMs: 0 })
       navigator.vibrate?.([100, 50, 100, 50, 200])
       window.location.href = '/'
     } catch (err) {
-      set({ processing: false, orbMood: 'idle', error: err.message || 'Processing failed', status: 'idle' })
+      console.error('[process] Error:', err.message)
+      set({ processing: false, orbMood: 'idle', error: err.message || 'Processing failed', status: 'ready' })
     }
   }
 
