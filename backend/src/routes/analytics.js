@@ -26,10 +26,22 @@ router.get('/youtube/status', async (req, res) => {
 // ─── YOUTUBE OAUTH: CONNECT ───────────────────────────────────────────────────
 // GET /api/analytics/youtube/connect?categoryId=xxx
 // Redirects to Google consent screen.
+// Accepts token as query param since this is a browser redirect (no auth header possible)
 
 router.get('/youtube/connect', async (req, res) => {
-  const { categoryId } = req.query
+  const { categoryId, token } = req.query
   if (!categoryId) return res.status(400).json({ error: 'categoryId required' })
+
+  // Auth: accept Bearer header OR token query param (needed for browser redirects)
+  if (!req.user) {
+    const t = token || req.headers.authorization?.replace('Bearer ', '')
+    if (!t) return res.status(401).json({ error: 'Missing or invalid authorization header' })
+    const { createClient } = require('@supabase/supabase-js')
+    const sc = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY, { auth: { persistSession: false } })
+    const { data: { user }, error } = await sc.auth.getUser(t)
+    if (error || !user) return res.status(401).json({ error: 'Invalid token' })
+    req.user = user
+  }
 
   if (!process.env.YOUTUBE_CLIENT_ID || !process.env.YOUTUBE_CLIENT_SECRET) {
     return res.status(503).json({

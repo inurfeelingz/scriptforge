@@ -89,12 +89,15 @@ function YouTubeConnectPanel({ categoryId, onPulled }) {
           <div className="text-xs text-[#555] mt-0.5">Auto-import retention data weekly — no more manual CSV exports</div>
         </div>
       </div>
-      <a
-        href={analyticsApi.youtubeConnectUrl(categoryId)}
-        className="inline-flex items-center gap-2 px-4 py-2 bg-red-950/30 border border-red-800/40 text-red-400 rounded text-sm hover:bg-red-950/50 transition-all"
+      <button
+        onClick={async () => {
+          const url = await analyticsApi.youtubeConnectUrl(categoryId)
+          window.location.href = url
+        }}
+        className="inline-flex items-center gap-2 px-4 py-2 bg-red-950/30 border border-red-800/40 text-red-400 rounded text-sm hover:bg-red-950/50 transition-all cursor-pointer"
       >
         <Youtube size={13}/> Connect YouTube account
-      </a>
+      </button>
       <p className="text-[10px] text-[#444] leading-relaxed">
         Requires Google Cloud Console setup: add <code className="text-[#666]">YOUTUBE_CLIENT_ID</code>, <code className="text-[#666]">YOUTUBE_CLIENT_SECRET</code>, and <code className="text-[#666]">YOUTUBE_REDIRECT_URI</code> to Railway env vars.
         See the setup instructions in your batch log.

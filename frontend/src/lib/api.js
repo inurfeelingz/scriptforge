@@ -132,7 +132,11 @@ export const analytics = {
   },
   // YouTube OAuth
   youtubeStatus:     (categoryId) => req('GET',  `/analytics/youtube/status?categoryId=${categoryId}`),
-  youtubeConnectUrl: (categoryId) => `${BASE}/analytics/youtube/connect?categoryId=${categoryId}`,
+  youtubeConnectUrl: async (categoryId) => {
+    const session = await getSession()
+    const token = session?.access_token || ''
+    return `${BASE}/analytics/youtube/connect?categoryId=${categoryId}&token=${token}`
+  },
   youtubePull:       (categoryId) => req('POST', '/analytics/youtube/pull', { categoryId }),
   youtubeDisconnect: (categoryId) => req('DELETE', `/analytics/youtube/disconnect?categoryId=${categoryId}`),
   // Episode retention
