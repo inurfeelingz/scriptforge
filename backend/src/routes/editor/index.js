@@ -1,6 +1,6 @@
 // backend/src/routes/editor/index.js
 // All editor API routes. Mounts at /api/editor
-// STATUS: ROUTES WIRED — individual handlers vary from working to stubbed
+// STATUS: FULLY WIRED — all handlers working
 
 const express      = require('express')
 const { supabase } = require('../../utils/supabase')
@@ -15,7 +15,7 @@ const router = express.Router()
 /**
  * POST /api/editor/index/clip
  * Receive a single indexed clip from the browser (vectors computed client-side)
- * STATUS: READY — depends on clipIndexer.indexClip (stubbed)
+ * STATUS: READY
  */
 router.post('/index/clip', async (req, res) => {
   const { categoryId, clipData } = req.body
@@ -33,7 +33,7 @@ router.post('/index/clip', async (req, res) => {
 /**
  * POST /api/editor/index/batch
  * Receive a batch of indexed clips from the browser
- * STATUS: READY — depends on clipIndexer.indexClipBatch (stubbed)
+ * STATUS: READY
  */
 router.post('/index/batch', async (req, res) => {
   const { categoryId, clips, jobId } = req.body
@@ -133,7 +133,7 @@ router.get('/clips', async (req, res) => {
 /**
  * POST /api/editor/clips/search
  * Semantic search — find clips matching an intent query
- * STATUS: READY — depends on clipIndexer.searchClips (stubbed at DB level)
+ * STATUS: READY
  */
 router.post('/clips/search', async (req, res) => {
   const { categoryId, visualVector, textVector, clipType, count = 5 } = req.body
@@ -217,7 +217,7 @@ router.get('/projects/:id', async (req, res) => {
 /**
  * POST /api/editor/projects/:id/assemble
  * AI assembles the timeline from EDL + clip index
- * STATUS: PLACEHOLDER — core assembly logic stubbed in visionMatcher
+ * STATUS: WORKING — visionMatcher.matchFullEDL assembles timeline from indexed clips
  */
 router.post('/projects/:id/assemble', async (req, res) => {
   const { edlClipMap, beatVectors = [] } = req.body
@@ -292,7 +292,7 @@ router.patch('/projects/:id/timeline', async (req, res) => {
 /**
  * POST /api/editor/projects/:id/swap
  * Get swap candidates for a specific clip
- * STATUS: PLACEHOLDER — depends on visionMatcher.getSwapCandidates (stubbed)
+ * STATUS: WORKING — returns top 3 alternative clips ranked by semantic similarity
  */
 router.post('/projects/:id/swap', async (req, res) => {
   const { clipId, beat, visualVector, textVector } = req.body
@@ -318,7 +318,7 @@ router.post('/projects/:id/swap', async (req, res) => {
 /**
  * POST /api/editor/projects/:id/export
  * Export timeline as EDL, FCPXML, or OTIO
- * STATUS: EDL WORKING — FCPXML/OTIO are stubs
+ * STATUS: FULLY WORKING — EDL, FCPXML 1.10, and OTIO all implemented
  */
 router.post('/projects/:id/export', async (req, res) => {
   const { format = 'edl' } = req.body
