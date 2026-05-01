@@ -86,8 +86,10 @@ export const useStore = create((set, get) => ({
       const valid = categories.find(c => c.id === saved)
       if (valid) {
         set({ activeCategoryId: valid.id })
+        localStorage.setItem('sf_active_category', valid.id)
       } else if (categories.length) {
         set({ activeCategoryId: categories[0].id })
+        localStorage.setItem('sf_active_category', categories[0].id)
       }
     } catch {
       set({ categoryLoading: false })
