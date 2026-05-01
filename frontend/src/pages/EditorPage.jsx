@@ -79,6 +79,9 @@ export default function EditorPage() {
             <div className="text-sm text-[#666]">No clips indexed yet</div>
             <div className="text-xs text-[#444] mt-1">
               Link your footage folder and run indexing to enable AI-assisted editing
+              <span style={{ display: 'block', marginTop: 6, fontSize: '0.75rem', color: '#f59e0b', opacity: 0.8 }}>
+                ⚠️ Frame extraction is in development — MOV/MP4 indexing coming soon
+              </span>
             </div>
           </div>
           <button
