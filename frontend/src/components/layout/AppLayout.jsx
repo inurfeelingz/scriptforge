@@ -9,7 +9,7 @@ import {
   LayoutDashboard, Sparkles, Film, BookMarked,
   BarChart2, Mic, Music2, Scissors, Smartphone, Settings, LogOut,
   ChevronLeft, ChevronRight, Plus, RefreshCw, MessageSquare,
-  Calendar, Menu, X, FileText,
+  Calendar, Menu, X, FileText, CreditCard,
 } from 'lucide-react'
 import { useStore } from '../../store'
 import { categories as catApi } from '../../lib/api'
@@ -251,6 +251,18 @@ export default function AppLayout() {
         {/* Bottom */}
         <div style={{ padding: '8px', borderTop: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: 2, flexShrink: 0 }}>
 
+          <NavLink
+            to="/billing"
+            onClick={() => setMobileOpen(false)}
+            style={({ isActive }) => ({
+              ...(isActive ? NAV_ACTIVE : NAV_INACTIVE),
+              justifyContent: (!showLabels && !isMobile) ? 'center' : 'flex-start',
+              padding: (!showLabels && !isMobile) ? '10px' : '8px 14px',
+            })}
+          >
+            <CreditCard size={18} style={{ flexShrink: 0 }}/>
+            {showLabels && <span>Billing</span>}
+          </NavLink>
           <a
             href="/companion" target="_blank" rel="noopener noreferrer"
             style={{ ...NAV_INACTIVE, justifyContent: (!showLabels && !isMobile) ? 'center' : 'flex-start', padding: (!showLabels && !isMobile) ? '10px' : '8px 14px' }}

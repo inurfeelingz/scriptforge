@@ -113,6 +113,13 @@ export const vault = {
 }
 
 // ── Analytics ─────────────────────────────────────────────────────────────────
+export const billing = {
+  plans:     ()            => req('GET',  '/billing/plans'),
+  status:    ()            => req('GET',  '/billing/status'),
+  subscribe: (planKey)     => req('POST', '/billing/subscribe', { planKey }),
+  cancel:    ()            => req('POST', '/billing/cancel', {}),
+}
+
 export const analytics = {
   list:      (params) => req('GET', `/analytics?${new URLSearchParams(params)}`),
   hookStats: (params) => req('GET', `/analytics/hook-stats?${new URLSearchParams(params)}`),
