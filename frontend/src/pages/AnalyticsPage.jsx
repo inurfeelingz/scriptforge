@@ -199,7 +199,6 @@ export default function AnalyticsPage() {
     setUploadProgress({ done: 0, total: 0 })
     e.target.value = ''
   }
-  }
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
