@@ -275,6 +275,11 @@ router.post('/upload', upload.single('file'), async (req, res) => {
     return res.status(400).json({ error: 'file, categoryId, and platform are required' });
   }
 
+  // File size limit — 2MB to prevent timeouts
+  if (req.file.size > 2 * 1024 * 1024) {
+    return res.status(400).json({ error: 'File too large. Max 2MB — try exporting a shorter date range (90 days works best).' })
+  }
+
   // Validate file type before attempting to parse
   const allowedMimes = ['text/csv', 'application/csv', 'text/plain', 'application/vnd.ms-excel']
   const fileExt      = (req.file.originalname || '').toLowerCase().split('.').pop()
@@ -286,13 +291,15 @@ router.post('/upload', upload.single('file'), async (req, res) => {
     const csvText = req.file.buffer.toString('utf8')
     const firstLine = csvText.trim().split('\n')[0]?.toLowerCase().replace(/"/g, '') || ''
 
-    // Detect format type
-    const isYTSummary  = firstLine.includes('content type') || firstLine.includes('watch time')
-    const isYTPerVideo = firstLine.includes('video title') || firstLine.includes('average view percentage')
-    const isTKOverview = firstLine.includes('date') && firstLine.includes('video views')
-    const isTKPerVideo = firstLine.includes('video title') && firstLine.includes('video views')
+    // Detect YouTube format type
+    const isYTPerVideo   = firstLine.includes('video title')
+    const isYTGeo        = firstLine.includes('geography') && firstLine.includes('views')
+    const isYTTraffic    = firstLine.includes('traffic source') && firstLine.includes('views')
+    const isYTContent    = firstLine.includes('content type') || firstLine.includes('watch time')
+    const isYTDateSeries = firstLine === 'date,views' || (firstLine.startsWith('date') && firstLine.split(',').length <= 3)
+    const isTKOverview   = firstLine.includes('date') && firstLine.includes('video views')
+    const isTKPerVideo   = firstLine.includes('video title') && firstLine.includes('video views')
 
-    // Parse CSV based on platform and detected format
     let videos = []
     let dataType = 'unknown'
 
@@ -300,13 +307,21 @@ router.post('/upload', upload.single('file'), async (req, res) => {
       if (isYTPerVideo) {
         videos = parseYouTubeCSV(csvText)
         dataType = 'per_video'
-      } else if (isYTSummary) {
+      } else if (isYTGeo || isYTTraffic) {
+        videos = parseYouTubeBreakdownCSV(csvText)
+        dataType = 'breakdown'
+      } else if (isYTContent) {
         videos = parseYouTubeSummaryCSV(csvText)
         dataType = 'summary'
+      } else if (isYTDateSeries) {
+        return res.status(400).json({
+          error: 'This file only contains daily totals — not enough data for insights.',
+          tip: 'Upload the Table data.csv file instead, especially the one with Video title column.',
+        })
       } else {
         return res.status(400).json({
           error: 'YouTube CSV format not recognised.',
-          tip: 'Export from YouTube Studio → Analytics → Content tab → See more → Export current view. Or use the Overview export.',
+          tip: 'Use Table data.csv from the YouTube Studio export, preferably the Content report with Video title.',
         })
       }
     } else {
@@ -468,6 +483,29 @@ function parseYouTubeCSV(csv) {
 }
 
 // YouTube Overview/Summary export — has Content type rows (Total, Shorts, Videos etc)
+// YouTube breakdown exports — Geography or Traffic source with Views, Watch time
+function parseYouTubeBreakdownCSV(csv) {
+  const lines  = csv.trim().split('\n')
+  const header = parseCSVLine(lines[0]).map(h => h.toLowerCase())
+  return lines.slice(1).filter(l => l.trim()).map(line => {
+    const cols = parseCSVLine(line)
+    const row  = {}
+    header.forEach((h, i) => { row[h] = cols[i] || '' })
+    const label = row['geography'] || row['traffic source'] || row['content'] || 'Unknown'
+    const views = parseInt((row['views'] || '0').replace(/,/g, ''))
+    const watchHours = parseFloat((row['watch time (hours)'] || '0').replace(/,/g, ''))
+    const avgDurSecs = views > 0 ? (watchHours * 3600) / views : 0
+    const avgViewPct = Math.min(Math.round((avgDurSecs / 60) * 100), 100)
+    return {
+      platform: 'youtube',
+      title: label,
+      views,
+      avgViewPercentage: avgViewPct,
+      avgViewDuration: row['average view duration'] || '',
+    }
+  }).filter(r => r.views > 0)
+}
+
 function parseYouTubeSummaryCSV(csv) {
   const lines  = csv.trim().split('\n')
   const header = parseCSVLine(lines[0]).map(h => h.toLowerCase())
