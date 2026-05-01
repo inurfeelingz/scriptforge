@@ -24,17 +24,10 @@ export default defineConfig({
         // Split vendor chunks for better caching
         manualChunks(id) {
           if (id.includes('node_modules')) {
-            // React core — tiny, cache forever
-            if (id.includes('react-dom') || id.includes('react/')) return 'react'
-            // Router
-            if (id.includes('react-router')) return 'router'
-            // Lucide icons — large, rarely changes
+            if (id.includes('react-dom') || id.includes('react/') || id.includes('react-router')) return 'react'
             if (id.includes('lucide-react')) return 'icons'
-            // Supabase
             if (id.includes('@supabase')) return 'supabase'
-            // Anthropic SDK
             if (id.includes('@anthropic')) return 'anthropic'
-            // Everything else vendor
             return 'vendor'
           }
         },
