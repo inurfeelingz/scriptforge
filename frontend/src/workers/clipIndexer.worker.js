@@ -6,17 +6,26 @@
 import { pipeline, env } from '@xenova/transformers'
 
 // MP4Box loaded dynamically — importScripts not available in module workers
-let MP4Box = null
+// mp4box UMD bundle sets self.MP4Box as a global when loaded via CDN
+let _mp4boxReady = null
 async function getMP4Box() {
-  if (MP4Box) return MP4Box
-  try {
-    // Dynamic import via CDN for module worker compatibility
-    const mod = await import('https://cdn.jsdelivr.net/npm/mp4box@0.5.3/dist/mp4box.all.min.js')
-    MP4Box = mod.default || mod
-    return MP4Box
-  } catch {
-    return null
-  }
+  if (self.MP4Box?.createFile) return self.MP4Box
+  if (_mp4boxReady) return _mp4boxReady
+
+  _mp4boxReady = new Promise((resolve) => {
+    // Load via script tag equivalent — fetch and eval the UMD bundle
+    fetch('https://cdn.jsdelivr.net/npm/mp4box@0.5.3/dist/mp4box.all.min.js')
+      .then(r => r.text())
+      .then(code => {
+        // Execute in worker scope — UMD bundle will set self.MP4Box
+        // eslint-disable-next-line no-new-func
+        new Function(code)()
+        resolve(self.MP4Box?.createFile ? self.MP4Box : null)
+      })
+      .catch(() => resolve(null))
+  })
+
+  return _mp4boxReady
 }
 
 env.allowLocalModels = false
