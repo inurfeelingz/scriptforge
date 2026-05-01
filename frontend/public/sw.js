@@ -2,7 +2,7 @@
 // Auto-updates: bumps CACHE_VERSION, clears old caches, activates immediately.
 // On update: posts UPDATE_AVAILABLE to all clients so the app can prompt reload.
 
-const CACHE_VERSION = 'wc-v6'   // ← bump this string on every deploy
+const CACHE_VERSION = 'wc-v7'   // ← bump this string on every deploy
 const STATIC_CACHE  = `${CACHE_VERSION}-static`
 const DYNAMIC_CACHE = `${CACHE_VERSION}-dynamic`
 
