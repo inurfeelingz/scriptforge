@@ -68,148 +68,38 @@ async function loadModels() {
 
 // ─── AUDIO EXTRACTION ─────────────────────────────────────────────────────────
 
-async function extractAudioWithWebCodecs(file) {
-  // Use MP4Box to demux + WebCodecs AudioDecoder to decode
-  const MP4Box = await getMP4Box()
-  if (!MP4Box) return null
-  if (typeof AudioDecoder === 'undefined') return null
-
-  return new Promise((resolve) => {
-    const mp4boxFile = MP4Box.createFile()
-    let resolved = false
-    let decoder = null
-    const pcmChunks = []
-    let totalSamples = 0
-    const MAX_SAMPLES = 16000 * 30  // 30 seconds max
-
-    function done(result) {
-      if (!resolved) { resolved = true; resolve(result) }
-    }
-
-    mp4boxFile.onError = () => done(null)
-
-    mp4boxFile.onReady = (info) => {
-      const audioTrack = info.tracks.find(t => t.type === 'audio')
-      if (!audioTrack) { done(null); return }
-
-      // Build codec string
-      const codec = audioTrack.codec || 'mp4a.40.2'  // AAC-LC fallback
-      const sampleRate = audioTrack.audio?.sample_rate || 44100
-      const channels   = audioTrack.audio?.channel_count || 2
-
-      try {
-        decoder = new AudioDecoder({
-          output: (audioData) => {
-            if (resolved) { audioData.close(); return }
-            // Copy to Float32Array at 16kHz mono for Whisper
-            const frames = audioData.numberOfFrames
-            const buf = new Float32Array(frames)
-            audioData.copyTo(buf, { planeIndex: 0, format: 'f32-planar' })
-            audioData.close()
-            pcmChunks.push(buf)
-            totalSamples += frames
-            if (totalSamples >= MAX_SAMPLES) {
-              decoder.close()
-              buildResult(sampleRate)
-            }
-          },
-          error: () => buildResult(sampleRate),
-        })
-
-        decoder.configure({
-          codec,
-          sampleRate,
-          numberOfChannels: channels,
-        })
-
-        mp4boxFile.setExtractionOptions(audioTrack.id, null, { nbSamples: 1000 })
-        mp4boxFile.start()
-      } catch {
-        done(null)
-      }
-    }
-
-    mp4boxFile.onSamples = (trackId, ref, samples) => {
-      if (resolved || !decoder) return
-      for (const sample of samples) {
-        if (resolved) break
-        try {
-          decoder.decode(new EncodedAudioChunk({
-            type:      sample.is_sync ? 'key' : 'delta',
-            timestamp: sample.cts * 1000000 / sample.timescale,
-            duration:  sample.duration * 1000000 / sample.timescale,
-            data:      sample.data,
-          }))
-        } catch {}
-      }
-    }
-
-    function buildResult(originalSampleRate) {
-      if (resolved || pcmChunks.length === 0) { done(null); return }
-      // Concatenate all chunks
-      const total = pcmChunks.reduce((s, c) => s + c.length, 0)
-      const combined = new Float32Array(total)
-      let offset = 0
-      for (const chunk of pcmChunks) {
-        combined.set(chunk, offset)
-        offset += chunk.length
-      }
-      // Resample to 16kHz for Whisper (simple decimation)
-      const ratio = originalSampleRate / 16000
-      const resampled = new Float32Array(Math.floor(combined.length / ratio))
-      for (let i = 0; i < resampled.length; i++) {
-        resampled[i] = combined[Math.floor(i * ratio)]
-      }
-      const rms = Math.sqrt(resampled.reduce((s, v) => s + v * v, 0) / resampled.length)
-      done({
-        pcmData:     resampled,
-        energyLevel: parseFloat(Math.min(rms * 10, 1.0).toFixed(3)),
-        sampleRate:  16000,
-        durationMs:  Math.round((resampled.length / 16000) * 1000),
-      })
-    }
-
-    file.arrayBuffer().then(buffer => {
-      buffer.fileStart = 0
-      mp4boxFile.appendBuffer(buffer)
-      mp4boxFile.flush()
-    }).catch(() => done(null))
-
-    // Flush decoder after buffer is processed
-    setTimeout(() => {
-      if (!resolved && decoder) {
-        try { decoder.flush().then(() => buildResult(44100)).catch(() => done(null)) }
-        catch { done(null) }
-      }
-    }, 8000)
-
-    setTimeout(() => done(null), 15000)
-  })
-}
-
 async function extractAudio(file) {
-  const ext = file.name.split('.').pop()?.toLowerCase()
-
-  // For video containers, use WebCodecs AudioDecoder via MP4Box
-  if (['mp4', 'mov', 'm4v', 'mkv', 'mxf'].includes(ext)) {
-    try {
-      const result = await extractAudioWithWebCodecs(file)
-      if (result) return result
-    } catch {}
-  }
-
-  // Fallback: direct AudioContext decode (works for mp3, wav, aac, webm)
   try {
-    const arrayBuffer  = await file.arrayBuffer()
-    const audioCtx     = new OfflineAudioContext(1, 16000 * 30, 16000)
-    const audioBuffer  = await audioCtx.decodeAudioData(arrayBuffer.slice(0))
-    const channelData  = audioBuffer.getChannelData(0)
-    const rms          = Math.sqrt(channelData.reduce((s, v) => s + v * v, 0) / channelData.length)
+    const arrayBuffer = await file.arrayBuffer()
+
+    // Use a high sample rate context first to decode the container
+    // Chrome can decode MP4/MOV containers in workers via AudioContext
+    const audioCtx = new OfflineAudioContext(1, 44100 * 120, 44100)
+    let audioBuffer
+    try {
+      audioBuffer = await audioCtx.decodeAudioData(arrayBuffer.slice(0))
+    } catch {
+      // Some MOV files need a second attempt without slicing
+      const audioCtx2 = new OfflineAudioContext(1, 44100 * 120, 44100)
+      audioBuffer = await audioCtx2.decodeAudioData(arrayBuffer)
+    }
+
+    // Downsample to 16kHz mono for Whisper
+    const srcData    = audioBuffer.getChannelData(0)
+    const srcRate    = audioBuffer.sampleRate
+    const ratio      = srcRate / 16000
+    const outLen     = Math.floor(srcData.length / ratio)
+    const pcmData    = new Float32Array(outLen)
+    for (let i = 0; i < outLen; i++) {
+      pcmData[i] = srcData[Math.floor(i * ratio)]
+    }
+
+    const rms = Math.sqrt(pcmData.reduce((s, v) => s + v * v, 0) / pcmData.length)
     return {
-      pcmData:     channelData,
+      pcmData,
       energyLevel: parseFloat(Math.min(rms * 10, 1.0).toFixed(3)),
       sampleRate:  16000,
-      durationMs:  Math.round(audioBuffer.duration * 1000),
+      durationMs:  Math.round((pcmData.length / 16000) * 1000),
     }
   } catch {
     return { pcmData: null, energyLevel: 0.5, sampleRate: 16000, durationMs: 0 }
