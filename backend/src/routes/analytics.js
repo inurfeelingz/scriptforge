@@ -280,34 +280,46 @@ router.post('/upload', upload.single('file'), async (req, res) => {
   }
 
   try {
-    const csvText = req.file.buffer.toString('utf8');
+    const csvText = req.file.buffer.toString('utf8')
+    const firstLine = csvText.trim().split('\n')[0]?.toLowerCase().replace(/"/g, '') || ''
 
-    // Validate column headers before processing
-    const firstLine    = csvText.trim().split('\n')[0]?.toLowerCase() || ''
-    const hasVideoData = firstLine.includes('title') || firstLine.includes('video')
+    // Detect format type
+    const isYTSummary  = firstLine.includes('content type') || firstLine.includes('watch time')
+    const isYTPerVideo = firstLine.includes('video title') || firstLine.includes('average view percentage')
+    const isTKOverview = firstLine.includes('date') && firstLine.includes('video views')
+    const isTKPerVideo = firstLine.includes('video title') && firstLine.includes('video views')
 
-    if (!hasVideoData) {
-      return res.status(400).json({
-        error: 'CSV format not recognised. ' +
-               (platform === 'youtube'
-                 ? 'Export from YouTube Studio → Analytics → Content → See more → Export current view'
-                 : 'Export from TikTok Creator Center → Analytics → Content → Export'),
-        tip:   'The file must contain video title and view data.',
-      })
+    // Parse CSV based on platform and detected format
+    let videos = []
+    let dataType = 'unknown'
+
+    if (platform === 'youtube') {
+      if (isYTPerVideo) {
+        videos = parseYouTubeCSV(csvText)
+        dataType = 'per_video'
+      } else if (isYTSummary) {
+        videos = parseYouTubeSummaryCSV(csvText)
+        dataType = 'summary'
+      } else {
+        return res.status(400).json({
+          error: 'YouTube CSV format not recognised.',
+          tip: 'Export from YouTube Studio → Analytics → Content tab → See more → Export current view. Or use the Overview export.',
+        })
+      }
+    } else {
+      if (isTKPerVideo) {
+        videos = parseTikTokCSV(csvText)
+        dataType = 'per_video'
+      } else if (isTKOverview) {
+        videos = parseTikTokOverviewCSV(csvText)
+        dataType = 'overview'
+      } else {
+        return res.status(400).json({
+          error: 'TikTok CSV format not recognised.',
+          tip: 'Export from TikTok Creator Center → Analytics → Overview or Content tab → Export.',
+        })
+      }
     }
-
-    // For YouTube: check it's the right report type (needs "average view percentage")
-    if (platform === 'youtube' && !firstLine.includes('view percentage') && !firstLine.includes('watch') && !firstLine.includes('views')) {
-      return res.status(400).json({
-        error: 'This looks like the wrong YouTube export. Need the Content report with Average View Percentage column.',
-        tip:   'In YouTube Studio: Analytics → Content tab → Export',
-      })
-    }
-
-    // Parse CSV based on platform
-    const videos = platform === 'youtube'
-      ? parseYouTubeCSV(csvText)
-      : parseTikTokCSV(csvText);
 
     if (!videos.length) {
       return res.status(400).json({ error: 'No valid data found in CSV. Check the file format.' });
@@ -331,14 +343,14 @@ router.post('/upload', upload.single('file'), async (req, res) => {
       system:     context,
       messages: [{
         role: 'user',
-        content: `Interpret this ${platform} analytics data for the creator.
+        content: `Interpret this ${platform} analytics data for the creator. Data type: ${dataType}.
 
-TOP 10 PERFORMERS:
+TOP PERFORMERS:
 ${topTitles}
 
-TOTALS: ${videos.length} videos, avg score: ${Math.round(scored.reduce((s,v) => s+v.retentionScore,0)/scored.length)}
+TOTALS: ${videos.length} entries, avg score: ${Math.round(scored.reduce((s,v) => s+v.retentionScore,0)/scored.length)}
 
-Give 3-4 specific, actionable insights. Reference episode titles where relevant. End with 2 concrete recommendations for the next episode structure.`,
+Give 3-4 specific, actionable insights based on this data. ${dataType === 'per_video' ? 'Reference video titles where relevant.' : 'Note this is aggregated data, not per-video.'} End with 2 concrete recommendations for the next episode structure.`,
       }],
     });
 
@@ -431,12 +443,12 @@ function parseCSVLine(line) {
 }
 
 function parseYouTubeCSV(csv) {
-  const lines  = csv.trim().split('\n');
-  const header = parseCSVLine(lines[0]).map(h => h.toLowerCase());
+  const lines  = csv.trim().split('\n')
+  const header = parseCSVLine(lines[0]).map(h => h.toLowerCase())
   return lines.slice(1).filter(l => l.trim()).map(line => {
-    const cols = parseCSVLine(line);
-    const row  = {};
-    header.forEach((h, i) => { row[h] = cols[i] || ''; });
+    const cols = parseCSVLine(line)
+    const row  = {}
+    header.forEach((h, i) => { row[h] = cols[i] || '' })
     return {
       platform:          'youtube',
       title:             row['video title'] || row['title'] || '',
@@ -445,26 +457,77 @@ function parseYouTubeCSV(csv) {
       avgViewPercentage: parseFloat(row['average view percentage'] || '0'),
       avgViewDuration:   row['average view duration'] || '',
       ctr:               parseFloat(row['impressions click-through rate (%)'] || '0'),
-    };
-  }).filter(v => v.title);
+    }
+  }).filter(v => v.title)
+}
+
+// YouTube Overview/Summary export — has Content type rows (Total, Shorts, Videos etc)
+function parseYouTubeSummaryCSV(csv) {
+  const lines  = csv.trim().split('\n')
+  const header = parseCSVLine(lines[0]).map(h => h.toLowerCase())
+  return lines.slice(1).filter(l => l.trim()).map(line => {
+    const cols = parseCSVLine(line)
+    const row  = {}
+    header.forEach((h, i) => { row[h] = cols[i] || '' })
+    const type = row['content type'] || row['type'] || 'Unknown'
+    if (!type || type.toLowerCase() === 'total') return null
+    const views = parseInt((row['views'] || '0').replace(/,/g, ''))
+    const watchHours = parseFloat((row['watch time (hours)'] || '0').replace(/,/g, ''))
+    // Estimate avg view percentage from watch time / views
+    // avg_view_duration_seconds ≈ (watchHours * 3600) / views
+    // assume ~60s average video → percentage = duration/60
+    const avgDurSecs = views > 0 ? (watchHours * 3600) / views : 0
+    const avgViewPct = Math.min(Math.round((avgDurSecs / 60) * 100), 100)
+    return {
+      platform:          'youtube',
+      title:             type,
+      views,
+      avgViewPercentage: avgViewPct,
+      avgViewDuration:   row['average view duration'] || '',
+    }
+  }).filter(Boolean)
 }
 
 function parseTikTokCSV(csv) {
-  const lines  = csv.trim().split('\n');
-  const header = parseCSVLine(lines[0]).map(h => h.toLowerCase());
+  const lines  = csv.trim().split('\n')
+  const header = parseCSVLine(lines[0]).map(h => h.toLowerCase())
   return lines.slice(1).filter(l => l.trim()).map(line => {
-    const cols = parseCSVLine(line);
-    const row  = {};
-    header.forEach((h, i) => { row[h] = cols[i] || ''; });
+    const cols = parseCSVLine(line)
+    const row  = {}
+    header.forEach((h, i) => { row[h] = cols[i] || '' })
     return {
       platform:      'tiktok',
       title:         row['video title'] || row['title'] || '',
       videoId:       row['video id'] || '',
-      views:         parseInt(row['views'] || row['video views'] || '0'),
-      likes:         parseInt(row['likes'] || '0'),
+      views:         parseInt((row['views'] || row['video views'] || '0').replace(/,/g, '')),
+      likes:         parseInt((row['likes'] || '0').replace(/,/g, '')),
       fullWatchRate: parseFloat(row['full video watch rate'] || row['finish rate'] || '0'),
-    };
-  }).filter(v => v.title);
+    }
+  }).filter(v => v.title)
+}
+
+// TikTok Overview export — daily rows with Date, Video Views, Likes etc
+function parseTikTokOverviewCSV(csv) {
+  const lines  = csv.trim().split('\n')
+  const header = parseCSVLine(lines[0]).map(h => h.toLowerCase().replace(/"/g, ''))
+  const rows   = lines.slice(1).filter(l => l.trim()).map(line => {
+    const cols = parseCSVLine(line)
+    const row  = {}
+    header.forEach((h, i) => { row[h] = (cols[i] || '').replace(/"/g, '') })
+    return {
+      platform: 'tiktok',
+      title:    row['date'] || 'Unknown date',
+      views:    parseInt(row['video views'] || '0'),
+      likes:    parseInt(row['likes'] || '0'),
+      comments: parseInt(row['comments'] || '0'),
+      shares:   parseInt(row['shares'] || '0'),
+      // engagement rate as proxy for watch rate
+      fullWatchRate: row['video views'] > 0
+        ? Math.min(((parseInt(row['likes']||0) + parseInt(row['comments']||0) + parseInt(row['shares']||0)) / parseInt(row['video views']||1)) * 100, 100)
+        : 0,
+    }
+  }).filter(r => r.views > 0)
+  return rows
 }
 
 function calcScore(avgPct, views, ctr) {
