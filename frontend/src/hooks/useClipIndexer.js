@@ -19,10 +19,10 @@ export function useClipIndexer() {
   const [stats,         setStats]         = useState(null)
   const [error,         setError]         = useState(null)
 
-  // ── Init worker ────────────────────────────────────────────────────────────
+  // ── Init worker — only when explicitly started ────────────────────────────
 
-  useEffect(() => {
-    // Instantiate the real worker
+  function initWorker() {
+    if (workerRef.current) return  // already running
     try {
       workerRef.current = new Worker(
         new URL('../workers/clipIndexer.worker.js', import.meta.url),
@@ -37,8 +37,10 @@ export function useClipIndexer() {
       console.error('[useClipIndexer] Failed to create worker:', err)
       setError('Worker not supported in this browser. Use Chrome.')
     }
+  }
 
-    return () => workerRef.current?.terminate()
+  useEffect(() => {
+    // Don't auto-start — worker starts when user explicitly indexes footage    return () => workerRef.current?.terminate()
   }, [])
 
   // ── Worker message handler ─────────────────────────────────────────────────
@@ -224,7 +226,8 @@ export function useClipIndexer() {
   // ── Init models ────────────────────────────────────────────────────────────
 
   const initModels = useCallback(() => {
-    if (!workerRef.current || modelsReady || modelsLoading) return
+    if (modelsReady || modelsLoading) return
+    initWorker()  // lazy-start the worker only when user triggers model load
     setModelsLoading(true)
     workerRef.current.postMessage({ type: 'INIT' })
   }, [modelsReady, modelsLoading])

@@ -28,6 +28,20 @@ async function req(method, path, body) {
   return res.json()
 }
 
+async function reqForm(path, formData) {
+  const session = await getSession()
+  const res = await fetch(`${BASE}${path}`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${session?.access_token}` },
+    body: formData,
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }))
+    throw new Error(err.error || `Upload failed: ${res.status}`)
+  }
+  return res.json()
+}
+
 // ── SSE streaming helper ──────────────────────────────────────────────────────
 // Returns an EventSource-like object that handles auth via fetch + ReadableStream
 
