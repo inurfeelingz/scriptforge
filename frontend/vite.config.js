@@ -16,23 +16,9 @@ export default defineConfig({
 
   build: {
     outDir: 'dist',
-    target: 'es2020',        // modern browsers only — smaller output
+    target: 'es2020',
     chunkSizeWarningLimit: 1000,
     cssCodeSplit: true,
-    rollupOptions: {
-      output: {
-        // Split vendor chunks for better caching
-        manualChunks(id) {
-          if (id.includes('node_modules')) {
-            if (id.includes('react-dom') || id.includes('react/') || id.includes('react-router')) return 'react'
-            if (id.includes('lucide-react')) return 'icons'
-            if (id.includes('@supabase')) return 'supabase'
-            if (id.includes('@anthropic')) return 'anthropic'
-            return 'vendor'
-          }
-        },
-      },
-    },
   },
 
   worker: {
