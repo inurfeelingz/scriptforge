@@ -68,16 +68,19 @@ async function loadModels() {
 
 // ─── AUDIO EXTRACTION ─────────────────────────────────────────────────────────
 
-async function extractAudioFromMP4Box(file) {
-  // Extract raw audio samples via MP4Box, then decode with AudioContext
+async function extractAudioWithWebCodecs(file) {
+  // Use MP4Box to demux + WebCodecs AudioDecoder to decode
   const MP4Box = await getMP4Box()
   if (!MP4Box) return null
+  if (typeof AudioDecoder === 'undefined') return null
 
   return new Promise((resolve) => {
     const mp4boxFile = MP4Box.createFile()
     let resolved = false
-    let audioTrackId = null
-    let samples = []
+    let decoder = null
+    const pcmChunks = []
+    let totalSamples = 0
+    const MAX_SAMPLES = 16000 * 30  // 30 seconds max
 
     function done(result) {
       if (!resolved) { resolved = true; resolve(result) }
@@ -88,41 +91,82 @@ async function extractAudioFromMP4Box(file) {
     mp4boxFile.onReady = (info) => {
       const audioTrack = info.tracks.find(t => t.type === 'audio')
       if (!audioTrack) { done(null); return }
-      audioTrackId = audioTrack.id
-      mp4boxFile.setExtractionOptions(audioTrackId, null, { nbSamples: 500 })
-      mp4boxFile.start()
+
+      // Build codec string
+      const codec = audioTrack.codec || 'mp4a.40.2'  // AAC-LC fallback
+      const sampleRate = audioTrack.audio?.sample_rate || 44100
+      const channels   = audioTrack.audio?.channel_count || 2
+
+      try {
+        decoder = new AudioDecoder({
+          output: (audioData) => {
+            if (resolved) { audioData.close(); return }
+            // Copy to Float32Array at 16kHz mono for Whisper
+            const frames = audioData.numberOfFrames
+            const buf = new Float32Array(frames)
+            audioData.copyTo(buf, { planeIndex: 0, format: 'f32-planar' })
+            audioData.close()
+            pcmChunks.push(buf)
+            totalSamples += frames
+            if (totalSamples >= MAX_SAMPLES) {
+              decoder.close()
+              buildResult(sampleRate)
+            }
+          },
+          error: () => buildResult(sampleRate),
+        })
+
+        decoder.configure({
+          codec,
+          sampleRate,
+          numberOfChannels: channels,
+        })
+
+        mp4boxFile.setExtractionOptions(audioTrack.id, null, { nbSamples: 1000 })
+        mp4boxFile.start()
+      } catch {
+        done(null)
+      }
     }
 
-    mp4boxFile.onSamples = async (trackId, ref, s) => {
-      if (resolved) return
-      samples = samples.concat(Array.from(s))
-      // Once we have enough samples, stop and decode
-      if (samples.length >= 200) {
-        mp4boxFile.stop()
-        // Concatenate raw audio bytes
-        const totalLen = samples.reduce((acc, s) => acc + s.data.byteLength, 0)
-        const combined = new Uint8Array(totalLen)
-        let offset = 0
-        for (const s of samples) {
-          combined.set(new Uint8Array(s.data), offset)
-          offset += s.data.byteLength
-        }
-        // Try AudioContext decode on the raw bytes
+    mp4boxFile.onSamples = (trackId, ref, samples) => {
+      if (resolved || !decoder) return
+      for (const sample of samples) {
+        if (resolved) break
         try {
-          const audioCtx = new OfflineAudioContext(1, 16000 * 30, 16000)
-          const audioBuffer = await audioCtx.decodeAudioData(combined.buffer)
-          const channelData = audioBuffer.getChannelData(0)
-          const rms = Math.sqrt(channelData.reduce((s, v) => s + v * v, 0) / channelData.length)
-          done({
-            pcmData:     channelData,
-            energyLevel: parseFloat(Math.min(rms * 10, 1.0).toFixed(3)),
-            sampleRate:  16000,
-            durationMs:  Math.round(audioBuffer.duration * 1000),
-          })
-        } catch {
-          done(null)
-        }
+          decoder.decode(new EncodedAudioChunk({
+            type:      sample.is_sync ? 'key' : 'delta',
+            timestamp: sample.cts * 1000000 / sample.timescale,
+            duration:  sample.duration * 1000000 / sample.timescale,
+            data:      sample.data,
+          }))
+        } catch {}
       }
+    }
+
+    function buildResult(originalSampleRate) {
+      if (resolved || pcmChunks.length === 0) { done(null); return }
+      // Concatenate all chunks
+      const total = pcmChunks.reduce((s, c) => s + c.length, 0)
+      const combined = new Float32Array(total)
+      let offset = 0
+      for (const chunk of pcmChunks) {
+        combined.set(chunk, offset)
+        offset += chunk.length
+      }
+      // Resample to 16kHz for Whisper (simple decimation)
+      const ratio = originalSampleRate / 16000
+      const resampled = new Float32Array(Math.floor(combined.length / ratio))
+      for (let i = 0; i < resampled.length; i++) {
+        resampled[i] = combined[Math.floor(i * ratio)]
+      }
+      const rms = Math.sqrt(resampled.reduce((s, v) => s + v * v, 0) / resampled.length)
+      done({
+        pcmData:     resampled,
+        energyLevel: parseFloat(Math.min(rms * 10, 1.0).toFixed(3)),
+        sampleRate:  16000,
+        durationMs:  Math.round((resampled.length / 16000) * 1000),
+      })
     }
 
     file.arrayBuffer().then(buffer => {
@@ -131,17 +175,25 @@ async function extractAudioFromMP4Box(file) {
       mp4boxFile.flush()
     }).catch(() => done(null))
 
-    setTimeout(() => done(null), 12000)
+    // Flush decoder after buffer is processed
+    setTimeout(() => {
+      if (!resolved && decoder) {
+        try { decoder.flush().then(() => buildResult(44100)).catch(() => done(null)) }
+        catch { done(null) }
+      }
+    }, 8000)
+
+    setTimeout(() => done(null), 15000)
   })
 }
 
 async function extractAudio(file) {
   const ext = file.name.split('.').pop()?.toLowerCase()
 
-  // For video containers, try MP4Box audio extraction first
+  // For video containers, use WebCodecs AudioDecoder via MP4Box
   if (['mp4', 'mov', 'm4v', 'mkv', 'mxf'].includes(ext)) {
     try {
-      const result = await extractAudioFromMP4Box(file)
+      const result = await extractAudioWithWebCodecs(file)
       if (result) return result
     } catch {}
   }
