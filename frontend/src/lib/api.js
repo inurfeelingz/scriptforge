@@ -123,12 +123,13 @@ export const billing = {
 export const analytics = {
   list:      (params) => req('GET', `/analytics?${new URLSearchParams(params)}`),
   hookStats: (params) => req('GET', `/analytics/hook-stats?${new URLSearchParams(params)}`),
-  upload: async (file, categoryId, platform) => {
+  upload: async (file, categoryId, platform, skipInsights = false) => {
     const session = await getSession()
     const formData = new FormData()
     formData.append('file', file)
     formData.append('categoryId', categoryId)
     formData.append('platform', platform)
+    if (skipInsights) formData.append('skip_insights', 'true')
     const res = await fetch(`${BASE}/analytics/upload`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${session?.access_token}` },

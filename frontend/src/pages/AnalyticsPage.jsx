@@ -162,27 +162,43 @@ export default function AnalyticsPage() {
 
   async function handleUpload(e) {
     const files = Array.from(e.target.files || [])
-    if (!files.length || !activeCategoryId) return
+    if (!files.length) return
+    if (!activeCategoryId) {
+      notify('No workspace selected — please select a workspace first', 'error')
+      return
+    }
     setUploading(true)
     setUploadProgress({ done: 0, total: files.length })
     let matched = 0
-    for (let i = 0; i < files.length; i++) {
-      try {
-        const result = await analyticsApi.upload(files[i], activeCategoryId, platform)
-        matched += result.episodesMatched || 0
-      } catch (err) {
-        notify(files[i].name + ': ' + err.message, 'error')
+
+    // Upload all files in parallel — skip insights for batch to avoid timeout
+    const skipInsights = files.length > 1
+    const results = await Promise.allSettled(
+      files.map(f => analyticsApi.upload(f, activeCategoryId, platform, skipInsights))
+    )
+
+    results.forEach((r, i) => {
+      if (r.status === 'fulfilled') {
+        matched += r.value.episodesMatched || 0
+      } else {
+        notify(files[i].name + ': ' + r.reason.message, 'error')
       }
       setUploadProgress({ done: i + 1, total: files.length })
+    })
+
+    const succeeded = results.filter(r => r.status === 'fulfilled').length
+    if (succeeded > 0) {
+      notify(files.length > 1
+        ? `${succeeded}/${files.length} files processed — ${matched} episodes matched`
+        : `Processed. ${matched} episodes matched.`,
+        'success'
+      )
     }
-    notify(files.length > 1
-      ? `${files.length} files processed — ${matched} matched`
-      : `Processed. ${matched} matched.`,
-      'success'
-    )
     loadData()
     setUploading(false)
     setUploadProgress({ done: 0, total: 0 })
+    e.target.value = ''
+  }
   }
 
   return (

@@ -137,6 +137,8 @@ router.post('/youtube/pull', async (req, res) => {
       `${i+1}. "${v.title}" — score: ${v.retentionScore}, views: ${v.views?.toLocaleString()}, avg view: ${v.avgViewPercentage}%`
     ).join('\n')
 
+    let insights = 'Insights will be generated on your next single-file upload.'
+    if (!skip_insights) {
     const insightRes = await client.messages.create({
       model:      process.env.CLAUDE_MODEL || 'claude-sonnet-4-5',
       max_tokens: 600,
@@ -147,7 +149,8 @@ router.post('/youtube/pull', async (req, res) => {
       }],
     })
 
-    const insights = insightRes.content[0].text
+    insights = insightRes.content[0].text
+    } // end skip_insights
     const avgScore = Math.round(scored.reduce((s,v) => s+v.retentionScore,0) / scored.length)
 
     // Save
@@ -266,7 +269,7 @@ router.post('/episode/:id/retention-curve', async (req, res) => {
 // ─── UPLOAD ANALYTICS CSV ─────────────────────────────────────────────────────
 
 router.post('/upload', upload.single('file'), async (req, res) => {
-  const { categoryId, platform } = req.body;
+  const { categoryId, platform, skip_insights } = req.body
 
   if (!req.file || !categoryId || !platform) {
     return res.status(400).json({ error: 'file, categoryId, and platform are required' });
@@ -337,6 +340,8 @@ router.post('/upload', upload.single('file'), async (req, res) => {
       `${i+1}. "${v.title}" — score: ${v.retentionScore}, views: ${v.views?.toLocaleString()}, avg view: ${v.avgViewPercentage || v.fullWatchRate}%`
     ).join('\n');
 
+    let insights = 'Insights will be generated on your next single-file upload.'
+    if (!skip_insights) {
     const insightRes = await client.messages.create({
       model:      process.env.CLAUDE_MODEL || 'claude-sonnet-4-5',
       max_tokens: 600,
@@ -354,7 +359,8 @@ Give 3-4 specific, actionable insights based on this data. ${dataType === 'per_v
       }],
     });
 
-    const insights = insightRes.content[0].text;
+    insights = insightRes.content[0].text
+    } // end skip_insights
     const avgScore = Math.round(scored.reduce((s,v) => s+v.retentionScore,0) / scored.length);
 
     // Save to DB
