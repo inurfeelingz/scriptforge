@@ -68,7 +68,85 @@ async function loadModels() {
 
 // ─── AUDIO EXTRACTION ─────────────────────────────────────────────────────────
 
+async function extractAudioFromMP4Box(file) {
+  // Extract raw audio samples via MP4Box, then decode with AudioContext
+  const MP4Box = await getMP4Box()
+  if (!MP4Box) return null
+
+  return new Promise((resolve) => {
+    const mp4boxFile = MP4Box.createFile()
+    let resolved = false
+    let audioTrackId = null
+    let samples = []
+
+    function done(result) {
+      if (!resolved) { resolved = true; resolve(result) }
+    }
+
+    mp4boxFile.onError = () => done(null)
+
+    mp4boxFile.onReady = (info) => {
+      const audioTrack = info.tracks.find(t => t.type === 'audio')
+      if (!audioTrack) { done(null); return }
+      audioTrackId = audioTrack.id
+      mp4boxFile.setExtractionOptions(audioTrackId, null, { nbSamples: 500 })
+      mp4boxFile.start()
+    }
+
+    mp4boxFile.onSamples = async (trackId, ref, s) => {
+      if (resolved) return
+      samples = samples.concat(Array.from(s))
+      // Once we have enough samples, stop and decode
+      if (samples.length >= 200) {
+        mp4boxFile.stop()
+        // Concatenate raw audio bytes
+        const totalLen = samples.reduce((acc, s) => acc + s.data.byteLength, 0)
+        const combined = new Uint8Array(totalLen)
+        let offset = 0
+        for (const s of samples) {
+          combined.set(new Uint8Array(s.data), offset)
+          offset += s.data.byteLength
+        }
+        // Try AudioContext decode on the raw bytes
+        try {
+          const audioCtx = new OfflineAudioContext(1, 16000 * 30, 16000)
+          const audioBuffer = await audioCtx.decodeAudioData(combined.buffer)
+          const channelData = audioBuffer.getChannelData(0)
+          const rms = Math.sqrt(channelData.reduce((s, v) => s + v * v, 0) / channelData.length)
+          done({
+            pcmData:     channelData,
+            energyLevel: parseFloat(Math.min(rms * 10, 1.0).toFixed(3)),
+            sampleRate:  16000,
+            durationMs:  Math.round(audioBuffer.duration * 1000),
+          })
+        } catch {
+          done(null)
+        }
+      }
+    }
+
+    file.arrayBuffer().then(buffer => {
+      buffer.fileStart = 0
+      mp4boxFile.appendBuffer(buffer)
+      mp4boxFile.flush()
+    }).catch(() => done(null))
+
+    setTimeout(() => done(null), 12000)
+  })
+}
+
 async function extractAudio(file) {
+  const ext = file.name.split('.').pop()?.toLowerCase()
+
+  // For video containers, try MP4Box audio extraction first
+  if (['mp4', 'mov', 'm4v', 'mkv', 'mxf'].includes(ext)) {
+    try {
+      const result = await extractAudioFromMP4Box(file)
+      if (result) return result
+    } catch {}
+  }
+
+  // Fallback: direct AudioContext decode (works for mp3, wav, aac, webm)
   try {
     const arrayBuffer  = await file.arrayBuffer()
     const audioCtx     = new OfflineAudioContext(1, 16000 * 30, 16000)
