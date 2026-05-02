@@ -113,6 +113,7 @@ export function useClipIndexer() {
             const session = await getSession()
             const apiUrl  = import.meta.env.VITE_API_URL || '/api'
             const blob    = new Blob([data.buffer], { type: data.mimeType || 'video/mp4' })
+            console.log('[transcribe] Sending', data.filename, 'size:', blob.size, 'bytes')
             const form    = new FormData()
             form.append('file', blob, data.filename)
             const res = await fetch(`${apiUrl}/editor/clips/transcribe`, {
@@ -120,9 +121,12 @@ export function useClipIndexer() {
               headers: { Authorization: `Bearer ${session?.access_token}` },
               body:    form,
             })
+            console.log('[transcribe] Response status:', res.status, data.filename)
             const json = res.ok ? await res.json() : {}
+            console.log('[transcribe] Transcript:', json.text?.slice(0, 80), data.filename)
             workerRef.current?.postMessage({ type: 'TRANSCRIBE_RESULT', id: data.id, transcript: json.text || '' })
-          } catch {
+          } catch (err) {
+            console.error('[transcribe] Error:', err.message, data.filename)
             workerRef.current?.postMessage({ type: 'TRANSCRIBE_RESULT', id: data.id, transcript: '' })
           }
         })()

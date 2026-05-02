@@ -305,7 +305,10 @@ function cosineSim(a, b) {
 }
 
 async function tagClip(imageBitmap, clipType) {
-  if (!clipExtractor || !imageBitmap) return [clipType]
+  if (!clipExtractor || !imageBitmap) {
+    console.warn('[tagClip] Skipping — clipExtractor:', !!clipExtractor, 'imageBitmap:', !!imageBitmap)
+    return [clipType]
+  }
   try {
     const imgOut  = await clipExtractor(imageBitmap)
     const imgVec  = Array.from(imgOut.data)
@@ -314,8 +317,13 @@ async function tagClip(imageBitmap, clipType) {
       const out  = await clipExtractor(label)
       return { label, score: cosineSim(imgVec, Array.from(out.data)) }
     }))
-    return scored.sort((a,b) => b.score - a.score).filter(s => s.score > 0.2).slice(0, 5).map(s => s.label)
-  } catch { return [clipType] }
+    const tags = scored.sort((a,b) => b.score - a.score).filter(s => s.score > 0.2).slice(0, 5).map(s => s.label)
+    console.log('[tagClip] Tags:', tags)
+    return tags.length ? tags : [clipType]
+  } catch (err) {
+    console.warn('[tagClip] Error:', err.message)
+    return [clipType]
+  }
 }
 
 // ─── CLIP TYPE DETECTION ──────────────────────────────────────────────────────
