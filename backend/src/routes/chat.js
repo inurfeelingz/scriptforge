@@ -258,6 +258,67 @@ router.delete('/history', async (req, res) => {
   res.json({ cleared: true })
 })
 
+// ── GET /api/chat/sessions ─────────────────────────────────────────────────────
+router.get('/sessions', async (req, res) => {
+  const { categoryId, mode = 'generate' } = req.query
+  const { data } = await supabase
+    .from('chat_sessions')
+    .select('id, title, mode, created_at, updated_at')
+    .eq('user_id', req.user.id)
+    .eq('category_id', categoryId)
+    .eq('mode', mode)
+    .order('updated_at', { ascending: false })
+    .limit(30)
+  res.json({ sessions: data || [] })
+})
+
+// ── GET /api/chat/sessions/:id ─────────────────────────────────────────────────
+router.get('/sessions/:id', async (req, res) => {
+  const { data } = await supabase
+    .from('chat_sessions')
+    .select('*')
+    .eq('id', req.params.id)
+    .eq('user_id', req.user.id)
+    .single()
+  if (!data) return res.status(404).json({ error: 'Session not found' })
+  res.json({ session: data })
+})
+
+// ── POST /api/chat/sessions ────────────────────────────────────────────────────
+router.post('/sessions', async (req, res) => {
+  const { categoryId, mode, messages, title } = req.body
+  if (!categoryId || !messages?.length) return res.status(400).json({ error: 'categoryId and messages required' })
+
+  const autoTitle = title ||
+    messages.find(m => m.role === 'user')?.content?.slice(0, 60) ||
+    'Untitled conversation'
+
+  const { data, error } = await supabase
+    .from('chat_sessions')
+    .insert({
+      user_id:     req.user.id,
+      category_id: categoryId,
+      mode:        mode || 'generate',
+      title:       autoTitle,
+      messages,
+    })
+    .select()
+    .single()
+
+  if (error) return res.status(500).json({ error: error.message })
+  res.json({ session: data })
+})
+
+// ── DELETE /api/chat/sessions/:id ──────────────────────────────────────────────
+router.delete('/sessions/:id', async (req, res) => {
+  await supabase
+    .from('chat_sessions')
+    .delete()
+    .eq('id', req.params.id)
+    .eq('user_id', req.user.id)
+  res.json({ deleted: true })
+})
+
 module.exports = router;
 
 // ── GET /api/chat/sessions ─────────────────────────────────────────────────────
