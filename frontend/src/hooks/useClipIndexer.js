@@ -9,8 +9,9 @@ import { getSession } from '../lib/supabase'
 
 export function useClipIndexer() {
   const { activeCategoryId, notify } = useStore()
-  const workerRef    = useRef(null)
-  const pendingBatch = useRef([])   // clips indexed but not yet sent to API
+  const workerRef      = useRef(null)
+  const pendingBatch   = useRef([])   // clips indexed but not yet sent to API
+  const currentFilesRef = useRef([])  // current indexing batch files for main-thread lookups
 
   const [modelsReady,   setModelsReady]   = useState(false)
   const [modelsLoading, setModelsLoading] = useState(false)
@@ -126,6 +127,34 @@ export function useClipIndexer() {
           }
         })()
         break
+
+      case 'AUDIO_META_REQUEST':
+        // Use a <video> element on the main thread to get duration — works for MOV/MP4
+        ;(async () => {
+          try {
+            // Find the file in the current indexing batch by filename
+            const file = currentFilesRef.current?.find(f => f.name === data.filename)
+            if (!file) {
+              workerRef.current?.postMessage({ type: 'AUDIO_META_RESULT', id: data.id, durationMs: 0 })
+              return
+            }
+            const url  = URL.createObjectURL(file)
+            const video = document.createElement('video')
+            video.preload = 'metadata'
+            video.src = url
+            await new Promise((resolve) => {
+              video.onloadedmetadata = resolve
+              video.onerror = resolve
+              setTimeout(resolve, 8000)
+            })
+            const durationMs = isFinite(video.duration) ? Math.round(video.duration * 1000) : 0
+            URL.revokeObjectURL(url)
+            workerRef.current?.postMessage({ type: 'AUDIO_META_RESULT', id: data.id, durationMs })
+          } catch {
+            workerRef.current?.postMessage({ type: 'AUDIO_META_RESULT', id: data.id, durationMs: 0 })
+          }
+        })()
+        break
     }
   }, [activeCategoryId])
 
@@ -194,6 +223,7 @@ export function useClipIndexer() {
     setIndexing(true)
     setError(null)
     setIndexProgress({ current: 0, total: files.length, pct: 0, filename: '', step: 'starting' })
+    currentFilesRef.current = Array.from(files)  // store for main-thread lookups
 
     // Create a job record in DB
     try {

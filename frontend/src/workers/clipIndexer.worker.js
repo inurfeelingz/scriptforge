@@ -64,43 +64,34 @@ async function loadModels() {
 }
 
 // ─── AUDIO EXTRACTION ─────────────────────────────────────────────────────────
+// OfflineAudioContext can't decode video containers in workers.
+// We ask the main thread to measure duration via a <video> element instead.
 
 async function extractAudio(file) {
-  try {
-    const arrayBuffer = await file.arrayBuffer()
+  return new Promise((resolve) => {
+    const id = Math.random().toString(36).slice(2)
 
-    // Use a high sample rate context first to decode the container
-    // Chrome can decode MP4/MOV containers in workers via AudioContext
-    const audioCtx = new OfflineAudioContext(1, 44100 * 120, 44100)
-    let audioBuffer
-    try {
-      audioBuffer = await audioCtx.decodeAudioData(arrayBuffer.slice(0))
-    } catch {
-      // Some MOV files need a second attempt without slicing
-      const audioCtx2 = new OfflineAudioContext(1, 44100 * 120, 44100)
-      audioBuffer = await audioCtx2.decodeAudioData(arrayBuffer)
+    function handler(e) {
+      if (e.data?.type === 'AUDIO_META_RESULT' && e.data?.id === id) {
+        self.removeEventListener('message', handler)
+        resolve({
+          pcmData:     null,
+          energyLevel: 0.5,
+          sampleRate:  16000,
+          durationMs:  e.data.durationMs || 0,
+        })
+      }
     }
+    self.addEventListener('message', handler)
 
-    // Downsample to 16kHz mono for Whisper
-    const srcData    = audioBuffer.getChannelData(0)
-    const srcRate    = audioBuffer.sampleRate
-    const ratio      = srcRate / 16000
-    const outLen     = Math.floor(srcData.length / ratio)
-    const pcmData    = new Float32Array(outLen)
-    for (let i = 0; i < outLen; i++) {
-      pcmData[i] = srcData[Math.floor(i * ratio)]
-    }
+    postMessage({ type: 'AUDIO_META_REQUEST', id, filename: file.name })
 
-    const rms = Math.sqrt(pcmData.reduce((s, v) => s + v * v, 0) / pcmData.length)
-    return {
-      pcmData,
-      energyLevel: parseFloat(Math.min(rms * 10, 1.0).toFixed(3)),
-      sampleRate:  16000,
-      durationMs:  Math.round((pcmData.length / 16000) * 1000),
-    }
-  } catch {
-    return { pcmData: null, energyLevel: 0.5, sampleRate: 16000, durationMs: 0 }
-  }
+    // Timeout — resolve with zeros if main thread doesn't respond
+    setTimeout(() => {
+      self.removeEventListener('message', handler)
+      resolve({ pcmData: null, energyLevel: 0.5, sampleRate: 16000, durationMs: 0 })
+    }, 10000)
+  })
 }
 
 // ─── TRANSCRIPTION (server-side via OpenAI Whisper) ───────────────────────────
@@ -118,15 +109,16 @@ async function transcribe(file) {
     }
     self.addEventListener('message', handler)
 
-    // Read file as ArrayBuffer to transfer to main thread
+    // Read file as ArrayBuffer — copy it (don't transfer) so file remains usable
     file.arrayBuffer().then(buffer => {
+      const copy = buffer.slice(0)  // copy so original buffer stays intact
       postMessage({
         type: 'TRANSCRIBE_REQUEST',
         id,
         filename: file.name,
         mimeType: file.type || 'video/mp4',
-        buffer,
-      }, [buffer])  // transfer buffer ownership for efficiency
+        buffer:   copy,
+      }, [copy])  // transfer the copy
     }).catch(() => {
       self.removeEventListener('message', handler)
       resolve('')
