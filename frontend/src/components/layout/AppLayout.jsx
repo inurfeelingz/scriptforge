@@ -406,7 +406,7 @@ export default function AppLayout() {
               }}
             >
               <MessageSquare size={15}/>
-              {!isMobile && 'Claude'}
+              {!isMobile && 'KB'}
             </button>
           </div>
         </header>

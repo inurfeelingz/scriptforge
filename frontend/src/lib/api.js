@@ -58,7 +58,7 @@ export async function streamRequest(path, body, handlers = {}) {
 
   if (!response.ok) throw new Error(`Stream failed: ${response.status}`)
 
-  const reader = response.body.getReader()
+  const reader  = response.body.getReader()
   const decoder = new TextDecoder()
   let buffer = ''
 
@@ -67,19 +67,18 @@ export async function streamRequest(path, body, handlers = {}) {
     if (done) break
 
     buffer += decoder.decode(value, { stream: true })
-    const lines = buffer.split('\n')
-    buffer = lines.pop() // keep incomplete line
+    const parts = buffer.split('\n\n')
+    buffer = parts.pop()  // keep the incomplete trailing chunk
 
-    for (const line of lines) {
-      if (line.startsWith('event: ')) {
-        const event = line.slice(7).trim()
-        const dataLine = lines[lines.indexOf(line) + 1]
-        if (dataLine?.startsWith('data: ')) {
-          try {
-            const data = JSON.parse(dataLine.slice(6))
-            handlers[event]?.(data)
-          } catch {}
-        }
+    for (const part of parts) {
+      let event = null
+      let data  = null
+      for (const line of part.split('\n')) {
+        if (line.startsWith('event: ')) event = line.slice(7).trim()
+        if (line.startsWith('data: '))  data  = line.slice(6).trim()
+      }
+      if (event && data) {
+        try { handlers[event]?.(JSON.parse(data)) } catch {}
       }
     }
   }
