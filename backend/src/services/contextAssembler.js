@@ -69,6 +69,7 @@ async function assembleContext(userId, categoryId, options = {}) {
     vaultHighlights,
     clipIndexData,
     scriptLibrary,
+    plannedEpisodes,
   ] = await Promise.all([
     getCategory(userId, categoryId),
     getRecentEpisodes(userId, categoryId, 5),
@@ -80,6 +81,7 @@ async function assembleContext(userId, categoryId, options = {}) {
     getVaultHighlights(userId, categoryId),
     getClipIndexData(userId),
     getScriptLibrary(userId, categoryId),
+    getPlannedEpisodes(userId, categoryId),
   ]);
 
   if (!category) return buildMinimalContext(mode);
@@ -174,6 +176,15 @@ ${seriesMemory.map(e =>
   ${e.summary || ''}
   ${e.callback_seeds?.length ? `Can reference: ${e.callback_seeds.join(' | ')}` : ''}`
 ).join('\n\n')}`);
+  }
+
+  // ── KB PLANNED EPISODES ───────────────────────────────────
+  if (plannedEpisodes.length) {
+    sections.push(`## KB PLANNED EPISODES — mapped out in chat, not yet recorded
+${plannedEpisodes.map(e =>
+  `Ep ${e.episode_number ? e.episode_number + ': ' : ''}"${e.track_name}" [${e.status}] — ${e.summary || ''}${e.themes?.length ? ` | themes: ${e.themes.join(', ')}` : ''}`
+).join('\n')}
+These are committed from previous KB conversations — the creator plans to record these.`)
   }
 
   // ── TRENDING ──────────────────────────────────────────────
@@ -417,6 +428,17 @@ async function getClipIndexData(userId) {
   const totalDurationMs = data.reduce((s, c) => s + (c.duration_ms || 0), 0)
 
   return { total: count || data.length, byType, totalDurationMs, clips: data }
+}
+
+async function getPlannedEpisodes(userId, categoryId) {
+  const { data } = await supabase
+    .from('kb_planned_episodes')
+    .select('episode_number, track_name, track_context, summary, themes, status')
+    .eq('user_id', userId)
+    .eq('category_id', categoryId)
+    .order('episode_number', { ascending: true })
+    .limit(20)
+  return data || []
 }
 
 async function getScriptLibrary(userId, categoryId) {

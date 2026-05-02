@@ -180,9 +180,14 @@ export const shorts = {
 
 // ── Chat ──────────────────────────────────────────────────────────────────────
 export const chat = {
-  send:        (body, handlers) => streamRequest('/chat/message', body, handlers),
-  getHistory:  (params) => req('GET', `/chat/history?${new URLSearchParams(params)}`),
-  clearHistory:(body)   => req('DELETE', '/chat/history', body),
+  send:           (body, handlers) => streamRequest('/chat/message', body, handlers),
+  getHistory:     (params) => req('GET', `/chat/history?${new URLSearchParams(params)}`),
+  clearHistory:   (body)   => req('DELETE', '/chat/history', body),
+  commitEpisode:  (body)   => req('POST', '/chat/commit-episode', body),
+  getSessions:    (params) => req('GET', `/chat/sessions?${new URLSearchParams(params)}`),
+  getSession:     (id)     => req('GET', `/chat/sessions/${id}`),
+  saveSession:    (body)   => req('POST', '/chat/sessions', body),
+  deleteSession:  (id)     => req('DELETE', `/chat/sessions/${id}`),
 }
 
 // ── Refresh ───────────────────────────────────────────────────────────────────

@@ -1,166 +1,325 @@
 // backend/src/routes/chat.js
-// Streaming Claude chat endpoint — works across all modes.
-// Injects full assembled context before every message.
+// KB chat — streaming, persistent history, episode planning + commit
 
-const express  = require('express');
-const Anthropic = require('@anthropic-ai/sdk');
+const express   = require('express');
+const Anthropic  = require('@anthropic-ai/sdk');
 const { assembleContext } = require('../services/contextAssembler');
 const { supabase }        = require('../utils/supabase');
 
 const router = express.Router();
 const client = new Anthropic.Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
-// ── Per-session context cache ────────────────────────────────────────────────
-// assembleContext fires 8 DB queries. In a long chat session the context doesn't
-// change between messages — cache it per user+category+mode for 90 seconds.
+// ── Context cache (90s per user+category+mode) ────────────────────────────────
 const ctxCache = new Map()
-const CTX_TTL  = 90 * 1000  // 90 seconds
+const CTX_TTL  = 90 * 1000
 
-function getCachedCtx(userId, categoryId, mode) {
-  const key   = `${userId}:${categoryId}:${mode}`
+function getCachedCtx(key) {
   const entry = ctxCache.get(key)
   if (!entry) return null
   if (Date.now() - entry.ts > CTX_TTL) { ctxCache.delete(key); return null }
   return entry.value
 }
-
-function setCachedCtx(userId, categoryId, mode, value) {
-  const key = `${userId}:${categoryId}:${mode}`
+function setCachedCtx(key, value) {
   ctxCache.set(key, { value, ts: Date.now() })
-  if (ctxCache.size > 50) {  // evict oldest
-    const oldest = [...ctxCache.entries()].sort((a,b) => a[1].ts - b[1].ts)[0]
+  if (ctxCache.size > 50) {
+    const oldest = [...ctxCache.entries()].sort((a, b) => a[1].ts - b[1].ts)[0]
     ctxCache.delete(oldest[0])
   }
 }
 
-/**
- * POST /api/chat/message
- * Body: { categoryId, mode, message, episodeCtx?, chatHistory? }
- * Returns: SSE stream of Claude response chunks
- */
+// ── Load + save history helpers ───────────────────────────────────────────────
+async function loadHistory(userId, categoryId, mode) {
+  const { data } = await supabase
+    .from('chat_history')
+    .select('messages, updated_at')
+    .eq('user_id', userId)
+    .eq('category_id', categoryId)
+    .eq('mode', mode)
+    .maybeSingle()
+  return { messages: data?.messages || [], updatedAt: data?.updated_at }
+}
+
+async function saveHistory(userId, categoryId, mode, messages) {
+  await supabase
+    .from('chat_history')
+    .upsert({
+      user_id:     userId,
+      category_id: categoryId,
+      mode,
+      messages,
+      updated_at:  new Date().toISOString(),
+    }, { onConflict: 'user_id,mode,category_id' })
+}
+
+// ── POST /api/chat/message ─────────────────────────────────────────────────────
 router.post('/message', async (req, res) => {
-  const { categoryId, mode = 'generate', message, episodeCtx, messages = [] } = req.body;
+  const { categoryId, mode = 'generate', message, episodeCtx, messages = [] } = req.body
 
-  if (!message?.trim()) {
-    return res.status(400).json({ error: 'Message is required' });
-  }
+  if (!message?.trim()) return res.status(400).json({ error: 'Message is required' })
 
-  // Set up SSE
-  res.setHeader('Content-Type', 'text/event-stream');
-  res.setHeader('Cache-Control', 'no-cache');
-  res.setHeader('Connection', 'keep-alive');
-  res.setHeader('X-Accel-Buffering', 'no');
-  res.flushHeaders();
+  // SSE
+  res.setHeader('Content-Type', 'text/event-stream')
+  res.setHeader('Cache-Control', 'no-cache')
+  res.setHeader('Connection', 'keep-alive')
+  res.setHeader('X-Accel-Buffering', 'no')
+  res.flushHeaders()
 
-  const send = (event, data) => {
-    res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
-  };
+  const send = (event, data) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
 
   try {
-    // Assemble context — cached per session to avoid 8 DB queries per message
-    // Cache is busted when categories update (invalidateContext) or after 90s
-    const cacheKey = episodeCtx ? null : `${req.user.id}:${categoryId}:${mode}`
-    let systemContext = cacheKey ? getCachedCtx(req.user.id, categoryId, mode) : null
+    // Load full history from DB (client sends recent slice, we want the full log)
+    const { messages: dbHistory } = await loadHistory(req.user.id, categoryId, mode)
 
+    // Assemble system context
+    const ctxKey = episodeCtx ? null : `${req.user.id}:${categoryId}:${mode}`
+    let systemContext = ctxKey ? getCachedCtx(ctxKey) : null
     if (!systemContext) {
-      systemContext = await assembleContext(req.user.id, categoryId, {
-        mode,
-        episodeCtx,
-        chatHistory: messages.length > 6
-          ? `[${messages.length} prior messages — continuing conversation]`
-          : null,
-      })
-      if (cacheKey) setCachedCtx(req.user.id, categoryId, mode, systemContext)
+      systemContext = await assembleContext(req.user.id, categoryId, { mode, episodeCtx })
+      if (ctxKey) setCachedCtx(ctxKey, systemContext)
     }
 
-    // Build conversation history for Claude
-    // Keep last 10 messages to manage context window
-    const recentMessages = messages.slice(-10);
+    // Append any planned episodes KB is aware of
+    const { data: planned } = await supabase
+      .from('kb_planned_episodes')
+      .select('episode_number, track_name, summary, themes, status')
+      .eq('user_id', req.user.id)
+      .eq('category_id', categoryId)
+      .order('episode_number', { ascending: true })
+      .limit(20)
+
+    if (planned?.length) {
+      systemContext += `\n\n## KB PLANNED EPISODES (you helped plan these)\n` +
+        planned.map(e =>
+          `Ep ${e.episode_number}: "${e.track_name}" [${e.status}]${e.summary ? ` — ${e.summary}` : ''}`
+        ).join('\n')
+    }
+
+    // Build message list — use DB history as source of truth, keep last 30
+    const historyForClaude = dbHistory
+      .slice(-30)
+      .map(m => ({ role: m.role, content: m.content }))
+
     const claudeMessages = [
-      ...recentMessages,
+      ...historyForClaude,
       { role: 'user', content: message },
-    ];
+    ]
 
-    // Stream Claude response
-    let fullResponse = '';
-
+    // Stream response
+    let fullResponse = ''
     const stream = await client.messages.stream({
       model:      process.env.CLAUDE_MODEL || 'claude-sonnet-4-5',
       max_tokens: 2000,
       system:     systemContext,
       messages:   claudeMessages,
-    });
+    })
 
     for await (const chunk of stream) {
       if (chunk.type === 'content_block_delta' && chunk.delta.type === 'text_delta') {
-        const text = chunk.delta.text;
-        fullResponse += text;
-        send('chunk', { text });
+        fullResponse += chunk.delta.text
+        send('chunk', { text: chunk.delta.text })
       }
     }
 
-    // Persist chat history to Supabase
+    // Persist full history
     if (categoryId) {
-      const updatedMessages = [
-        ...recentMessages,
+      const updatedHistory = [
+        ...dbHistory,
         { role: 'user',      content: message,      timestamp: new Date().toISOString() },
         { role: 'assistant', content: fullResponse,  timestamp: new Date().toISOString() },
-      ];
-
-      await supabase
-        .from('chat_history')
-        .upsert({
-          user_id:     req.user.id,
-          category_id: categoryId,
-          mode,
-          messages:    updatedMessages,
-          updated_at:  new Date().toISOString(),
-        }, { onConflict: 'user_id,mode,category_id' });
+      ]
+      await saveHistory(req.user.id, categoryId, mode, updatedHistory)
     }
 
-    send('done', { response: fullResponse });
-    res.end();
+    send('done', { response: fullResponse })
+    res.end()
 
   } catch (err) {
-    console.error('[chat] Error:', err.message);
-    send('error', { message: err.message });
-    res.end();
+    console.error('[chat] Error:', err.message)
+    send('error', { message: err.message })
+    res.end()
   }
-});
+})
 
-/**
- * GET /api/chat/history?categoryId=&mode=
- * Returns chat history for a mode
- */
+// ── POST /api/chat/commit-episode ──────────────────────────────────────────────
+// KB extracts an episode plan from the conversation and commits it to series memory
+// so the Generate page, Companion, and all context knows about it
+router.post('/commit-episode', async (req, res) => {
+  const { categoryId, mode, episodeNumber, conversationSummary } = req.body
+  if (!categoryId) return res.status(400).json({ error: 'categoryId required' })
+
+  try {
+    // Load the recent chat history for this mode
+    const { messages: history } = await loadHistory(req.user.id, categoryId, mode || 'generate')
+    const recentMessages = history.slice(-20)
+
+    if (!recentMessages.length && !conversationSummary) {
+      return res.status(400).json({ error: 'No conversation to commit' })
+    }
+
+    // Ask Claude to extract the episode plan from the conversation
+    const extractionPrompt = conversationSummary
+      ? `Extract a structured episode plan from this summary: ${conversationSummary}`
+      : `Extract a structured episode plan from this conversation:\n${recentMessages.map(m => `${m.role}: ${m.content}`).join('\n\n')}`
+
+    const extraction = await client.messages.create({
+      model:      process.env.CLAUDE_MODEL || 'claude-sonnet-4-5',
+      max_tokens: 800,
+      system:     'Extract episode planning data as JSON only. No preamble. Return: { "track_name": string, "episode_number": number|null, "mood": string, "summary": string, "themes": string[], "callback_seeds": string[], "targetDurationMinutes": number }',
+      messages:   [{ role: 'user', content: extractionPrompt }],
+    })
+
+    let plan = {}
+    try {
+      const text = extraction.content[0]?.text || '{}'
+      plan = JSON.parse(text.replace(/```json|```/g, '').trim())
+    } catch {
+      return res.status(422).json({ error: 'Could not extract episode plan from conversation — try being more specific about the episode name, mood, and themes' })
+    }
+
+    const epNumber = episodeNumber || plan.episode_number
+
+    // Write to kb_planned_episodes
+    const { data: planned, error: pe } = await supabase
+      .from('kb_planned_episodes')
+      .upsert({
+        user_id:      req.user.id,
+        category_id:  categoryId,
+        episode_number: epNumber,
+        track_name:   plan.track_name,
+        track_context: {
+          mood:                   plan.mood || '',
+          targetDurationMinutes:  plan.targetDurationMinutes || 8,
+        },
+        summary:       plan.summary,
+        themes:        plan.themes || [],
+        callback_seeds: plan.callback_seeds || [],
+        status:        'planned',
+        chat_session:  mode || 'generate',
+        updated_at:    new Date().toISOString(),
+      }, { onConflict: epNumber ? 'user_id,category_id,episode_number' : undefined })
+      .select()
+      .single()
+
+    if (pe) throw pe
+
+    // Also write to series_memory so it shows up in the Series page
+    if (epNumber) {
+      await supabase
+        .from('series_memory')
+        .upsert({
+          user_id:       req.user.id,
+          category_id:   categoryId,
+          episode_number: epNumber,
+          track_name:    plan.track_name,
+          track_context: { mood: plan.mood || '', targetDurationMinutes: plan.targetDurationMinutes || 8 },
+          summary:       plan.summary,
+          themes:        plan.themes || [],
+          callback_seeds: plan.callback_seeds || [],
+        }, { onConflict: 'user_id,category_id,episode_number' })
+    }
+
+    // Bust context cache so next KB message sees the new plan
+    const ctxKey = `${req.user.id}:${categoryId}:${mode || 'generate'}`
+    ctxCache.delete(ctxKey)
+
+    res.json({
+      committed: true,
+      plan: {
+        track_name:    plan.track_name,
+        episode_number: epNumber,
+        mood:          plan.mood,
+        summary:       plan.summary,
+        themes:        plan.themes,
+      }
+    })
+
+  } catch (err) {
+    console.error('[commit-episode]', err.message)
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// ── GET /api/chat/history ──────────────────────────────────────────────────────
 router.get('/history', async (req, res) => {
-  const { categoryId, mode = 'generate' } = req.query;
+  const { categoryId, mode = 'generate' } = req.query
+  const result = await loadHistory(req.user.id, categoryId, mode)
+  res.json(result)
+})
 
-  const { data } = await supabase
-    .from('chat_history')
-    .select('messages, updated_at')
-    .eq('user_id', req.user.id)
-    .eq('category_id', categoryId)
-    .eq('mode', mode)
-    .single();
-
-  res.json({ messages: data?.messages || [], updatedAt: data?.updated_at });
-});
-
-/**
- * DELETE /api/chat/history
- * Clear chat history for a mode
- */
+// ── DELETE /api/chat/history ───────────────────────────────────────────────────
 router.delete('/history', async (req, res) => {
-  const { categoryId, mode } = req.body;
-
+  const { categoryId, mode } = req.body
   await supabase
     .from('chat_history')
     .delete()
     .eq('user_id', req.user.id)
     .eq('category_id', categoryId)
-    .eq('mode', mode);
-
-  res.json({ cleared: true });
-});
+    .eq('mode', mode)
+  res.json({ cleared: true })
+})
 
 module.exports = router;
+
+// ── GET /api/chat/sessions ─────────────────────────────────────────────────────
+// List past sessions for a mode/category
+router.get('/sessions', async (req, res) => {
+  const { categoryId, mode = 'generate' } = req.query
+  const { data } = await supabase
+    .from('chat_sessions')
+    .select('id, title, mode, created_at, updated_at')
+    .eq('user_id', req.user.id)
+    .eq('category_id', categoryId)
+    .eq('mode', mode)
+    .order('updated_at', { ascending: false })
+    .limit(30)
+  res.json({ sessions: data || [] })
+})
+
+// ── GET /api/chat/sessions/:id ─────────────────────────────────────────────────
+router.get('/sessions/:id', async (req, res) => {
+  const { data } = await supabase
+    .from('chat_sessions')
+    .select('*')
+    .eq('id', req.params.id)
+    .eq('user_id', req.user.id)
+    .single()
+  if (!data) return res.status(404).json({ error: 'Session not found' })
+  res.json({ session: data })
+})
+
+// ── POST /api/chat/sessions ────────────────────────────────────────────────────
+// Save current conversation as a named session
+router.post('/sessions', async (req, res) => {
+  const { categoryId, mode, messages, title } = req.body
+  if (!categoryId || !messages?.length) return res.status(400).json({ error: 'categoryId and messages required' })
+
+  // Auto-title from first user message if not provided
+  const autoTitle = title ||
+    messages.find(m => m.role === 'user')?.content?.slice(0, 60) ||
+    'Untitled conversation'
+
+  const { data, error } = await supabase
+    .from('chat_sessions')
+    .insert({
+      user_id:     req.user.id,
+      category_id: categoryId,
+      mode:        mode || 'generate',
+      title:       autoTitle,
+      messages,
+    })
+    .select()
+    .single()
+
+  if (error) return res.status(500).json({ error: error.message })
+  res.json({ session: data })
+})
+
+// ── DELETE /api/chat/sessions/:id ──────────────────────────────────────────────
+router.delete('/sessions/:id', async (req, res) => {
+  await supabase
+    .from('chat_sessions')
+    .delete()
+    .eq('id', req.params.id)
+    .eq('user_id', req.user.id)
+  res.json({ deleted: true })
+})
