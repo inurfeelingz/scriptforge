@@ -50,6 +50,7 @@ router.post('/generate', tierGate('generate_episode'), async (req, res) => {
   res.flushHeaders();
 
   const send = (event, data) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+  const keepalive = setInterval(() => res.write(': ping\n\n'), 15000)
 
   try {
     send('progress', { step: 'context', message: 'Loading your creative context...', pct: 5 });
@@ -281,11 +282,13 @@ PLATFORM_CTA:`;
 
     send('progress', { step: 'complete', message: 'Episode package ready', pct: 100 });
     clearTimeout(generationTimeout)
+    clearInterval(keepalive)
     send('done', { episodeId: episode.id, slug, parsed });
     res.end();
 
   } catch (err) {
     clearTimeout(generationTimeout)
+    clearInterval(keepalive)
     console.error('[episodes/generate]', err.message);
     send('error', { message: err.message });
     res.end();

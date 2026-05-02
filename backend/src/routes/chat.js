@@ -66,6 +66,11 @@ router.post('/message', async (req, res) => {
 
   const send = (event, data) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
 
+  // Keepalive ping every 15s to prevent Railway/proxy timeout
+  const keepalive = setInterval(() => {
+    res.write(': ping\n\n')
+  }, 15000)
+
   try {
     // Load full history from DB (client sends recent slice, we want the full log)
     const { messages: dbHistory } = await loadHistory(req.user.id, categoryId, mode)
@@ -131,10 +136,12 @@ router.post('/message', async (req, res) => {
     }
 
     send('done', { response: fullResponse })
+    clearInterval(keepalive)
     res.end()
 
   } catch (err) {
     console.error('[chat] Error:', err.message)
+    clearInterval(keepalive)
     send('error', { message: err.message })
     res.end()
   }

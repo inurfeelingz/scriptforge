@@ -71,6 +71,7 @@ export async function streamRequest(path, body, handlers = {}) {
     buffer = parts.pop()  // keep the incomplete trailing chunk
 
     for (const part of parts) {
+      if (!part.trim() || part.startsWith(':')) continue  // skip empty and comments (keepalive)
       let event = null
       let data  = null
       for (const line of part.split('\n')) {
