@@ -413,18 +413,29 @@ export default function AppLayout() {
 
         {/* Content + chat */}
         <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
-          <div style={{ flex: 1, overflowY: 'auto', padding: isMobile ? '20px 16px' : '28px 32px' }}>
+          <div style={{ flex: 1, overflowY: 'auto', padding: isMobile ? '20px 16px' : '28px 32px', paddingRight: chatOpen && !isMobile ? '352px' : undefined }}>
             <Outlet/>
           </div>
           {chatOpen && !isMobile && (
-            <div style={{ width: 320, borderLeft: '1px solid var(--border)', flexShrink: 0, display: 'flex', flexDirection: 'column' }}>
+            <div style={{
+              position: 'fixed',
+              top: 0,
+              right: 0,
+              bottom: 0,
+              width: 320,
+              borderLeft: '1px solid var(--border)',
+              display: 'flex',
+              flexDirection: 'column',
+              background: 'var(--surface)',
+              zIndex: 40,
+            }}>
               <ChatPanel/>
             </div>
           )}
           {chatOpen && isMobile && (
             <div style={{ position: 'fixed', inset: 0, zIndex: 45, background: 'var(--surface)', display: 'flex', flexDirection: 'column' }}>
               <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <span style={{ fontSize: '1rem', fontWeight: 600 }}>Claude</span>
+                <span style={{ fontSize: '1rem', fontWeight: 600 }}>KB</span>
                 <button onClick={() => setChatOpen(false)} style={{ background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer', display: 'flex' }}>
                   <X size={20}/>
                 </button>
