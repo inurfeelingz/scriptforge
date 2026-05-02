@@ -1,7 +1,7 @@
 [build]
-builder = "nixpacks"
+builder = "NIXPACKS"
 
 [deploy]
-startCommand = "npm run start --workspace=scriptforge-backend"
-restartPolicyType = "on_failure"
+startCommand = "node src/server.js"
+restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 3
