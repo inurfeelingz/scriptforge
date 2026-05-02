@@ -106,19 +106,38 @@ async function extractAudio(file) {
 // ─── TRANSCRIPTION (server-side via OpenAI Whisper) ───────────────────────────
 
 async function transcribe(file) {
-  if (!_authToken) return ''
-  try {
-    const form = new FormData()
-    form.append('file', file, file.name)
-    const res = await fetch(`${_apiUrl}/editor/clips/transcribe`, {
-      method:  'POST',
-      headers: { Authorization: `Bearer ${_authToken}` },
-      body:    form,
+  // Send file to main thread to make the API call (avoids CORS issues from workers)
+  return new Promise((resolve) => {
+    const id = Math.random().toString(36).slice(2)
+
+    function handler(e) {
+      if (e.data?.type === 'TRANSCRIBE_RESULT' && e.data?.id === id) {
+        self.removeEventListener('message', handler)
+        resolve(e.data.transcript || '')
+      }
+    }
+    self.addEventListener('message', handler)
+
+    // Read file as ArrayBuffer to transfer to main thread
+    file.arrayBuffer().then(buffer => {
+      postMessage({
+        type: 'TRANSCRIBE_REQUEST',
+        id,
+        filename: file.name,
+        mimeType: file.type || 'video/mp4',
+        buffer,
+      }, [buffer])  // transfer buffer ownership for efficiency
+    }).catch(() => {
+      self.removeEventListener('message', handler)
+      resolve('')
     })
-    if (!res.ok) return ''
-    const { text } = await res.json()
-    return text || ''
-  } catch { return '' }
+
+    // Timeout after 60s
+    setTimeout(() => {
+      self.removeEventListener('message', handler)
+      resolve('')
+    }, 60000)
+  })
 }
 
 // ─── FRAME EXTRACTION WITH MP4BOX + WEBCODECS ─────────────────────────────────

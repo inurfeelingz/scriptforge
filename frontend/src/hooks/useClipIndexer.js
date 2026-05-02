@@ -98,12 +98,33 @@ export function useClipIndexer() {
       case 'ERROR':
         setError(data.payload.error)
         if (!data.payload.filename?.includes('model')) {
-          // Don't show individual clip errors — they're logged but not fatal
           console.warn('[useClipIndexer] Clip error:', data.payload)
         } else {
           notify('Model load error: ' + data.payload.error, 'error')
           setModelsLoading(false)
         }
+        break
+
+      case 'TRANSCRIBE_REQUEST':
+        // Worker can't call API directly due to CORS — handle it here on main thread
+        ;(async () => {
+          try {
+            const session = await getSession()
+            const apiUrl  = import.meta.env.VITE_API_URL || '/api'
+            const blob    = new Blob([data.buffer], { type: data.mimeType || 'video/mp4' })
+            const form    = new FormData()
+            form.append('file', blob, data.filename)
+            const res = await fetch(`${apiUrl}/editor/clips/transcribe`, {
+              method:  'POST',
+              headers: { Authorization: `Bearer ${session?.access_token}` },
+              body:    form,
+            })
+            const json = res.ok ? await res.json() : {}
+            workerRef.current?.postMessage({ type: 'TRANSCRIBE_RESULT', id: data.id, transcript: json.text || '' })
+          } catch {
+            workerRef.current?.postMessage({ type: 'TRANSCRIBE_RESULT', id: data.id, transcript: '' })
+          }
+        })()
         break
     }
   }, [activeCategoryId])
