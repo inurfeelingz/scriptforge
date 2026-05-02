@@ -1,18 +1,35 @@
 // frontend/src/components/editor/IndexingPanel.jsx
 // Footage folder picker + indexing progress display
-// STATUS: PLACEHOLDER — UI complete, worker calls stubbed
 
 import { useState } from 'react'
-import { FolderOpen, Cpu, CheckCircle, AlertCircle, X, Loader2 } from 'lucide-react'
+import { FolderOpen, Cpu, CheckCircle, AlertCircle, X, Loader2, Trash2 } from 'lucide-react'
+import { api } from '../../lib/api'
 
 export default function IndexingPanel({ indexer, onClose }) {
-  const [files, setFiles] = useState([])
+  const [files, setFiles]           = useState([])
+  const [deleting, setDeleting]     = useState(false)
+  const [confirmDelete, setConfirm] = useState(false)
 
   async function pickAndIndex() {
     const picked = await indexer.pickFolder()
     if (!picked.length) return
     setFiles(picked)
     await indexer.indexBatch(picked)
+  }
+
+  async function deleteAllClips() {
+    if (!confirmDelete) { setConfirm(true); return }
+    setDeleting(true)
+    setConfirm(false)
+    try {
+      await api.delete('/editor/clips/all')
+      await indexer.loadStats()
+      setFiles([])
+    } catch (err) {
+      console.error('Delete failed', err)
+    } finally {
+      setDeleting(false)
+    }
   }
 
   return (
@@ -98,7 +115,7 @@ export default function IndexingPanel({ indexer, onClose }) {
           </div>
         )}
 
-        {/* Current stats */}
+        {/* Current stats + delete */}
         {indexer.stats?.total > 0 && (
           <div className="text-xs text-[#555] border-t border-[#111] pt-3 space-y-1">
             <div>Indexed: {indexer.stats.total} clips</div>
@@ -106,6 +123,25 @@ export default function IndexingPanel({ indexer, onClose }) {
               <div key={type} className="pl-3 text-[#444]">{type}: {count}</div>
             ))}
             <div className="text-[#444]">Total footage: {Math.round((indexer.stats.totalDurationMs || 0) / 60000)} min</div>
+
+            <div className="pt-3">
+              <button
+                onClick={deleteAllClips}
+                disabled={deleting}
+                className="flex items-center gap-1.5 text-xs text-red-500/60 hover:text-red-400 transition-colors disabled:opacity-40"
+              >
+                <Trash2 size={11}/>
+                {deleting ? 'Deleting...' : confirmDelete ? 'Confirm — delete all clips?' : 'Delete all indexed clips'}
+              </button>
+              {confirmDelete && (
+                <button
+                  onClick={() => setConfirm(false)}
+                  className="text-xs text-[#444] hover:text-[#666] mt-1 transition-colors"
+                >
+                  Cancel
+                </button>
+              )}
+            </div>
           </div>
         )}
       </div>

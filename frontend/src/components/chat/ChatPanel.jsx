@@ -13,6 +13,7 @@ const MODE_MAP = {
   '/analytics':    'analytics',
   '/teleprompter': 'teleprompter',
   '/sound':        'sound',
+  '/editor':       'editor',
 }
 
 const MODE_HINTS = {
@@ -22,6 +23,7 @@ const MODE_HINTS = {
   analytics:    'Interpret your numbers, find what worked...',
   teleprompter: 'Review this script for speakability...',
   sound:        'Discuss atmosphere, music cues, mix notes...',
+  editor:       'Ask about your footage, find clips, plan your edit...',
 }
 
 export default function ChatPanel() {
@@ -107,7 +109,7 @@ export default function ChatPanel() {
       {/* Header */}
       <div className="px-4 py-3 border-b border-[#1a1a1a] flex items-center justify-between shrink-0">
         <div>
-          <div className="text-xs text-[#c8b89a] font-medium tracking-wide">Claude</div>
+          <div className="text-xs text-[#c8b89a] font-medium tracking-wide">KB</div>
           <div className="text-[10px] text-[#444] mt-0.5 capitalize">{mode} mode</div>
         </div>
         <button

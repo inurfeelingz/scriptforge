@@ -116,6 +116,50 @@ router.get('/index/status', async (req, res) => {
  * Get all indexed clips for the clip browser
  * STATUS: WORKING
  */
+// ── POST /editor/clips/transcribe — send video file to OpenAI Whisper ─────────
+const multer = require('multer')
+const FormData = require('form-data')
+const axios = require('axios')
+const clipUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 500 * 1024 * 1024 } })
+
+router.post('/clips/transcribe', clipUpload.single('file'), async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'File required' })
+  if (!process.env.OPENAI_API_KEY) return res.json({ text: '' })
+
+  try {
+    const form = new FormData()
+    const ext  = req.file.originalname.split('.').pop()?.toLowerCase() || 'mp4'
+    form.append('file', req.file.buffer, { filename: `clip.${ext}`, contentType: req.file.mimetype || 'video/mp4' })
+    form.append('model', 'whisper-1')
+    form.append('language', 'en')
+
+    const response = await axios.post('https://api.openai.com/v1/audio/transcriptions', form, {
+      headers: { ...form.getHeaders(), Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
+      maxContentLength: Infinity,
+      maxBodyLength: Infinity,
+    })
+
+    res.json({ text: response.data?.text?.trim() || '' })
+  } catch (err) {
+    console.error('[clips/transcribe]', err.response?.data || err.message)
+    res.json({ text: '' })  // never fail the indexer
+  }
+})
+
+// ── DELETE /editor/clips/all — wipe the entire clip index for this user ───────
+router.delete('/clips/all', async (req, res) => {
+  try {
+    const { error } = await supabase
+      .from('clip_index')
+      .delete()
+      .eq('user_id', req.user.id)
+    if (error) throw error
+    res.json({ deleted: true })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
 router.get('/clips', async (req, res) => {
   const { categoryId, limit = 100, offset = 0 } = req.query
 

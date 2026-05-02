@@ -67,6 +67,8 @@ async function assembleContext(userId, categoryId, options = {}) {
     logInsights,
     trendingData,
     vaultHighlights,
+    clipIndexData,
+    scriptLibrary,
   ] = await Promise.all([
     getCategory(userId, categoryId),
     getRecentEpisodes(userId, categoryId, 5),
@@ -76,6 +78,8 @@ async function assembleContext(userId, categoryId, options = {}) {
     getLogInsights(userId, categoryId),
     getTrendingData(categoryId),
     getVaultHighlights(userId, categoryId),
+    getClipIndexData(userId),
+    getScriptLibrary(userId, categoryId),
   ]);
 
   if (!category) return buildMinimalContext(mode);
@@ -121,9 +125,35 @@ Rhythm note: ${vc.rhythmNote || 'not yet captured'}`);
 ${logInsights}`);
   }
 
-  if (latestAnalytics?.insights) {
-    sections.push(`## ANALYTICS INSIGHTS
-${latestAnalytics.insights}`);
+  if (latestAnalytics?.length) {
+    const latest = latestAnalytics[0]
+    const trend  = latestAnalytics.length >= 2
+      ? (latestAnalytics[0].avg_score || 0) - (latestAnalytics[1].avg_score || 0)
+      : null
+    const allTimeAvg = Math.round(
+      latestAnalytics.reduce((s, u) => s + (u.avg_score || 0), 0) / latestAnalytics.length
+    )
+
+    const scoreHistory = [...latestAnalytics].reverse().map(u =>
+      `  ${new Date(u.upload_date).toLocaleDateString('en', { month: 'short', day: 'numeric' })}: ${u.avg_score}% avg (${u.video_count} videos)`
+    ).join('\n')
+
+    const topVideos = (latest.top_performers || []).slice(0, 8).map((v, i) =>
+      `  ${i+1}. "${v.title}" — score: ${v.retentionScore}%${v.views ? `, views: ${v.views.toLocaleString()}` : ''}${v.ctr ? `, CTR: ${v.ctr.toFixed(1)}%` : ''}${v.avgViewPercentage ? `, avg view: ${v.avgViewPercentage}%` : ''}`
+    ).join('\n')
+
+    sections.push(`## ANALYTICS DATA
+All-time avg retention score: ${allTimeAvg}%${trend !== null ? ` (${trend >= 0 ? '+' : ''}${trend.toFixed(0)}pts vs previous batch)` : ''}
+Total upload batches: ${latestAnalytics.length}
+Total videos tracked: ${latestAnalytics.reduce((s, u) => s + (u.video_count || 0), 0)}
+
+Score history (oldest → newest):
+${scoreHistory}
+
+Latest batch top performers:
+${topVideos || '  No video data yet'}
+
+Latest batch AI insights: ${latest.insights || 'Not yet generated'}`)
   }
 
   // ── TOP PERFORMERS (weighted — most relevant examples) ────
@@ -156,12 +186,46 @@ Emerging topics: ${(t.emergingTopics || []).slice(0, 3).join(', ')}
 Emotional triggers working now: ${(t.emotionalTriggers || []).slice(0, 3).join(', ')}`);
   }
 
+  // ── CLIP INDEX ─────────────────────────────────────────────
+  if (clipIndexData && clipIndexData.total > 0) {
+    const byType = clipIndexData.byType || {}
+    const totalMins = Math.round((clipIndexData.totalDurationMs || 0) / 60000)
+    const clipLines = (clipIndexData.clips || []).map(c =>
+      `  [${c.clip_type}] ${c.filename}${c.duration_ms ? ` (${Math.round(c.duration_ms/1000)}s)` : ''}${c.transcript ? ` — "${c.transcript.slice(0, 120)}${c.transcript.length > 120 ? '...' : ''}"` : ''}${c.visual_tags?.length ? ` | tags: ${c.visual_tags.slice(0,4).join(', ')}` : ''}`
+    ).join('\n')
+
+    sections.push(`## INDEXED FOOTAGE LIBRARY
+Total clips: ${clipIndexData.total} | cam: ${byType.cam||0} | daw: ${byType.daw||0} | broll: ${byType.broll||0} | total duration: ~${totalMins} min
+${clipLines}`)
+  }
+
   // ── VAULT HIGHLIGHTS ──────────────────────────────────────
   if (vaultHighlights.length) {
     sections.push(`## VAULT — high-value unused ideas
 ${vaultHighlights.map(v =>
   `[${v.type}] "${v.title}": ${v.content.slice(0, 100)}...`
 ).join('\n')}`);
+  }
+
+  // ── SCRIPT LIBRARY ────────────────────────────────────────
+  if (scriptLibrary.own.length || scriptLibrary.competitor.length || scriptLibrary.shorts.length) {
+    const parts = []
+    if (scriptLibrary.own.length) {
+      parts.push(`OWN LONG-FORM SCRIPTS (${scriptLibrary.own.length}):\n${scriptLibrary.own.map(s =>
+        `  "${s.title}" — ${s.content.slice(0, 300)}${s.content.length > 300 ? '...' : ''}`
+      ).join('\n\n')}`)
+    }
+    if (scriptLibrary.shorts.length) {
+      parts.push(`SHORTS/TIKTOK SCRIPTS (${scriptLibrary.shorts.length}):\n${scriptLibrary.shorts.map(s =>
+        `  "${s.title}" — ${s.content.slice(0, 200)}${s.content.length > 200 ? '...' : ''}`
+      ).join('\n\n')}`)
+    }
+    if (scriptLibrary.competitor.length) {
+      parts.push(`COMPETITOR SCRIPTS TO STUDY (${scriptLibrary.competitor.length}):\n${scriptLibrary.competitor.map(s =>
+        `  "${s.title}" — ${s.content.slice(0, 300)}${s.content.length > 300 ? '...' : ''}`
+      ).join('\n\n')}`)
+    }
+    sections.push(`## SCRIPT LIBRARY\n${parts.join('\n\n')}`)
   }
 
   // ── RETENTION PATTERNS ────────────────────────────────────
@@ -280,13 +344,12 @@ async function getTopPerformers(userId, categoryId, limit) {
 async function getLatestAnalytics(userId, categoryId) {
   const { data } = await supabase
     .from('analytics_uploads')
-    .select('insights, avg_score, top_performers, upload_date')
+    .select('insights, avg_score, top_performers, upload_date, video_count, platform')
     .eq('user_id', userId)
     .eq('category_id', categoryId)
     .order('upload_date', { ascending: false })
-    .limit(1)
-    .single();
-  return data;
+    .limit(8)
+  return data || []
 }
 
 async function getSeriesMemory(userId, categoryId, limit) {
@@ -333,6 +396,45 @@ async function getVaultHighlights(userId, categoryId) {
     .order('created_at', { ascending: false })
     .limit(5);
   return data || [];
+}
+
+async function getClipIndexData(userId) {
+  const { data, count } = await supabase
+    .from('clip_index')
+    .select('filename, clip_type, duration_ms, transcript, visual_tags', { count: 'exact' })
+    .eq('user_id', userId)
+    .not('indexed_at', 'is', null)
+    .order('indexed_at', { ascending: false })
+    .limit(50)
+
+  if (!data || data.length === 0) return null
+
+  const byType = data.reduce((acc, c) => {
+    acc[c.clip_type] = (acc[c.clip_type] || 0) + 1
+    return acc
+  }, {})
+
+  const totalDurationMs = data.reduce((s, c) => s + (c.duration_ms || 0), 0)
+
+  return { total: count || data.length, byType, totalDurationMs, clips: data }
+}
+
+async function getScriptLibrary(userId, categoryId) {
+  const { data } = await supabase
+    .from('vault_entries')
+    .select('title, content, tags')
+    .eq('user_id', userId)
+    .eq('category_id', categoryId)
+    .eq('type', 'script')
+    .order('created_at', { ascending: false })
+    .limit(20)
+
+  const entries = data || []
+  return {
+    own:        entries.filter(s => !s.tags?.includes('competitor') && !s.tags?.includes('shorts') && !s.tags?.includes('tiktok')),
+    shorts:     entries.filter(s => s.tags?.includes('shorts') || s.tags?.includes('tiktok')),
+    competitor: entries.filter(s => s.tags?.includes('competitor')),
+  }
 }
 
 function buildMinimalContext(mode) {
