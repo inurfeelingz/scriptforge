@@ -33,9 +33,11 @@ env.useBrowserCache  = true
 
 let clipExtractor = null
 let textExtractor = null
-let asrPipeline   = null
+let asrPipeline   = null  // kept for compatibility but no longer used
 let modelsReady   = false
 let cancelFlag    = false
+let _apiUrl       = '/api'
+let _authToken    = ''
 
 // ─── MODEL LOADING ────────────────────────────────────────────────────────────
 
@@ -53,14 +55,9 @@ async function loadModels() {
         postMessage({ type: 'MODEL_LOADING', payload: { model: 'MiniLM', pct: Math.round(progress || 0) } }),
     })
 
-    postMessage({ type: 'MODEL_LOADING', payload: { model: 'Whisper', pct: 0 } })
-    asrPipeline = await pipeline('automatic-speech-recognition', 'Xenova/whisper-tiny.en', {
-      progress_callback: ({ progress }) =>
-        postMessage({ type: 'MODEL_LOADING', payload: { model: 'Whisper', pct: Math.round(progress || 0) } }),
-    })
-
+    // Whisper now runs server-side via OpenAI API — no local model needed
     modelsReady = true
-    postMessage({ type: 'MODEL_READY', payload: { models: ['CLIP', 'MiniLM', 'Whisper'] } })
+    postMessage({ type: 'MODEL_READY', payload: { models: ['CLIP', 'MiniLM', 'Whisper (server)'] } })
   } catch (err) {
     postMessage({ type: 'ERROR', payload: { filename: 'model-init', error: err.message } })
   }
@@ -106,18 +103,21 @@ async function extractAudio(file) {
   }
 }
 
-// ─── TRANSCRIPTION ────────────────────────────────────────────────────────────
+// ─── TRANSCRIPTION (server-side via OpenAI Whisper) ───────────────────────────
 
-async function transcribe(pcmData, sampleRate) {
-  if (!asrPipeline || !pcmData || pcmData.length < 1600) return ''
+async function transcribe(file) {
+  if (!_authToken) return ''
   try {
-    const samples = pcmData.length > 16000 * 30 ? pcmData.slice(0, 16000 * 30) : pcmData
-    const result  = await asrPipeline(samples instanceof Float32Array ? samples : new Float32Array(samples), {
-      sampling_rate: sampleRate,
-      chunk_length_s: 30,
-      return_timestamps: false,
+    const form = new FormData()
+    form.append('file', file, file.name)
+    const res = await fetch(`${_apiUrl}/editor/clips/transcribe`, {
+      method:  'POST',
+      headers: { Authorization: `Bearer ${_authToken}` },
+      body:    form,
     })
-    return result?.text?.trim() || ''
+    if (!res.ok) return ''
+    const { text } = await res.json()
+    return text || ''
   } catch { return '' }
 }
 
@@ -383,7 +383,7 @@ async function indexClip(file, categoryId) {
     const meta  = await extractVideoMeta(file)
 
     postMessage({ type: 'PROGRESS', payload: { filename: file.name, step: 'transcribing', pct: 28 } })
-    const transcript = await transcribe(audio.pcmData, audio.sampleRate)
+    const transcript = await transcribe(file)
 
     postMessage({ type: 'PROGRESS', payload: { filename: file.name, step: 'frame',        pct: 45 } })
     const frame = await extractFrame(file)
@@ -443,6 +443,8 @@ self.onmessage = async ({ data }) => {
   const { type, payload } = data
   switch (type) {
     case 'INIT':
+      if (payload?.apiUrl)    _apiUrl    = payload.apiUrl
+      if (payload?.authToken) _authToken = payload.authToken
       if (!modelsReady) await loadModels()
       break
 

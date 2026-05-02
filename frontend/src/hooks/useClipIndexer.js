@@ -5,6 +5,7 @@
 import { useRef, useState, useCallback, useEffect } from 'react'
 import { useStore } from '../store'
 import { api } from '../lib/api'
+import { getSession } from '../lib/supabase'
 
 export function useClipIndexer() {
   const { activeCategoryId, notify } = useStore()
@@ -225,11 +226,19 @@ export function useClipIndexer() {
 
   // ── Init models ────────────────────────────────────────────────────────────
 
-  const initModels = useCallback(() => {
+  const initModels = useCallback(async () => {
     if (modelsReady || modelsLoading) return
     initWorker()  // lazy-start the worker only when user triggers model load
     setModelsLoading(true)
-    workerRef.current.postMessage({ type: 'INIT' })
+    const session = await getSession()
+    const apiUrl  = import.meta.env.VITE_API_URL || '/api'
+    workerRef.current.postMessage({
+      type: 'INIT',
+      payload: {
+        apiUrl,
+        authToken: session?.access_token || '',
+      }
+    })
   }, [modelsReady, modelsLoading])
 
   // ── Cancel ─────────────────────────────────────────────────────────────────
