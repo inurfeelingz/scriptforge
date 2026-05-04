@@ -1,30 +1,19 @@
 // frontend/src/workers/clipIndexer.worker.js
 // Runs in a dedicated Web Worker — never blocks the UI thread.
-// Uses Transformers.js for CLIP visual embeddings and Whisper transcription.
-// Uses MP4Box.js + WebCodecs for frame extraction from MP4/MOV files.
 
 import { pipeline, env } from '@xenova/transformers'
 
-// MP4Box loaded dynamically — importScripts not available in module workers
-// mp4box UMD bundle sets self.MP4Box as a global when loaded via CDN
+// ─── MP4Box loader ────────────────────────────────────────────────────────────
 let _mp4boxReady = null
 async function getMP4Box() {
   if (self.MP4Box?.createFile) return self.MP4Box
   if (_mp4boxReady) return _mp4boxReady
-
   _mp4boxReady = new Promise((resolve) => {
-    // Load via script tag equivalent — fetch and eval the UMD bundle
     fetch('https://cdn.jsdelivr.net/npm/mp4box@0.5.3/dist/mp4box.all.min.js')
       .then(r => r.text())
-      .then(code => {
-        // Execute in worker scope — UMD bundle will set self.MP4Box
-        // eslint-disable-next-line no-new-func
-        new Function(code)()
-        resolve(self.MP4Box?.createFile ? self.MP4Box : null)
-      })
+      .then(code => { new Function(code)(); resolve(self.MP4Box?.createFile ? self.MP4Box : null) })
       .catch(() => resolve(null))
   })
-
   return _mp4boxReady
 }
 
@@ -33,14 +22,10 @@ env.useBrowserCache  = true
 
 let clipExtractor = null
 let textExtractor = null
-let asrPipeline   = null  // kept for compatibility but no longer used
 let modelsReady   = false
 let cancelFlag    = false
-let _apiUrl       = '/api'
-let _authToken    = ''
 
 // ─── MODEL LOADING ────────────────────────────────────────────────────────────
-
 async function loadModels() {
   try {
     postMessage({ type: 'MODEL_LOADING', payload: { model: 'CLIP', pct: 0 } })
@@ -48,14 +33,11 @@ async function loadModels() {
       progress_callback: ({ progress }) =>
         postMessage({ type: 'MODEL_LOADING', payload: { model: 'CLIP', pct: Math.round(progress || 0) } }),
     })
-
     postMessage({ type: 'MODEL_LOADING', payload: { model: 'MiniLM', pct: 0 } })
     textExtractor = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2', {
       progress_callback: ({ progress }) =>
         postMessage({ type: 'MODEL_LOADING', payload: { model: 'MiniLM', pct: Math.round(progress || 0) } }),
     })
-
-    // Whisper now runs server-side via OpenAI API — no local model needed
     modelsReady = true
     postMessage({ type: 'MODEL_READY', payload: { models: ['CLIP', 'MiniLM', 'Whisper (server)'] } })
   } catch (err) {
@@ -63,92 +45,64 @@ async function loadModels() {
   }
 }
 
-// ─── AUDIO EXTRACTION ─────────────────────────────────────────────────────────
-// OfflineAudioContext can't decode video containers in workers.
-// We ask the main thread to measure duration via a <video> element instead.
+// ─── MAIN THREAD PROXY HELPERS ────────────────────────────────────────────────
+// Workers can't make authenticated fetch calls or use DOM APIs.
+// These functions ask the main thread to do it and wait for the response.
 
-async function extractAudio(file) {
+function askMainThread(requestType, resultType, payload, transferables = []) {
   return new Promise((resolve) => {
     const id = Math.random().toString(36).slice(2)
-
     function handler(e) {
-      if (e.data?.type === 'AUDIO_META_RESULT' && e.data?.id === id) {
+      if (e.data?.type === resultType && e.data?.id === id) {
         self.removeEventListener('message', handler)
-        resolve({
-          pcmData:     null,
-          energyLevel: 0.5,
-          sampleRate:  16000,
-          durationMs:  e.data.durationMs || 0,
-        })
+        resolve(e.data)
       }
     }
     self.addEventListener('message', handler)
-
-    postMessage({ type: 'AUDIO_META_REQUEST', id, filename: file.name })
-
-    // Timeout — resolve with zeros if main thread doesn't respond
-    setTimeout(() => {
-      self.removeEventListener('message', handler)
-      resolve({ pcmData: null, energyLevel: 0.5, sampleRate: 16000, durationMs: 0 })
-    }, 10000)
+    postMessage({ type: requestType, id, ...payload }, transferables)
+    setTimeout(() => { self.removeEventListener('message', handler); resolve({}) }, 60000)
   })
 }
 
-// ─── TRANSCRIPTION (server-side via OpenAI Whisper) ───────────────────────────
-
-async function transcribe(file) {
-  // Send file to main thread to make the API call (avoids CORS issues from workers)
-  return new Promise((resolve) => {
-    const id = Math.random().toString(36).slice(2)
-
-    function handler(e) {
-      if (e.data?.type === 'TRANSCRIBE_RESULT' && e.data?.id === id) {
-        self.removeEventListener('message', handler)
-        resolve(e.data.transcript || '')
-      }
-    }
-    self.addEventListener('message', handler)
-
-    // Read file as ArrayBuffer — copy it (don't transfer) so file remains usable
-    file.arrayBuffer().then(buffer => {
-      const copy = buffer.slice(0)  // copy so original buffer stays intact
-      postMessage({
-        type: 'TRANSCRIBE_REQUEST',
-        id,
-        filename: file.name,
-        mimeType: file.type || 'video/mp4',
-        buffer:   copy,
-      }, [copy])  // transfer the copy
-    }).catch(() => {
-      self.removeEventListener('message', handler)
-      resolve('')
-    })
-
-    // Timeout after 60s
-    setTimeout(() => {
-      self.removeEventListener('message', handler)
-      resolve('')
-    }, 60000)
-  })
+async function getDuration(filename) {
+  const result = await askMainThread('AUDIO_META_REQUEST', 'AUDIO_META_RESULT', { filename })
+  return result.durationMs || 0
 }
 
-// ─── FRAME EXTRACTION WITH MP4BOX + WEBCODECS ─────────────────────────────────
+async function transcribeOnMainThread(file) {
+  // Copy the buffer so file remains readable after transfer
+  const buffer = await file.arrayBuffer()
+  const copy   = buffer.slice(0)
+  const result = await askMainThread(
+    'TRANSCRIBE_REQUEST', 'TRANSCRIBE_RESULT',
+    { filename: file.name, mimeType: file.type || 'video/mp4', buffer: copy },
+    [copy]
+  )
+  return result.transcript || ''
+}
 
-async function extractFrameWithMP4Box(file) {
+async function extractFrameOnMainThread(filename) {
+  const result = await askMainThread('FRAME_REQUEST', 'FRAME_RESULT', { filename })
+  if (!result.imageData) return null
+  // Reconstruct ImageBitmap from the transferred ImageData pixels
+  const { width, height, data } = result.imageData
+  const imgData = new ImageData(new Uint8ClampedArray(data), width, height)
+  const canvas  = new OffscreenCanvas(width, height)
+  canvas.getContext('2d').putImageData(imgData, 0, 0)
+  return canvas.transferToImageBitmap()
+}
+
+// ─── FRAME EXTRACTION VIA WEBCODECS (worker-side, for formats that work) ───────
+async function extractFrameWithMP4Box(buffer) {
   const MP4Box = await getMP4Box()
   if (!MP4Box) return null
+
   return new Promise((resolve) => {
     const mp4boxFile = MP4Box.createFile()
     let resolved = false
-    let videoTrackId = null
-    let codecConfig = null
+    let decoder  = null
 
-    function done(bitmap) {
-      if (!resolved) {
-        resolved = true
-        resolve(bitmap)
-      }
-    }
+    function done(bitmap) { if (!resolved) { resolved = true; resolve(bitmap) } }
 
     mp4boxFile.onError = () => done(null)
 
@@ -156,146 +110,117 @@ async function extractFrameWithMP4Box(file) {
       const videoTrack = info.tracks.find(t => t.type === 'video')
       if (!videoTrack) { done(null); return }
 
-      videoTrackId = videoTrack.id
-      const desc = videoTrack.codec
+      const codecString = videoTrack.codec
 
-      // Set up WebCodecs VideoDecoder
-      const decoder = new VideoDecoder({
+      // Skip HEVC (hvc1/hev1) — requires hardware, often fails in workers
+      if (codecString?.startsWith('hvc1') || codecString?.startsWith('hev1')) {
+        console.warn('[MP4Box] HEVC codec — skipping WebCodecs, will use main thread fallback')
+        done(null)
+        return
+      }
+
+      decoder = new VideoDecoder({
         output: (frame) => {
           if (resolved) { frame.close(); return }
-          // Got a frame — draw to OffscreenCanvas and resolve
           const canvas = new OffscreenCanvas(224, 224)
-          const ctx = canvas.getContext('2d')
-          ctx.drawImage(frame, 0, 0, 224, 224)
+          canvas.getContext('2d').drawImage(frame, 0, 0, 224, 224)
           frame.close()
           done(canvas.transferToImageBitmap())
         },
-        error: () => done(null),
+        error: (e) => { console.warn('[VideoDecoder] error:', e.message); done(null) },
       })
 
-      // Try to configure decoder with track info
       try {
         decoder.configure({
-          codec: desc,
+          codec:       codecString,
           codedWidth:  videoTrack.video?.width  || 1920,
           codedHeight: videoTrack.video?.height || 1080,
         })
       } catch {
-        // Fallback codec strings for MOV/MP4
-        const fallbacks = ['avc1.42E01E', 'hvc1.1.6.L93.B0', 'vp8', 'vp09.00.10.08']
-        let configured = false
-        for (const codec of fallbacks) {
-          try {
-            decoder.configure({
-              codec,
-              codedWidth:  videoTrack.video?.width  || 1920,
-              codedHeight: videoTrack.video?.height || 1080,
-            })
-            configured = true
-            break
-          } catch {}
-        }
-        if (!configured) { done(null); return }
+        // Try H.264 baseline as fallback
+        try {
+          decoder.configure({ codec: 'avc1.42E01E', codedWidth: 1920, codedHeight: 1080 })
+        } catch { done(null); return }
       }
 
-      codecConfig = decoder
-
-      // Extract only first segment — we just need one frame
-      mp4boxFile.setExtractionOptions(videoTrackId, null, { nbSamples: 5 })
+      mp4boxFile.setExtractionOptions(videoTrack.id, null, { nbSamples: 10 })
       mp4boxFile.start()
     }
 
     mp4boxFile.onSamples = (trackId, ref, samples) => {
-      if (resolved || !codecConfig) return
+      if (resolved || !decoder) return
       for (const sample of samples) {
         if (resolved) break
         try {
-          const chunk = new EncodedVideoChunk({
+          decoder.decode(new EncodedVideoChunk({
             type:      sample.is_sync ? 'key' : 'delta',
             timestamp: sample.cts * 1000000 / sample.timescale,
             duration:  sample.duration * 1000000 / sample.timescale,
             data:      sample.data,
-          })
-          codecConfig.decode(chunk)
+          }))
         } catch {}
       }
     }
 
-    // Feed the file to MP4Box in chunks
-    file.arrayBuffer().then(buffer => {
-      buffer.fileStart = 0
-      mp4boxFile.appendBuffer(buffer)
-      mp4boxFile.flush()
-    }).catch(() => done(null))
+    const copy = buffer.slice(0)
+    copy.fileStart = 0
+    mp4boxFile.appendBuffer(copy)
+    mp4boxFile.flush()
 
-    // Timeout after 10s
     setTimeout(() => done(null), 10000)
   })
 }
 
-// ─── FRAME EXTRACTION — with fallback chain ───────────────────────────────────
+// ─── VIDEO METADATA VIA MP4BOX ────────────────────────────────────────────────
+async function extractVideoMeta(buffer) {
+  const MP4Box = await getMP4Box()
+  if (!MP4Box) return { width: null, height: null, fps: null, codec: null, durationMs: 0 }
 
-async function extractFrame(file) {
-  const ext = file.name.split('.').pop()?.toLowerCase()
+  return new Promise((resolve) => {
+    const mp4boxFile = MP4Box.createFile()
+    let resolved = false
 
-  // Try MP4Box + WebCodecs first (works for mp4, mov, m4v)
-  if (['mp4', 'mov', 'm4v', 'mkv', 'mxf'].includes(ext)) {
-    try {
-      const bitmap = await extractFrameWithMP4Box(file)
-      if (bitmap) return bitmap
-    } catch {}
-  }
-
-  // Fallback: createImageBitmap (works for some formats, fails silently)
-  try {
-    const mimeMap = {
-      mp4: 'video/mp4', mov: 'video/quicktime', webm: 'video/webm',
-      mkv: 'video/x-matroska', avi: 'video/x-msvideo', mxf: 'application/mxf'
+    mp4boxFile.onReady = (info) => {
+      if (resolved) return
+      resolved = true
+      const videoTrack = info.tracks.find(t => t.type === 'video')
+      resolve({
+        width:     videoTrack?.video?.width  || null,
+        height:    videoTrack?.video?.height || null,
+        fps:       videoTrack ? Math.round(videoTrack.nb_samples / (videoTrack.duration / videoTrack.timescale)) : null,
+        codec:     videoTrack?.codec || null,
+        durationMs: Math.round((info.duration / info.timescale) * 1000) || 0,
+      })
     }
-    const mime = mimeMap[ext] || 'video/mp4'
-    const blob = new Blob([await file.arrayBuffer()], { type: mime })
-    const bitmap = await createImageBitmap(blob)
-    const canvas = new OffscreenCanvas(224, 224)
-    canvas.getContext('2d').drawImage(bitmap, 0, 0, 224, 224)
-    return canvas.transferToImageBitmap()
-  } catch {}
+    mp4boxFile.onError = () => { if (!resolved) { resolved = true; resolve({ width: null, height: null, fps: null, codec: null, durationMs: 0 }) } }
 
-  // Return null — indexing continues without visual embedding
-  return null
+    const copy = buffer.slice(0)
+    copy.fileStart = 0
+    mp4boxFile.appendBuffer(copy)
+    mp4boxFile.flush()
+
+    setTimeout(() => { if (!resolved) { resolved = true; resolve({ width: null, height: null, fps: null, codec: null, durationMs: 0 }) } }, 8000)
+  })
 }
 
 // ─── VECTORS ──────────────────────────────────────────────────────────────────
-
 async function visualVector(imageBitmap) {
   if (!clipExtractor || !imageBitmap) return new Array(512).fill(0)
-  try {
-    const out = await clipExtractor(imageBitmap)
-    return Array.from(out.data)
-  } catch { return new Array(512).fill(0) }
-}
-
-async function clipTextVector(text) {
-  if (!clipExtractor || !text?.trim()) return new Array(512).fill(0)
-  try {
-    const out = await clipExtractor(text, { pooling: 'mean' })
-    return Array.from(out.data).slice(0, 512)
-  } catch { return new Array(512).fill(0) }
+  try { return Array.from((await clipExtractor(imageBitmap)).data) }
+  catch { return new Array(512).fill(0) }
 }
 
 async function textVector(text) {
   if (!textExtractor || !text?.trim()) return new Array(384).fill(0)
-  try {
-    const out = await textExtractor(text, { pooling: 'mean', normalize: true })
-    return Array.from(out.data)
-  } catch { return new Array(384).fill(0) }
+  try { return Array.from((await textExtractor(text, { pooling: 'mean', normalize: true })).data) }
+  catch { return new Array(384).fill(0) }
 }
 
 // ─── VISUAL TAGGING ───────────────────────────────────────────────────────────
-
 const LABELS = {
-  cam:    ['talking to camera', 'close-up face', 'mid shot', 'working at desk', 'gesturing', 'smiling', 'focused', 'thinking'],
-  daw:    ['DAW software', 'audio plugin', 'mixing board', 'piano keyboard', 'waveform display', 'mouse clicking', 'headphones'],
-  broll:  ['city environment', 'coffee shop', 'studio space', 'equipment', 'hands', 'abstract'],
+  cam:   ['talking to camera', 'close-up face', 'mid shot', 'working at desk', 'gesturing', 'smiling', 'focused', 'thinking'],
+  daw:   ['DAW software', 'audio plugin', 'mixing board', 'waveform display', 'mouse clicking', 'headphones', 'music production'],
+  broll: ['city environment', 'coffee shop', 'studio space', 'equipment', 'hands', 'abstract', 'product'],
 }
 
 function cosineSim(a, b) {
@@ -306,19 +231,18 @@ function cosineSim(a, b) {
 
 async function tagClip(imageBitmap, clipType) {
   if (!clipExtractor || !imageBitmap) {
-    console.warn('[tagClip] Skipping — clipExtractor:', !!clipExtractor, 'imageBitmap:', !!imageBitmap)
+    console.warn('[tagClip] No frame available — using clip type as tag')
     return [clipType]
   }
   try {
-    const imgOut  = await clipExtractor(imageBitmap)
-    const imgVec  = Array.from(imgOut.data)
-    const labels  = LABELS[clipType] || LABELS.cam
-    const scored  = await Promise.all(labels.map(async label => {
-      const out  = await clipExtractor(label)
+    const imgVec = Array.from((await clipExtractor(imageBitmap)).data)
+    const labels = LABELS[clipType] || LABELS.cam
+    const scored = await Promise.all(labels.map(async label => {
+      const out = await clipExtractor(label)
       return { label, score: cosineSim(imgVec, Array.from(out.data)) }
     }))
-    const tags = scored.sort((a,b) => b.score - a.score).filter(s => s.score > 0.2).slice(0, 5).map(s => s.label)
-    console.log('[tagClip] Tags:', tags)
+    const tags = scored.sort((a,b) => b.score - a.score).filter(s => s.score > 0.15).slice(0, 5).map(s => s.label)
+    console.log('[tagClip]', clipType, '→', tags)
     return tags.length ? tags : [clipType]
   } catch (err) {
     console.warn('[tagClip] Error:', err.message)
@@ -327,7 +251,6 @@ async function tagClip(imageBitmap, clipType) {
 }
 
 // ─── CLIP TYPE DETECTION ──────────────────────────────────────────────────────
-
 function detectType(filename) {
   const l = filename.toLowerCase()
   if (l.startsWith('daw') || l.includes('screen') || l.includes('capture')) return 'daw'
@@ -335,103 +258,63 @@ function detectType(filename) {
   return 'cam'
 }
 
-// ─── VIDEO METADATA ───────────────────────────────────────────────────────────
-
-async function extractVideoMeta(file) {
-  const MP4Box = await getMP4Box()
-  if (!MP4Box) return { width: null, height: null, fps: null, codec: null, durationMs: 0 }
-  return new Promise((resolve) => {
-    const mp4boxFile = MP4Box.createFile()
-    let resolved = false
-
-    mp4boxFile.onReady = (info) => {
-      if (resolved) return
-      resolved = true
-      const videoTrack = info.tracks.find(t => t.type === 'video')
-      resolve({
-        width:    videoTrack?.video?.width  || null,
-        height:   videoTrack?.video?.height || null,
-        fps:      videoTrack ? Math.round(videoTrack.nb_samples / (videoTrack.duration / videoTrack.timescale)) : null,
-        codec:    videoTrack?.codec || null,
-        durationMs: Math.round((info.duration / info.timescale) * 1000) || 0,
-      })
-    }
-
-    mp4boxFile.onError = () => {
-      if (!resolved) { resolved = true; resolve({ width: null, height: null, fps: null, codec: null, durationMs: 0 }) }
-    }
-
-    file.arrayBuffer().then(buffer => {
-      buffer.fileStart = 0
-      mp4boxFile.appendBuffer(buffer)
-      mp4boxFile.flush()
-    }).catch(() => resolve({ width: null, height: null, fps: null, codec: null, durationMs: 0 }))
-
-    setTimeout(() => {
-      if (!resolved) { resolved = true; resolve({ width: null, height: null, fps: null, codec: null, durationMs: 0 }) }
-    }, 8000)
-  })
-}
-
-// ─── THUMBNAIL ────────────────────────────────────────────────────────────────
-
-function bitmapToBase64(bitmap) {
-  try {
-    const canvas = new OffscreenCanvas(160, 90)
-    const ctx    = canvas.getContext('2d')
-    ctx.drawImage(bitmap, 0, 0, 160, 90)
-    // OffscreenCanvas doesn't have toDataURL — use ImageData
-    const imageData = ctx.getImageData(0, 0, 160, 90)
-    // Encode as simple base64 PNG via Blob
-    return null  // thumbnails stored as null — DB stores vectors not images
-  } catch { return null }
-}
-
 // ─── MAIN INDEX FUNCTION ──────────────────────────────────────────────────────
-
 async function indexClip(file, categoryId) {
   if (cancelFlag) return null
   const clipType = detectType(file.name)
   const filepath = file.webkitRelativePath || file.relativePath || file.name
 
   try {
-    postMessage({ type: 'PROGRESS', payload: { filename: file.name, step: 'audio',        pct: 8  } })
-    const audio = await extractAudio(file)
+    // Read file buffer ONCE — pass slices to each function to avoid re-reading
+    postMessage({ type: 'PROGRESS', payload: { filename: file.name, step: 'reading', pct: 5 } })
+    const buffer = await file.arrayBuffer()
 
-    postMessage({ type: 'PROGRESS', payload: { filename: file.name, step: 'metadata',     pct: 18 } })
-    const meta  = await extractVideoMeta(file)
+    postMessage({ type: 'PROGRESS', payload: { filename: file.name, step: 'metadata', pct: 10 } })
+    const meta = await extractVideoMeta(buffer)
 
-    postMessage({ type: 'PROGRESS', payload: { filename: file.name, step: 'transcribing', pct: 28 } })
-    const transcript = await transcribe(file)
+    // Duration from MP4Box metadata (most reliable), fallback to main thread <video>
+    let durationMs = meta.durationMs
+    if (!durationMs) {
+      postMessage({ type: 'PROGRESS', payload: { filename: file.name, step: 'duration', pct: 15 } })
+      durationMs = await getDuration(file.name)
+    }
 
-    postMessage({ type: 'PROGRESS', payload: { filename: file.name, step: 'frame',        pct: 45 } })
-    const frame = await extractFrame(file)
+    postMessage({ type: 'PROGRESS', payload: { filename: file.name, step: 'transcribing', pct: 25 } })
+    const transcript = await transcribeOnMainThread(file)
 
-    postMessage({ type: 'PROGRESS', payload: { filename: file.name, step: 'tagging',      pct: 58 } })
+    postMessage({ type: 'PROGRESS', payload: { filename: file.name, step: 'frame', pct: 45 } })
+    // Try WebCodecs in worker first, fall back to main thread <video> capture
+    let frame = await extractFrameWithMP4Box(buffer)
+    if (!frame) {
+      console.log('[indexClip] WebCodecs failed, trying main thread frame capture:', file.name)
+      frame = await extractFrameOnMainThread(file.name)
+    }
+
+    postMessage({ type: 'PROGRESS', payload: { filename: file.name, step: 'tagging', pct: 60 } })
     const visualTags = await tagClip(frame, clipType)
 
-    postMessage({ type: 'PROGRESS', payload: { filename: file.name, step: 'embedding',    pct: 72 } })
+    postMessage({ type: 'PROGRESS', payload: { filename: file.name, step: 'embedding', pct: 75 } })
     const visVec = await visualVector(frame)
 
-    postMessage({ type: 'PROGRESS', payload: { filename: file.name, step: 'text vector',  pct: 86 } })
+    postMessage({ type: 'PROGRESS', payload: { filename: file.name, step: 'text vector', pct: 88 } })
     const txtContent = [transcript, ...visualTags, clipType].filter(Boolean).join('. ')
     const txtVec = await textVector(txtContent)
 
     const clipData = {
-      filename:       file.name,
+      filename:        file.name,
       filepath,
-      fileSizeBytes:  file.size,
-      fileModifiedAt: file.lastModified || null,
-      durationMs:     meta.durationMs || audio.durationMs,
-      width:          meta.width,
-      height:         meta.height,
-      fps:            meta.fps,
-      codec:          meta.codec,
+      fileSizeBytes:   file.size,
+      fileModifiedAt:  file.lastModified || null,
+      durationMs:      durationMs || meta.durationMs || 0,
+      width:           meta.width,
+      height:          meta.height,
+      fps:             meta.fps,
+      codec:           meta.codec,
       clipType,
-      transcript,
+      transcript:      transcript || null,
       visualTags,
       dominantEmotion: null,
-      audioEnergy:     audio.energyLevel,
+      audioEnergy:     0.5,
       sceneType:       clipType === 'daw' ? 'daw-screen' : 'talking-head',
       thumbnailB64:    null,
       visualVector:    visVec,
@@ -440,30 +323,29 @@ async function indexClip(file, categoryId) {
 
     postMessage({ type: 'CLIP_INDEXED', payload: clipData })
     return clipData
+
   } catch (err) {
     postMessage({ type: 'ERROR', payload: { filename: file.name, error: err.message } })
     return null
   }
 }
 
-// ─── SEARCH VECTORS ───────────────────────────────────────────────────────────
-
+// ─── SEARCH ───────────────────────────────────────────────────────────────────
 async function computeSearchVectors(query) {
-  const [txtVec, visVec] = await Promise.all([
-    textVector(query),
-    clipTextVector(query),
-  ])
+  const txtVec = await textVector(query)
+  // Also embed as CLIP text for visual search
+  let visVec = new Array(512).fill(0)
+  if (clipExtractor) {
+    try { visVec = Array.from((await clipExtractor(query)).data) } catch {}
+  }
   postMessage({ type: 'SEARCH_RESULT', payload: { query, visualVector: visVec, textVector: txtVec } })
 }
 
 // ─── MESSAGE HANDLER ──────────────────────────────────────────────────────────
-
 self.onmessage = async ({ data }) => {
   const { type, payload } = data
   switch (type) {
     case 'INIT':
-      if (payload?.apiUrl)    _apiUrl    = payload.apiUrl
-      if (payload?.authToken) _authToken = payload.authToken
       if (!modelsReady) await loadModels()
       break
 
@@ -498,6 +380,13 @@ self.onmessage = async ({ data }) => {
 
     case 'CANCEL':
       cancelFlag = true
+      break
+
+    // Results from main thread — handled by askMainThread listeners above
+    case 'TRANSCRIBE_RESULT':
+    case 'AUDIO_META_RESULT':
+    case 'FRAME_RESULT':
+      // These are caught by the addEventListener in askMainThread
       break
   }
 }

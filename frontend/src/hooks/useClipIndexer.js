@@ -136,13 +136,9 @@ export function useClipIndexer() {
         // Use a <video> element on the main thread to get duration — works for MOV/MP4
         ;(async () => {
           try {
-            // Find the file in the current indexing batch by filename
             const file = currentFilesRef.current?.find(f => f.name === data.filename)
-            if (!file) {
-              workerRef.current?.postMessage({ type: 'AUDIO_META_RESULT', id: data.id, durationMs: 0 })
-              return
-            }
-            const url  = URL.createObjectURL(file)
+            if (!file) { workerRef.current?.postMessage({ type: 'AUDIO_META_RESULT', id: data.id, durationMs: 0 }); return }
+            const url   = URL.createObjectURL(file)
             const video = document.createElement('video')
             video.preload = 'metadata'
             video.src = url
@@ -156,6 +152,54 @@ export function useClipIndexer() {
             workerRef.current?.postMessage({ type: 'AUDIO_META_RESULT', id: data.id, durationMs })
           } catch {
             workerRef.current?.postMessage({ type: 'AUDIO_META_RESULT', id: data.id, durationMs: 0 })
+          }
+        })()
+        break
+
+      case 'FRAME_REQUEST':
+        // Capture a video frame on the main thread using <video> + <canvas>
+        // This works for HEVC/MOV that WebCodecs can't handle in workers
+        ;(async () => {
+          try {
+            const file = currentFilesRef.current?.find(f => f.name === data.filename)
+            if (!file) { workerRef.current?.postMessage({ type: 'FRAME_RESULT', id: data.id, imageData: null }); return }
+
+            const url   = URL.createObjectURL(file)
+            const video = document.createElement('video')
+            video.muted    = true
+            video.preload  = 'metadata'
+            video.src      = url
+
+            await new Promise((resolve) => {
+              video.onloadedmetadata = resolve
+              video.onerror = resolve
+              setTimeout(resolve, 8000)
+            })
+
+            // Seek to 10% through the video for a representative frame
+            video.currentTime = Math.min(video.duration * 0.1, 5)
+            await new Promise((resolve) => {
+              video.onseeked = resolve
+              video.onerror  = resolve
+              setTimeout(resolve, 5000)
+            })
+
+            const canvas = document.createElement('canvas')
+            canvas.width  = 224
+            canvas.height = 224
+            canvas.getContext('2d').drawImage(video, 0, 0, 224, 224)
+            URL.revokeObjectURL(url)
+
+            // Get ImageData to transfer to worker
+            const imageData = canvas.getContext('2d').getImageData(0, 0, 224, 224)
+            workerRef.current?.postMessage({
+              type: 'FRAME_RESULT',
+              id:   data.id,
+              imageData: { width: 224, height: 224, data: imageData.data.buffer },
+            }, [imageData.data.buffer])
+          } catch (err) {
+            console.error('[FRAME_REQUEST] Error:', err.message)
+            workerRef.current?.postMessage({ type: 'FRAME_RESULT', id: data.id, imageData: null })
           }
         })()
         break
