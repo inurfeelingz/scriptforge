@@ -27,13 +27,13 @@ async function indexClip(userId, categoryId, clipData) {
   if (fileModifiedAt) {
     const { data: existing } = await supabase
       .from('clip_index')
-      .select('id, file_modified_at')
+      .select('id, file_modified_at, transcript')
       .eq('user_id', userId)
       .eq('filepath', filepath?.replace(/^\/+/, '').replace(/\.\.\//g, '').trim() || filename)
       .maybeSingle()
 
-    if (existing && existing.file_modified_at === fileModifiedAt) {
-      // File unchanged — return cached record without re-indexing
+    if (existing && existing.file_modified_at === fileModifiedAt && existing.transcript) {
+      // File unchanged AND already has transcript — return cached record
       return { id: existing.id, filename, clip_type: detectClipType(filename), cached: true }
     }
   }
