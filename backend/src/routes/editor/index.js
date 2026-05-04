@@ -207,33 +207,61 @@ router.post('/clips/transcribe', (req, res, next) => {
     const fileSizeMB = Math.round(req.file.size / 1024 / 1024)
     console.log(`[clips/transcribe] Starting: ${req.file.originalname} (${fileSizeMB}MB)`)
 
-    // Get duration to calculate how many chunks we need
     const totalSecs = await getVideoDuration(inputPath)
-    console.log(`[clips/transcribe] Duration: ${Math.round(totalSecs / 60)}min — splitting into ${Math.ceil(totalSecs / CHUNK_SECONDS)} chunks`)
+    console.log(`[clips/transcribe] Duration: ${Math.round(totalSecs / 60)}min`)
 
     const transcripts = []
-    const numChunks   = Math.max(1, Math.ceil(totalSecs / CHUNK_SECONDS))
 
-    for (let i = 0; i < numChunks; i++) {
-      const startSecs    = i * CHUNK_SECONDS
-      const durationSecs = Math.min(CHUNK_SECONDS, totalSecs - startSecs)
-      const chunkPath    = path.join(os.tmpdir(), `chunk-${sessionId}-${i}.mp3`)
+    if (totalSecs === 0) {
+      // ffprobe couldn't determine duration — extract full audio in one shot
+      console.log(`[clips/transcribe] Duration unknown — extracting full audio`)
+      const chunkPath = path.join(os.tmpdir(), `chunk-${sessionId}-0.mp3`)
       chunkPaths.push(chunkPath)
-
-      console.log(`[clips/transcribe] Extracting chunk ${i + 1}/${numChunks} (${Math.round(startSecs/60)}min - ${Math.round((startSecs + durationSecs)/60)}min)`)
-      await extractChunk(inputPath, chunkPath, startSecs, durationSecs)
-
+      await extractChunk(inputPath, chunkPath, 0, 36000)  // up to 10 hours
       const chunkSize = fs.statSync(chunkPath).size
-      console.log(`[clips/transcribe] Chunk ${i + 1} extracted: ${Math.round(chunkSize / 1024)}KB — transcribing...`)
-
-      if (chunkSize > MAX_CHUNK_BYTES) {
-        console.warn(`[clips/transcribe] Chunk ${i + 1} too large (${Math.round(chunkSize/1024)}KB) — skipping`)
-        continue
+      console.log(`[clips/transcribe] Audio extracted: ${Math.round(chunkSize / 1024)}KB`)
+      if (chunkSize > 1024 && chunkSize <= MAX_CHUNK_BYTES) {
+        const text = await transcribeChunk(chunkPath)
+        if (text) transcripts.push(text)
+        console.log(`[clips/transcribe] Done: "${text.slice(0, 80)}"`)
+      } else if (chunkSize > MAX_CHUNK_BYTES) {
+        // Too large — split by time anyway using estimated duration from file size
+        // Rough estimate: 1GB video ≈ 60 minutes
+        const estimatedSecs = Math.round((req.file.size / (1024 * 1024 * 1024)) * 3600)
+        console.log(`[clips/transcribe] Estimated duration: ${Math.round(estimatedSecs/60)}min — chunking`)
+        const numChunks = Math.ceil(estimatedSecs / CHUNK_SECONDS)
+        for (let i = 0; i < numChunks; i++) {
+          const startSecs    = i * CHUNK_SECONDS
+          const cp = path.join(os.tmpdir(), `chunk-${sessionId}-${i+1}.mp3`)
+          chunkPaths.push(cp)
+          await extractChunk(inputPath, cp, startSecs, CHUNK_SECONDS)
+          const sz = fs.statSync(cp).size
+          if (sz < 1024) break  // past end of file
+          if (sz > MAX_CHUNK_BYTES) continue
+          console.log(`[clips/transcribe] Chunk ${i+1}/${numChunks}: ${Math.round(sz/1024)}KB`)
+          const text = await transcribeChunk(cp)
+          if (text) transcripts.push(text)
+        }
       }
-
-      const text = await transcribeChunk(chunkPath)
-      console.log(`[clips/transcribe] Chunk ${i + 1} done: "${text.slice(0, 60)}"`)
-      if (text) transcripts.push(text)
+    } else {
+      // Normal chunked path
+      const numChunks = Math.max(1, Math.ceil(totalSecs / CHUNK_SECONDS))
+      console.log(`[clips/transcribe] Splitting into ${numChunks} chunks`)
+      for (let i = 0; i < numChunks; i++) {
+        const startSecs    = i * CHUNK_SECONDS
+        const durationSecs = Math.min(CHUNK_SECONDS, totalSecs - startSecs)
+        const chunkPath    = path.join(os.tmpdir(), `chunk-${sessionId}-${i}.mp3`)
+        chunkPaths.push(chunkPath)
+        console.log(`[clips/transcribe] Extracting chunk ${i + 1}/${numChunks} (${Math.round(startSecs/60)}min - ${Math.round((startSecs + durationSecs)/60)}min)`)
+        await extractChunk(inputPath, chunkPath, startSecs, durationSecs)
+        const chunkSize = fs.statSync(chunkPath).size
+        console.log(`[clips/transcribe] Chunk ${i + 1} extracted: ${Math.round(chunkSize / 1024)}KB`)
+        if (chunkSize > MAX_CHUNK_BYTES) { console.warn(`[clips/transcribe] Chunk ${i+1} too large — skipping`); continue }
+        if (chunkSize < 1024) { console.log(`[clips/transcribe] Chunk ${i+1} empty — stopping`); break }
+        const text = await transcribeChunk(chunkPath)
+        console.log(`[clips/transcribe] Chunk ${i + 1} done: "${text.slice(0, 60)}"`)
+        if (text) transcripts.push(text)
+      }
     }
 
     const fullTranscript = transcripts.join(' ').trim()
