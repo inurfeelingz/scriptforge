@@ -260,9 +260,10 @@ async function tagClip(frame, clipType) {
       } catch { return { label, score: 0 } }
     }))
 
-    const tags = scored.sort((a,b) => b.score - a.score).filter(s => s.score > 0.1).slice(0, 5).map(s => s.label)
-    console.log('[tagClip]', clipType, '→', tags)
-    return tags.length ? tags : [clipType]
+    const tags = scored.sort((a,b) => b.score - a.score).slice(0, 5)
+    console.log('[tagClip] scores:', tags.map(t => `${t.label}:${t.score.toFixed(3)}`).join(', '))
+    const filtered = tags.filter(s => s.score > 0.05).map(s => s.label)
+    return filtered.length ? filtered : [clipType]
   } catch (err) {
     if (typeof frame === 'string' && frame.startsWith('blob:')) URL.revokeObjectURL(frame)
     console.warn('[tagClip] Error:', err.message)
