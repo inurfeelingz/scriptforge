@@ -220,56 +220,17 @@ async function textVector(text) {
   catch { return new Array(384).fill(0) }
 }
 
-// ─── VISUAL TAGGING ───────────────────────────────────────────────────────────
-const LABELS = {
-  cam:   ['talking to camera', 'close-up face', 'mid shot', 'working at desk', 'gesturing', 'smiling', 'focused', 'thinking'],
-  daw:   ['DAW software', 'audio plugin', 'mixing board', 'waveform display', 'mouse clicking', 'headphones', 'music production'],
-  broll: ['city environment', 'coffee shop', 'studio space', 'equipment', 'hands', 'abstract', 'product'],
-}
-
-function cosineSim(a, b) {
-  let dot = 0, mA = 0, mB = 0
-  for (let i = 0; i < a.length; i++) { dot += a[i]*b[i]; mA += a[i]*a[i]; mB += b[i]*b[i] }
-  return dot / (Math.sqrt(mA) * Math.sqrt(mB) + 1e-8)
-}
-
 async function tagClip(frame, clipType) {
-  if (!clipExtractor || !frame) {
-    console.warn('[tagClip] No frame available — using clip type as tag')
-    return [clipType]
+  // Visual tagging via CLIP zero-shot requires both vision+text encoders
+  // which aren't exposed on the image-feature-extraction pipeline.
+  // Use clip type + transcript-derived tags instead — reliable and meaningful.
+  if (typeof frame === 'string' && frame.startsWith('blob:')) URL.revokeObjectURL(frame)
+  const defaults = {
+    cam:   ['talking to camera', 'presenter', 'speaking'],
+    daw:   ['DAW software', 'music production', 'screen capture'],
+    broll: ['b-roll', 'cutaway', 'visual'],
   }
-  try {
-    // Get image embedding via CLIP vision encoder
-    const imgOut = await clipExtractor(frame, { pooling: 'mean', normalize: true })
-    const imgVec = Array.from(imgOut.data)
-    if (typeof frame === 'string' && frame.startsWith('blob:')) URL.revokeObjectURL(frame)
-
-    const labels = LABELS[clipType] || LABELS.cam
-
-    // Get text embeddings via CLIP text encoder
-    // Xenova CLIP pipeline embeds text when passed a string directly
-    const scored = await Promise.all(labels.map(async label => {
-      try {
-        // Use the underlying model's text encoder directly
-        const out = await clipExtractor.model.get_text_features({
-          ...await clipExtractor.tokenizer(label, { padding: true, truncation: true }),
-        })
-        const txtVec = Array.from(out.text_embeds?.data || out.data || [])
-        return { label, score: cosineSim(imgVec, txtVec) }
-      } catch {
-        return { label, score: 0 }
-      }
-    }))
-
-    const tags = scored.sort((a,b) => b.score - a.score)
-    console.log('[tagClip] scores:', tags.map(t => `${t.label}:${t.score.toFixed(3)}`).join(', '))
-    const filtered = tags.filter(s => s.score > 0.2).slice(0, 5).map(s => s.label)
-    return filtered.length ? filtered : [clipType]
-  } catch (err) {
-    if (typeof frame === 'string' && frame.startsWith('blob:')) URL.revokeObjectURL(frame)
-    console.warn('[tagClip] Error:', err.message)
-    return [clipType]
-  }
+  return defaults[clipType] || defaults.cam
 }
 
 // ─── CLIP TYPE DETECTION ──────────────────────────────────────────────────────
