@@ -116,27 +116,66 @@ router.get('/index/status', async (req, res) => {
  * Get all indexed clips for the clip browser
  * STATUS: WORKING
  */
-// ── POST /editor/clips/transcribe — send video file to OpenAI Whisper ─────────
-const multer = require('multer')
-const FormData = require('form-data')
-const axios = require('axios')
-const clipUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 500 * 1024 * 1024 } })
+// ── POST /editor/clips/transcribe — extract audio then send to OpenAI Whisper ──
+const multer     = require('multer')
+const FormData   = require('form-data')
+const axios      = require('axios')
+const ffmpeg     = require('fluent-ffmpeg')
+const ffmpegPath = require('ffmpeg-static')
+const os         = require('os')
+const path       = require('path')
+const fs         = require('fs')
 
-router.post('/clips/transcribe', clipUpload.single('file'), async (req, res) => {
+ffmpeg.setFfmpegPath(ffmpegPath)
+
+// Accept large video files — we extract audio before sending to Whisper
+const clipUpload = multer({
+  storage: multer.diskStorage({
+    destination: os.tmpdir(),
+    filename: (req, file, cb) => cb(null, `clip-${Date.now()}-${file.originalname}`)
+  }),
+  limits: { fileSize: 2 * 1024 * 1024 * 1024 }  // 2GB
+})
+
+function extractAudio(inputPath, outputPath) {
+  return new Promise((resolve, reject) => {
+    ffmpeg(inputPath)
+      .noVideo()
+      .audioCodec('libmp3lame')
+      .audioBitrate('64k')       // low bitrate — speech only needs 64kbps
+      .audioChannels(1)          // mono
+      .audioFrequency(16000)     // 16kHz — Whisper's native rate
+      .duration(600)             // max 10 minutes of audio
+      .output(outputPath)
+      .on('end', resolve)
+      .on('error', reject)
+      .run()
+  })
+}
+
+router.post('/clips/transcribe', (req, res, next) => {
+  clipUpload.single('file')(req, res, (err) => {
+    if (err) return res.json({ text: '' })
+    next()
+  })
+}, async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'File required' })
   if (!process.env.OPENAI_API_KEY) return res.json({ text: '' })
 
-  // OpenAI Whisper limit is 25MB — skip transcription for larger files
-  const MAX_WHISPER_BYTES = 25 * 1024 * 1024
-  if (req.file.size > MAX_WHISPER_BYTES) {
-    console.log(`[clips/transcribe] File too large for Whisper (${Math.round(req.file.size/1024/1024)}MB) — skipping`)
-    return res.json({ text: '' })
-  }
+  const inputPath  = req.file.path
+  const outputPath = path.join(os.tmpdir(), `audio-${Date.now()}.mp3`)
 
   try {
+    // Extract audio track to small MP3
+    console.log(`[clips/transcribe] Extracting audio from ${req.file.originalname} (${Math.round(req.file.size/1024/1024)}MB)`)
+    await extractAudio(inputPath, outputPath)
+
+    const audioStats = fs.statSync(outputPath)
+    console.log(`[clips/transcribe] Audio extracted: ${Math.round(audioStats.size/1024)}KB`)
+
+    // Send audio to Whisper
     const form = new FormData()
-    const ext  = req.file.originalname.split('.').pop()?.toLowerCase() || 'mp4'
-    form.append('file', req.file.buffer, { filename: `clip.${ext}`, contentType: req.file.mimetype || 'video/mp4' })
+    form.append('file', fs.createReadStream(outputPath), { filename: 'audio.mp3', contentType: 'audio/mpeg' })
     form.append('model', 'whisper-1')
     form.append('language', 'en')
 
@@ -144,12 +183,18 @@ router.post('/clips/transcribe', clipUpload.single('file'), async (req, res) => 
       headers: { ...form.getHeaders(), Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
       maxContentLength: Infinity,
       maxBodyLength: Infinity,
+      timeout: 120000,
     })
 
     res.json({ text: response.data?.text?.trim() || '' })
+
   } catch (err) {
     console.error('[clips/transcribe]', err.response?.data || err.message)
-    res.json({ text: '' })  // never fail the indexer
+    res.json({ text: '' })
+  } finally {
+    // Clean up temp files
+    try { fs.unlinkSync(inputPath) } catch {}
+    try { fs.unlinkSync(outputPath) } catch {}
   }
 })
 
