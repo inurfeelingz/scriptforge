@@ -126,6 +126,13 @@ router.post('/clips/transcribe', clipUpload.single('file'), async (req, res) => 
   if (!req.file) return res.status(400).json({ error: 'File required' })
   if (!process.env.OPENAI_API_KEY) return res.json({ text: '' })
 
+  // OpenAI Whisper limit is 25MB — skip transcription for larger files
+  const MAX_WHISPER_BYTES = 25 * 1024 * 1024
+  if (req.file.size > MAX_WHISPER_BYTES) {
+    console.log(`[clips/transcribe] File too large for Whisper (${Math.round(req.file.size/1024/1024)}MB) — skipping`)
+    return res.json({ text: '' })
+  }
+
   try {
     const form = new FormData()
     const ext  = req.file.originalname.split('.').pop()?.toLowerCase() || 'mp4'

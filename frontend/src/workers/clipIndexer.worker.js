@@ -83,12 +83,12 @@ async function transcribeOnMainThread(filename, mimeType, buffer) {
 async function extractFrameOnMainThread(filename) {
   const result = await askMainThread('FRAME_REQUEST', 'FRAME_RESULT', { filename })
   if (!result.imageData) return null
-  // Reconstruct ImageBitmap from the transferred ImageData pixels
+  // Reconstruct into OffscreenCanvas — CLIP pipeline accepts this directly
   const { width, height, data } = result.imageData
   const imgData = new ImageData(new Uint8ClampedArray(data), width, height)
   const canvas  = new OffscreenCanvas(width, height)
   canvas.getContext('2d').putImageData(imgData, 0, 0)
-  return canvas.transferToImageBitmap()
+  return canvas  // return canvas, not transferToImageBitmap() — CLIP needs canvas
 }
 
 // ─── FRAME EXTRACTION VIA WEBCODECS (worker-side, for formats that work) ───────
@@ -124,7 +124,7 @@ async function extractFrameWithMP4Box(buffer) {
           const canvas = new OffscreenCanvas(224, 224)
           canvas.getContext('2d').drawImage(frame, 0, 0, 224, 224)
           frame.close()
-          done(canvas.transferToImageBitmap())
+          done(canvas)  // return canvas — CLIP accepts OffscreenCanvas directly
         },
         error: (e) => { console.warn('[VideoDecoder] error:', e.message); done(null) },
       })
