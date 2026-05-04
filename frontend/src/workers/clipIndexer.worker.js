@@ -304,6 +304,7 @@ async function indexClip(file, categoryId) {
       textVector:      txtVec,
     }
 
+    console.log('[indexClip] transcript:', transcript?.slice(0, 80) || 'EMPTY', '| duration:', durationMs)
     postMessage({ type: 'CLIP_INDEXED', payload: clipData })
     return clipData
 
