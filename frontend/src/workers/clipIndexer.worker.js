@@ -69,13 +69,12 @@ async function getDuration(filename) {
   return result.durationMs || 0
 }
 
-async function transcribeOnMainThread(file) {
-  // Copy the buffer so file remains readable after transfer
-  const buffer = await file.arrayBuffer()
+async function transcribeOnMainThread(filename, mimeType, buffer) {
+  // Copy the buffer so the original remains usable
   const copy   = buffer.slice(0)
   const result = await askMainThread(
     'TRANSCRIBE_REQUEST', 'TRANSCRIBE_RESULT',
-    { filename: file.name, mimeType: file.type || 'video/mp4', buffer: copy },
+    { filename, mimeType: mimeType || 'video/mp4', buffer: copy },
     [copy]
   )
   return result.transcript || ''
@@ -280,7 +279,7 @@ async function indexClip(file, categoryId) {
     }
 
     postMessage({ type: 'PROGRESS', payload: { filename: file.name, step: 'transcribing', pct: 25 } })
-    const transcript = await transcribeOnMainThread(file)
+    const transcript = await transcribeOnMainThread(file.name, file.type, buffer)
 
     postMessage({ type: 'PROGRESS', payload: { filename: file.name, step: 'frame', pct: 45 } })
     // Try WebCodecs in worker first, fall back to main thread <video> capture
