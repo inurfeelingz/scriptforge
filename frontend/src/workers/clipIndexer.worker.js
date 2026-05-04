@@ -239,12 +239,16 @@ async function tagClip(frame, clipType) {
     return [clipType]
   }
   try {
+<<<<<<< HEAD
     // Get visual embedding from frame
     const imgVec = Array.from((await clipExtractor(frame, { pooling: 'mean' })).data)
     if (typeof frame === 'string' && frame.startsWith('blob:')) URL.revokeObjectURL(frame)
 
     // Compare against labels using MiniLM text embeddings (512 dims)
     // Pad/trim to match CLIP output dimension
+=======
+    const imgVec = Array.from((await clipExtractor(frame)).data)
+>>>>>>> 044cd6c13218799222ce15999720e4aebcd93e23
     const labels = LABELS[clipType] || LABELS.cam
     const imgDim = imgVec.length
 
@@ -259,8 +263,13 @@ async function tagClip(frame, clipType) {
         return { label, score: cosineSim(imgVec, aligned) }
       } catch { return { label, score: 0 } }
     }))
+<<<<<<< HEAD
 
     const tags = scored.sort((a,b) => b.score - a.score).filter(s => s.score > 0.1).slice(0, 5).map(s => s.label)
+=======
+    if (typeof frame === 'string' && frame.startsWith('blob:')) URL.revokeObjectURL(frame)
+    const tags = scored.sort((a,b) => b.score - a.score).filter(s => s.score > 0.15).slice(0, 5).map(s => s.label)
+>>>>>>> 044cd6c13218799222ce15999720e4aebcd93e23
     console.log('[tagClip]', clipType, '→', tags)
     return tags.length ? tags : [clipType]
   } catch (err) {
