@@ -60,7 +60,7 @@ function askMainThread(requestType, resultType, payload, transferables = []) {
     }
     self.addEventListener('message', handler)
     postMessage({ type: requestType, id, ...payload }, transferables)
-    setTimeout(() => { self.removeEventListener('message', handler); resolve({}) }, 60000)
+    setTimeout(() => { self.removeEventListener('message', handler); resolve({}) }, 600000) // 10 min
   })
 }
 
