@@ -145,7 +145,7 @@ const MAX_CHUNK_BYTES = 24 * 1024 * 1024  // 24MB safety margin under Whisper's 
 // Get video duration in seconds via ffprobe
 function getVideoDuration(inputPath) {
   return new Promise((resolve) => {
-    ffmpeg.ffprobe(inputPath, (err, meta) => {
+    ffmpeg.ffprobe(inputPath, ['-analyzeduration', '100M', '-probesize', '100M'], (err, meta) => {
       resolve(err ? 0 : Math.ceil(meta?.format?.duration || 0))
     })
   })
@@ -154,18 +154,17 @@ function getVideoDuration(inputPath) {
 // Extract a single audio chunk from inputPath
 function extractChunk(inputPath, outputPath, startSecs, durationSecs) {
   return new Promise((resolve, reject) => {
-    ffmpeg(inputPath)
+    const cmd = ffmpeg(inputPath)
+      .inputOptions(['-analyzeduration', '100M', '-probesize', '100M'])
       .noVideo()
-      .seekInput(startSecs)
-      .duration(durationSecs)
       .audioCodec('libmp3lame')
       .audioBitrate('64k')
       .audioChannels(1)
       .audioFrequency(16000)
       .output(outputPath)
-      .on('end', resolve)
-      .on('error', reject)
-      .run()
+    if (startSecs > 0) cmd.seekInput(startSecs)
+    if (durationSecs < 36000) cmd.duration(durationSecs)
+    cmd.on('end', resolve).on('error', reject).run()
   })
 }
 
