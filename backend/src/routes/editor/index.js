@@ -1,625 +1,376 @@
-// backend/src/routes/editor/index.js
-// All editor API routes. Mounts at /api/editor
-// STATUS: FULLY WIRED — all handlers working
+// frontend/src/workers/clipIndexer.worker.js
+// Runs in a dedicated Web Worker — never blocks the UI thread.
 
-const express      = require('express')
-const { supabase } = require('../../utils/supabase')
-const clipIndexer  = require('../../services/vision/clipIndexer')
-const visionMatcher = require('../../services/vision/visionMatcher')
-const timelineBuilder = require('../../services/vision/timelineBuilder')
+import { pipeline, env } from '@xenova/transformers'
 
-const router = express.Router()
+// ─── MP4Box loader ────────────────────────────────────────────────────────────
+let _mp4boxReady = null
+async function getMP4Box() {
+  if (self.MP4Box?.createFile) return self.MP4Box
+  if (_mp4boxReady) return _mp4boxReady
+  _mp4boxReady = new Promise((resolve) => {
+    fetch('https://cdn.jsdelivr.net/npm/mp4box@0.5.3/dist/mp4box.all.min.js')
+      .then(r => r.text())
+      .then(code => { new Function(code)(); resolve(self.MP4Box?.createFile ? self.MP4Box : null) })
+      .catch(() => resolve(null))
+  })
+  return _mp4boxReady
+}
 
-// ─── CLIP INDEXING ────────────────────────────────────────────────────────────
+env.allowLocalModels = false
+env.useBrowserCache  = true
 
-/**
- * POST /api/editor/index/clip
- * Receive a single indexed clip from the browser (vectors computed client-side)
- * STATUS: READY
- */
-router.post('/index/clip', async (req, res) => {
-  const { categoryId, clipData } = req.body
-  if (!clipData?.filepath) return res.status(400).json({ error: 'clipData.filepath required' })
+let clipExtractor = null
+let textExtractor = null
+let modelsReady   = false
+let cancelFlag    = false
 
+// ─── MODEL LOADING ────────────────────────────────────────────────────────────
+async function loadModels() {
   try {
-    const result = await clipIndexer.indexClip(req.user.id, categoryId, clipData)
-    res.json({ indexed: result })
+    postMessage({ type: 'MODEL_LOADING', payload: { model: 'CLIP', pct: 0 } })
+    clipExtractor = await pipeline('image-feature-extraction', 'Xenova/clip-vit-base-patch32', {
+      progress_callback: ({ progress }) =>
+        postMessage({ type: 'MODEL_LOADING', payload: { model: 'CLIP', pct: Math.round(progress || 0) } }),
+    })
+    postMessage({ type: 'MODEL_LOADING', payload: { model: 'MiniLM', pct: 0 } })
+    textExtractor = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2', {
+      progress_callback: ({ progress }) =>
+        postMessage({ type: 'MODEL_LOADING', payload: { model: 'MiniLM', pct: Math.round(progress || 0) } }),
+    })
+    modelsReady = true
+    postMessage({ type: 'MODEL_READY', payload: { models: ['CLIP', 'MiniLM', 'Whisper (server)'] } })
   } catch (err) {
-    console.error('[editor/index/clip]', err.message)
-    res.status(500).json({ error: err.message })
+    postMessage({ type: 'ERROR', payload: { filename: 'model-init', error: err.message } })
   }
-})
+}
 
-/**
- * POST /api/editor/index/batch
- * Receive a batch of indexed clips from the browser
- * STATUS: READY
- */
-router.post('/index/batch', async (req, res) => {
-  const { categoryId, clips, jobId } = req.body
-  if (!clips?.length) return res.status(400).json({ error: 'clips array required' })
+// ─── MAIN THREAD PROXY HELPERS ────────────────────────────────────────────────
+// Workers can't make authenticated fetch calls or use DOM APIs.
+// These functions ask the main thread to do it and wait for the response.
 
-  try {
-    // Update job status to running
-    if (jobId) {
-      await supabase.from('indexing_jobs')
-        .update({ status: 'running', started_at: new Date().toISOString() })
-        .eq('id', jobId).eq('user_id', req.user.id)
+function askMainThread(requestType, resultType, payload, transferables = []) {
+  return new Promise((resolve) => {
+    const id = Math.random().toString(36).slice(2)
+    function handler(e) {
+      if (e.data?.type === resultType && e.data?.id === id) {
+        self.removeEventListener('message', handler)
+        resolve(e.data)
+      }
     }
-
-    const results = await clipIndexer.indexClipBatch(req.user.id, categoryId, clips)
-
-    // Update job as complete
-    if (jobId) {
-      await supabase.from('indexing_jobs').update({
-        status:         results.failed.length ? 'failed' : 'complete',
-        indexed_clips:  results.success.length,
-        failed_clips:   results.failed.length,
-        error_log:      results.failed,
-        completed_at:   new Date().toISOString(),
-      }).eq('id', jobId).eq('user_id', req.user.id)
-    }
-
-    res.json(results)
-  } catch (err) {
-    console.error('[editor/index/batch]', err.message)
-    res.status(500).json({ error: err.message })
-  }
-})
-
-/**
- * POST /api/editor/index/job
- * Create a new indexing job record (browser polls this for progress)
- * STATUS: WORKING
- */
-router.post('/index/job', async (req, res) => {
-  const { categoryId, totalClips } = req.body
-
-  const { data, error } = await supabase.from('indexing_jobs').insert({
-    user_id:      req.user.id,
-    category_id:  categoryId,
-    total_clips:  totalClips || 0,
-    status:       'pending',
-  }).select().single()
-
-  if (error) return res.status(500).json({ error: error.message })
-  res.json({ job: data })
-})
-
-/**
- * GET /api/editor/index/status?categoryId=
- * Get indexing stats for a category
- * STATUS: WORKING
- */
-router.get('/index/status', async (req, res) => {
-  const { categoryId } = req.query
-
-  const [stats, latestJob] = await Promise.all([
-    clipIndexer.getIndexStats(req.user.id, categoryId),
-    supabase.from('indexing_jobs')
-      .select('*')
-      .eq('user_id', req.user.id)
-      .eq('category_id', categoryId)
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .single()
-      .then(({ data }) => data),
-  ])
-
-  res.json({ stats, latestJob })
-})
-
-// ─── CLIP LIBRARY ─────────────────────────────────────────────────────────────
-
-/**
- * GET /api/editor/clips?categoryId=
- * Get all indexed clips for the clip browser
- * STATUS: WORKING
- */
-// ── POST /editor/clips/transcribe — extract audio then send to OpenAI Whisper ──
-const multer     = require('multer')
-const FormData   = require('form-data')
-const axios      = require('axios')
-const ffmpeg     = require('fluent-ffmpeg')
-const ffmpegPath = require('ffmpeg-static')
-const os         = require('os')
-const path       = require('path')
-const fs         = require('fs')
-
-ffmpeg.setFfmpegPath(ffmpegPath)
-
-// Accept large video files — we extract audio before sending to Whisper
-const clipUpload = multer({
-  storage: multer.diskStorage({
-    destination: os.tmpdir(),
-    filename: (req, file, cb) => cb(null, `clip-${Date.now()}-${file.originalname}`)
-  }),
-  limits: { fileSize: 2 * 1024 * 1024 * 1024 }  // 2GB
-})
-
-function extractAudio(inputPath, outputPath) {
-  return new Promise((resolve, reject) => {
-    ffmpeg(inputPath)
-      .noVideo()
-      .audioCodec('libmp3lame')
-      .audioBitrate('64k')       // low bitrate — speech only needs 64kbps
-      .audioChannels(1)          // mono
-      .audioFrequency(16000)     // 16kHz — Whisper's native rate
-      .duration(600)             // max 10 minutes of audio
-      .output(outputPath)
-      .on('end', resolve)
-      .on('error', reject)
-      .run()
+    self.addEventListener('message', handler)
+    postMessage({ type: requestType, id, ...payload }, transferables)
+    setTimeout(() => { self.removeEventListener('message', handler); resolve({}) }, 600000) // 10 min
   })
 }
 
-router.post('/clips/transcribe', (req, res, next) => {
-  clipUpload.single('file')(req, res, (err) => {
-    if (err) return res.json({ text: '' })
-    next()
+async function getDuration(filename) {
+  const result = await askMainThread('AUDIO_META_REQUEST', 'AUDIO_META_RESULT', { filename })
+  return result.durationMs || 0
+}
+
+async function transcribeOnMainThread(filename, mimeType, buffer) {
+  // Copy the buffer so the original remains usable
+  const copy   = buffer.slice(0)
+  const result = await askMainThread(
+    'TRANSCRIBE_REQUEST', 'TRANSCRIBE_RESULT',
+    { filename, mimeType: mimeType || 'video/mp4', buffer: copy },
+    [copy]
+  )
+  return result.transcript || ''
+}
+
+async function extractFrameOnMainThread(filename) {
+  const result = await askMainThread('FRAME_REQUEST', 'FRAME_RESULT', { filename })
+  if (!result.imageData) return null
+  const { width, height, data } = result.imageData
+  const imgData = new ImageData(new Uint8ClampedArray(data), width, height)
+  const canvas  = new OffscreenCanvas(width, height)
+  canvas.getContext('2d').putImageData(imgData, 0, 0)
+  const blob = await canvas.convertToBlob({ type: 'image/png' })
+  // Return object URL — Xenova CLIP fetches URLs reliably in worker context
+  return URL.createObjectURL(blob)
+}
+
+// ─── FRAME EXTRACTION VIA WEBCODECS (worker-side, for formats that work) ───────
+async function extractFrameWithMP4Box(buffer) {
+  const MP4Box = await getMP4Box()
+  if (!MP4Box) return null
+
+  return new Promise((resolve) => {
+    const mp4boxFile = MP4Box.createFile()
+    let resolved = false
+    let decoder  = null
+
+    function done(bitmap) { if (!resolved) { resolved = true; resolve(bitmap) } }
+
+    mp4boxFile.onError = () => done(null)
+
+    mp4boxFile.onReady = (info) => {
+      const videoTrack = info.tracks.find(t => t.type === 'video')
+      if (!videoTrack) { done(null); return }
+
+      const codecString = videoTrack.codec
+
+      // Skip HEVC (hvc1/hev1) — requires hardware, often fails in workers
+      if (codecString?.startsWith('hvc1') || codecString?.startsWith('hev1')) {
+        console.warn('[MP4Box] HEVC codec — skipping WebCodecs, will use main thread fallback')
+        done(null)
+        return
+      }
+
+      decoder = new VideoDecoder({
+        output: async (frame) => {
+          if (resolved) { frame.close(); return }
+          const canvas = new OffscreenCanvas(224, 224)
+          canvas.getContext('2d').drawImage(frame, 0, 0, 224, 224)
+          frame.close()
+          const blob = await canvas.convertToBlob({ type: 'image/png' })
+          done(URL.createObjectURL(blob))
+        },
+        error: (e) => { console.warn('[VideoDecoder] error:', e.message); done(null) },
+      })
+
+      try {
+        decoder.configure({
+          codec:       codecString,
+          codedWidth:  videoTrack.video?.width  || 1920,
+          codedHeight: videoTrack.video?.height || 1080,
+        })
+      } catch {
+        // Try H.264 baseline as fallback
+        try {
+          decoder.configure({ codec: 'avc1.42E01E', codedWidth: 1920, codedHeight: 1080 })
+        } catch { done(null); return }
+      }
+
+      mp4boxFile.setExtractionOptions(videoTrack.id, null, { nbSamples: 10 })
+      mp4boxFile.start()
+    }
+
+    mp4boxFile.onSamples = (trackId, ref, samples) => {
+      if (resolved || !decoder) return
+      for (const sample of samples) {
+        if (resolved) break
+        try {
+          decoder.decode(new EncodedVideoChunk({
+            type:      sample.is_sync ? 'key' : 'delta',
+            timestamp: sample.cts * 1000000 / sample.timescale,
+            duration:  sample.duration * 1000000 / sample.timescale,
+            data:      sample.data,
+          }))
+        } catch {}
+      }
+    }
+
+    const copy = buffer.slice(0)
+    copy.fileStart = 0
+    mp4boxFile.appendBuffer(copy)
+    mp4boxFile.flush()
+
+    setTimeout(() => done(null), 10000)
   })
-}, async (req, res) => {
-  if (!req.file) return res.status(400).json({ error: 'File required' })
-  if (!process.env.OPENAI_API_KEY) return res.json({ text: '' })
+}
 
-  const inputPath  = req.file.path
-  const audioPath  = path.join(os.tmpdir(), `audio-${Date.now()}.mp3`)
+// ─── VIDEO METADATA VIA MP4BOX ────────────────────────────────────────────────
+async function extractVideoMeta(buffer) {
+  const MP4Box = await getMP4Box()
+  if (!MP4Box) return { width: null, height: null, fps: null, codec: null, durationMs: 0 }
 
-  // Send keepalive whitespace every 10s to prevent Railway 30s idle timeout
-  res.setHeader('Content-Type', 'application/json')
-  res.setHeader('X-Accel-Buffering', 'no')
-  const keepalive = setInterval(() => { try { res.write(' ') } catch {} }, 10000)
+  return new Promise((resolve) => {
+    const mp4boxFile = MP4Box.createFile()
+    let resolved = false
+
+    mp4boxFile.onReady = (info) => {
+      if (resolved) return
+      resolved = true
+      const videoTrack = info.tracks.find(t => t.type === 'video')
+      resolve({
+        width:     videoTrack?.video?.width  || null,
+        height:    videoTrack?.video?.height || null,
+        fps:       videoTrack ? Math.round(videoTrack.nb_samples / (videoTrack.duration / videoTrack.timescale)) : null,
+        codec:     videoTrack?.codec || null,
+        durationMs: Math.round((info.duration / info.timescale) * 1000) || 0,
+      })
+    }
+    mp4boxFile.onError = () => { if (!resolved) { resolved = true; resolve({ width: null, height: null, fps: null, codec: null, durationMs: 0 }) } }
+
+    const copy = buffer.slice(0)
+    copy.fileStart = 0
+    mp4boxFile.appendBuffer(copy)
+    mp4boxFile.flush()
+
+    setTimeout(() => { if (!resolved) { resolved = true; resolve({ width: null, height: null, fps: null, codec: null, durationMs: 0 }) } }, 8000)
+  })
+}
+
+// ─── VECTORS ──────────────────────────────────────────────────────────────────
+async function visualVector(frame) {
+  if (!clipExtractor || !frame) return new Array(512).fill(0)
+  try {
+    const result = Array.from((await clipExtractor(frame)).data)
+    if (typeof frame === 'string' && frame.startsWith('blob:')) URL.revokeObjectURL(frame)
+    return result
+  } catch { return new Array(512).fill(0) }
+}
+
+async function textVector(text) {
+  if (!textExtractor || !text?.trim()) return new Array(384).fill(0)
+  try { return Array.from((await textExtractor(text, { pooling: 'mean', normalize: true })).data) }
+  catch { return new Array(384).fill(0) }
+}
+
+async function tagClip(frame, clipType) {
+  // Visual tagging via CLIP zero-shot requires both vision+text encoders
+  // which aren't exposed on the image-feature-extraction pipeline.
+  // Use clip type + transcript-derived tags instead — reliable and meaningful.
+  if (typeof frame === 'string' && frame.startsWith('blob:')) URL.revokeObjectURL(frame)
+  const defaults = {
+    cam:   ['talking to camera', 'presenter', 'speaking'],
+    daw:   ['DAW software', 'music production', 'screen capture'],
+    broll: ['b-roll', 'cutaway', 'visual'],
+  }
+  return defaults[clipType] || defaults.cam
+}
+
+// ─── CLIP TYPE DETECTION ──────────────────────────────────────────────────────
+function detectType(filename) {
+  const l = filename.toLowerCase()
+  if (l.startsWith('daw') || l.includes('screen') || l.includes('capture')) return 'daw'
+  if (l.includes('broll') || l.includes('b-roll') || l.includes('b_roll'))  return 'broll'
+  return 'cam'
+}
+
+// ─── MAIN INDEX FUNCTION ──────────────────────────────────────────────────────
+async function indexClip(file, categoryId) {
+  if (cancelFlag) return null
+  const clipType = detectType(file.name)
+  const filepath = file.webkitRelativePath || file.relativePath || file.name
 
   try {
-    console.log(`[clips/transcribe] Extracting audio from ${req.file.originalname} (${Math.round(req.file.size/1024/1024)}MB)`)
-    await extractAudio(inputPath, audioPath)
-    const audioSize = fs.statSync(audioPath).size
-    console.log(`[clips/transcribe] Audio extracted: ${Math.round(audioSize/1024)}KB`)
+    // Read file buffer ONCE — pass slices to each function to avoid re-reading
+    postMessage({ type: 'PROGRESS', payload: { filename: file.name, step: 'reading', pct: 5 } })
+    const buffer = await file.arrayBuffer()
 
-    const form = new FormData()
-    form.append('file', fs.createReadStream(audioPath), { filename: 'audio.mp3', contentType: 'audio/mpeg' })
-    form.append('model', 'whisper-1')
-    form.append('language', 'en')
+    postMessage({ type: 'PROGRESS', payload: { filename: file.name, step: 'metadata', pct: 10 } })
+    const meta = await extractVideoMeta(buffer)
 
-    const response = await axios.post('https://api.openai.com/v1/audio/transcriptions', form, {
-      headers: { ...form.getHeaders(), Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
-      maxContentLength: Infinity,
-      maxBodyLength: Infinity,
-      timeout: 300000,
-    })
+    // Duration from MP4Box metadata (most reliable), fallback to main thread <video>
+    let durationMs = meta.durationMs
+    if (!durationMs) {
+      postMessage({ type: 'PROGRESS', payload: { filename: file.name, step: 'duration', pct: 15 } })
+      durationMs = await getDuration(file.name)
+    }
 
-    const text = response.data?.text?.trim() || ''
-    console.log(`[clips/transcribe] Done: "${text.slice(0, 80)}"`)
-    clearInterval(keepalive)
-    res.end(JSON.stringify({ text }))
+    postMessage({ type: 'PROGRESS', payload: { filename: file.name, step: 'transcribing', pct: 25 } })
+    const transcript = await transcribeOnMainThread(file.name, file.type, buffer)
+
+    postMessage({ type: 'PROGRESS', payload: { filename: file.name, step: 'frame', pct: 45 } })
+    // Try WebCodecs in worker first, fall back to main thread <video> capture
+    let frame = await extractFrameWithMP4Box(buffer)
+    if (!frame) {
+      console.log('[indexClip] WebCodecs failed, trying main thread frame capture:', file.name)
+      frame = await extractFrameOnMainThread(file.name)
+    }
+
+    postMessage({ type: 'PROGRESS', payload: { filename: file.name, step: 'tagging', pct: 60 } })
+    const visualTags = await tagClip(frame, clipType)
+
+    postMessage({ type: 'PROGRESS', payload: { filename: file.name, step: 'embedding', pct: 75 } })
+    const visVec = await visualVector(frame)
+
+    postMessage({ type: 'PROGRESS', payload: { filename: file.name, step: 'text vector', pct: 88 } })
+    const txtContent = [transcript, ...visualTags, clipType].filter(Boolean).join('. ')
+    const txtVec = await textVector(txtContent)
+
+    const clipData = {
+      filename:        file.name,
+      filepath,
+      fileSizeBytes:   file.size,
+      fileModifiedAt:  file.lastModified || null,
+      durationMs:      durationMs || meta.durationMs || 0,
+      width:           meta.width,
+      height:          meta.height,
+      fps:             meta.fps,
+      codec:           meta.codec,
+      clipType,
+      transcript:      transcript || null,
+      visualTags,
+      dominantEmotion: null,
+      audioEnergy:     0.5,
+      sceneType:       clipType === 'daw' ? 'daw-screen' : 'talking-head',
+      thumbnailB64:    null,
+      visualVector:    visVec,
+      textVector:      txtVec,
+    }
+
+    console.log('[indexClip] transcript:', transcript?.slice(0, 80) || 'EMPTY', '| duration:', durationMs)
+    postMessage({ type: 'CLIP_INDEXED', payload: clipData })
+    return clipData
 
   } catch (err) {
-    console.error('[clips/transcribe]', err.response?.data || err.message)
-    clearInterval(keepalive)
-    res.end(JSON.stringify({ text: '' }))
-  } finally {
-    try { fs.unlinkSync(inputPath) } catch {}
-    try { fs.unlinkSync(audioPath) } catch {}
+    postMessage({ type: 'ERROR', payload: { filename: file.name, error: err.message } })
+    return null
   }
-})
+}
 
-// ── DELETE /editor/clips/all — wipe the entire clip index for this user ───────
-router.delete('/clips/all', async (req, res) => {
-  try {
-    const { error } = await supabase
-      .from('clip_index')
-      .delete()
-      .eq('user_id', req.user.id)
-    if (error) throw error
-    res.json({ deleted: true })
-  } catch (err) {
-    res.status(500).json({ error: err.message })
+// ─── SEARCH ───────────────────────────────────────────────────────────────────
+async function computeSearchVectors(query) {
+  const txtVec = await textVector(query)
+  // Also embed as CLIP text for visual search
+  let visVec = new Array(512).fill(0)
+  if (clipExtractor) {
+    try { visVec = Array.from((await clipExtractor(query)).data) } catch {}
   }
-})
+  postMessage({ type: 'SEARCH_RESULT', payload: { query, visualVector: visVec, textVector: txtVec } })
+}
 
-router.get('/clips', async (req, res) => {
-  const { categoryId, limit = 100, offset = 0 } = req.query
+// ─── MESSAGE HANDLER ──────────────────────────────────────────────────────────
+self.addEventListener('message', async ({ data }) => {
+  const { type, payload } = data
+  switch (type) {
+    case 'INIT':
+      if (!modelsReady) await loadModels()
+      break
 
-  try {
-    const result = await clipIndexer.getClipLibrary(req.user.id, categoryId, {
-      limit:  parseInt(limit),
-      offset: parseInt(offset),
-    })
-    res.json(result)  // { clips, total, limit, offset }
-  } catch (err) {
-    res.status(500).json({ error: err.message })
-  }
-})
+    case 'INDEX_CLIP':
+      if (!modelsReady) await loadModels()
+      await indexClip(payload.file, payload.categoryId)
+      break
 
-/**
- * POST /api/editor/clips/search
- * Semantic search — find clips matching an intent query
- * STATUS: READY
- */
-router.post('/clips/search', async (req, res) => {
-  const { categoryId, visualVector, textVector, clipType, count = 5 } = req.body
-
-  if (!visualVector || !textVector) {
-    return res.status(400).json({ error: 'visualVector and textVector required' })
-  }
-
-  try {
-    const results = await clipIndexer.searchClips(
-      req.user.id, visualVector, textVector,
-      { categoryId, clipType, count }
-    )
-    res.json({ results })
-  } catch (err) {
-    res.status(500).json({ error: err.message })
-  }
-})
-
-// ─── PROJECTS ─────────────────────────────────────────────────────────────────
-
-/**
- * GET /api/editor/projects?categoryId=
- * List editor projects
- * STATUS: WORKING
- */
-router.get('/projects', async (req, res) => {
-  const { categoryId } = req.query
-
-  const { data, error } = await supabase
-    .from('editor_projects')
-    .select('id, name, status, duration_ms, ai_confidence, last_exported_at, created_at, episode_id')
-    .eq('user_id', req.user.id)
-    .eq('category_id', categoryId)
-    .order('created_at', { ascending: false })
-
-  if (error) return res.status(500).json({ error: error.message })
-  res.json({ projects: data })
-})
-
-/**
- * POST /api/editor/projects
- * Create a new editor project (linked to an episode)
- * STATUS: WORKING
- */
-router.post('/projects', async (req, res) => {
-  const { categoryId, episodeId, name, footageRoot } = req.body
-
-  const { data, error } = await supabase
-    .from('editor_projects')
-    .insert({
-      user_id:      req.user.id,
-      category_id:  categoryId,
-      episode_id:   episodeId,
-      name:         name || 'Untitled edit',
-      footage_root: footageRoot,
-    })
-    .select().single()
-
-  if (error) return res.status(500).json({ error: error.message })
-  res.status(201).json({ project: data })
-})
-
-/**
- * GET /api/editor/projects/:id
- * Get a single project with full timeline
- * STATUS: WORKING
- */
-router.get('/projects/:id', async (req, res) => {
-  const { data, error } = await supabase
-    .from('editor_projects')
-    .select('*')
-    .eq('id', req.params.id)
-    .eq('user_id', req.user.id)
-    .single()
-
-  if (error || !data) return res.status(404).json({ error: 'Project not found' })
-  res.json({ project: data })
-})
-
-/**
- * POST /api/editor/projects/:id/assemble
- * AI assembles the timeline from EDL + clip index
- * STATUS: WORKING — visionMatcher.matchFullEDL assembles timeline from indexed clips
- */
-router.post('/projects/:id/assemble', async (req, res) => {
-  const { edlClipMap, beatVectors = [] } = req.body
-
-  if (!edlClipMap) return res.status(400).json({ error: 'edlClipMap required' })
-
-  try {
-    // Get project for category context
-    const { data: project } = await supabase
-      .from('editor_projects')
-      .select('category_id')
-      .eq('id', req.params.id)
-      .eq('user_id', req.user.id)
-      .single()
-
-    if (!project) return res.status(404).json({ error: 'Project not found' })
-
-    // Match EDL to clips
-    const matchResult = await visionMatcher.matchFullEDL(
-      req.user.id, project.category_id, edlClipMap, beatVectors
-    )
-
-    // Build virtual timeline
-    const timeline = timelineBuilder.buildTimeline(matchResult.matches, edlClipMap)
-
-    // Save to project
-    const saved = await timelineBuilder.saveTimeline(
-      req.params.id, req.user.id, timeline, matchResult.flags
-    )
-
-    res.json({
-      project:      saved,
-      timeline,
-      matchSummary: {
-        totalBeats:   matchResult.totalBeats,
-        matched:      matchResult.matchedBeats,
-        avgConfidence: matchResult.avgConfidence,
-        flagCount:    matchResult.flags.length,
+    case 'INDEX_BATCH': {
+      if (!modelsReady) await loadModels()
+      cancelFlag = false
+      const success = [], failed = []
+      for (let i = 0; i < payload.files.length; i++) {
+        if (cancelFlag) break
+        const r = await indexClip(payload.files[i], payload.categoryId)
+        if (r) success.push(r.filename)
+        else   failed.push(payload.files[i].name)
+        postMessage({ type: 'PROGRESS', payload: {
+          step: 'batch', filename: payload.files[i].name,
+          current: i + 1, total: payload.files.length,
+          pct: Math.round(((i + 1) / payload.files.length) * 100),
+        }})
       }
-    })
-  } catch (err) {
-    console.error('[editor/assemble]', err.message)
-    res.status(500).json({ error: err.message })
-  }
-})
-
-/**
- * PATCH /api/editor/projects/:id/timeline
- * Save timeline changes (user edits, approvals, swaps)
- * STATUS: WORKING
- */
-router.patch('/projects/:id/timeline', async (req, res) => {
-  const { timeline, approvedCuts, rejectedCuts, swapHistory } = req.body
-
-  const updates = { updated_at: new Date().toISOString() }
-  if (timeline)      updates.timeline      = timeline
-  if (approvedCuts)  updates.approved_cuts = approvedCuts
-  if (rejectedCuts)  updates.rejected_cuts = rejectedCuts
-  if (swapHistory)   updates.swap_history  = swapHistory
-
-  const { data, error } = await supabase
-    .from('editor_projects')
-    .update(updates)
-    .eq('id', req.params.id)
-    .eq('user_id', req.user.id)
-    .select().single()
-
-  if (error) return res.status(500).json({ error: error.message })
-  res.json({ project: data })
-})
-
-/**
- * POST /api/editor/projects/:id/swap
- * Get swap candidates for a specific clip
- * STATUS: WORKING — returns top 3 alternative clips ranked by semantic similarity
- */
-router.post('/projects/:id/swap', async (req, res) => {
-  const { clipId, beat, visualVector, textVector } = req.body
-
-  try {
-    const { data: project } = await supabase
-      .from('editor_projects')
-      .select('category_id')
-      .eq('id', req.params.id)
-      .eq('user_id', req.user.id)
-      .single()
-
-    const candidates = await visionMatcher.getSwapCandidates(
-      req.user.id, project.category_id, clipId, beat, visualVector, textVector
-    )
-
-    res.json({ candidates })
-  } catch (err) {
-    res.status(500).json({ error: err.message })
-  }
-})
-
-/**
- * POST /api/editor/projects/:id/export
- * Export timeline as EDL, FCPXML, or OTIO
- * STATUS: FULLY WORKING — EDL, FCPXML 1.10, and OTIO all implemented
- */
-router.post('/projects/:id/export', async (req, res) => {
-  const { format = 'edl' } = req.body
-
-  try {
-    const { data: project } = await supabase
-      .from('editor_projects')
-      .select('name, timeline, duration_ms')
-      .eq('id', req.params.id)
-      .eq('user_id', req.user.id)
-      .single()
-
-    if (!project) return res.status(404).json({ error: 'Project not found' })
-
-    const timeline = { clips: project.timeline || [], durationMs: project.duration_ms }
-    let content, filename, mimeType
-
-    if (format === 'fcpxml') {
-      content  = timelineBuilder.exportFCPXML(timeline, project.name)
-      filename = `${project.name.replace(/\s+/g,'-')}.fcpxml`
-      mimeType = 'application/xml'
-    } else if (format === 'otio') {
-      content  = timelineBuilder.exportOTIO(timeline, project.name)
-      filename = `${project.name.replace(/\s+/g,'-')}.otio`
-      mimeType = 'application/json'
-    } else {
-      content  = timelineBuilder.exportEDL(timeline, project.name)
-      filename = `${project.name.replace(/\s+/g,'-')}.edl`
-      mimeType = 'text/plain'
+      postMessage({ type: 'BATCH_DONE', payload: { success, failed } })
+      break
     }
 
-    // Log the export
-    await supabase.from('editor_projects').update({
-      last_exported_at: new Date().toISOString(),
-      export_format:    format,
-      status:           'exported',
-    }).eq('id', req.params.id)
+    case 'SEARCH':
+      if (!modelsReady) await loadModels()
+      await computeSearchVectors(payload.query)
+      break
 
-    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`)
-    res.setHeader('Content-Type', mimeType)
-    res.send(content)
+    case 'CANCEL':
+      cancelFlag = true
+      break
 
-  } catch (err) {
-    console.error('[editor/export]', err.message)
-    res.status(500).json({ error: err.message })
-  }
-})
-
-module.exports = router
-
-// ─── NEXT LEVEL ROUTES ────────────────────────────────────────────────────────
-
-const retentionMapper  = require('../../services/retentionMapper')
-const voAlignment      = require('../../services/voAlignment')
-const continuityScorer = require('../../services/continuityScorer')
-const retentionModel   = require('../../services/retentionModel')
-
-/**
- * POST /api/editor/retention-template
- * Build retention template from user's top episodes
- */
-router.post('/retention-template', async (req, res) => {
-  const { categoryId, force = false } = req.body
-  try {
-    // Serve from cache unless forced or stale (older than 24 hours)
-    if (!force) {
-      const { data: cat } = await supabase
-        .from('categories')
-        .select('retention_template, retention_template_at')
-        .eq('id', categoryId)
-        .eq('user_id', req.user.id)
-        .single()
-
-      const cacheAge = cat?.retention_template_at
-        ? Date.now() - new Date(cat.retention_template_at).getTime()
-        : Infinity
-
-      if (cat?.retention_template && cacheAge < 24 * 60 * 60 * 1000) {
-        return res.json({ template: cat.retention_template, fromCache: true })
-      }
-    }
-
-    const template = await retentionMapper.buildRetentionTemplate(req.user.id, categoryId)
-    res.json({ template, fromCache: false })
-  } catch (err) {
-    res.status(500).json({ error: err.message })
-  }
-})
-
-/**
- * POST /api/editor/retention-curve/:episodeId
- * Save a retention curve to an episode
- */
-router.post('/retention-curve/:episodeId', async (req, res) => {
-  const { curveData } = req.body
-  try {
-    const result = await retentionMapper.saveRetentionCurve(req.user.id, req.params.episodeId, curveData)
-    res.json(result)
-  } catch (err) {
-    res.status(500).json({ error: err.message })
-  }
-})
-
-/**
- * POST /api/editor/projects/:id/align
- * Apply Whisper word-level alignment to the timeline
- * Body: { whisperOutput, fps? }
- */
-router.post('/projects/:id/align', async (req, res) => {
-  const { whisperOutput, fps = 25 } = req.body
-  if (!whisperOutput) return res.status(400).json({ error: 'whisperOutput required' })
-
-  try {
-    const { data: project } = await supabase
-      .from('editor_projects')
-      .select('timeline, episode_id')
-      .eq('id', req.params.id)
-      .eq('user_id', req.user.id)
-      .single()
-
-    if (!project) return res.status(404).json({ error: 'Project not found' })
-
-    const wordTimestamps = voAlignment.parseWhisperWordTimestamps(whisperOutput)
-    const { timeline: aligned, alignments, aligned: count } =
-      voAlignment.realignTimeline(project.timeline || [], wordTimestamps, fps)
-
-    // Save aligned timeline
-    await supabase
-      .from('editor_projects')
-      .update({ timeline: aligned, updated_at: new Date().toISOString() })
-      .eq('id', req.params.id)
-      .eq('user_id', req.user.id)
-
-    // Save alignment data to episode if linked
-    if (project.episode_id) {
-      await voAlignment.saveAlignmentData(req.user.id, project.episode_id, { alignments, alignedAt: new Date().toISOString() })
-    }
-
-    res.json({ timeline: aligned, alignments, aligned: count, wordCount: wordTimestamps.length })
-  } catch (err) {
-    res.status(500).json({ error: err.message })
-  }
-})
-
-/**
- * POST /api/editor/projects/:id/continuity
- * Score the timeline for narrative continuity
- * Body: { voScript, trackContext? }
- */
-router.post('/projects/:id/continuity', async (req, res) => {
-  const { voScript, trackContext } = req.body
-
-  try {
-    const { data: project } = await supabase
-      .from('editor_projects')
-      .select('timeline')
-      .eq('id', req.params.id)
-      .eq('user_id', req.user.id)
-      .single()
-
-    if (!project) return res.status(404).json({ error: 'Project not found' })
-
-    const [continuityResult, energyResult] = await Promise.all([
-      continuityScorer.scoreContinuity(project.timeline || [], voScript, trackContext),
-      Promise.resolve(continuityScorer.analyseEnergyArc(project.timeline || [])),
-    ])
-
-    res.json({
-      continuity: continuityResult,
-      energy:     energyResult,
-    })
-  } catch (err) {
-    res.status(500).json({ error: err.message })
-  }
-})
-
-/**
- * GET /api/editor/retention-model/stats?categoryId=
- * Get training data stats for the retention model
- */
-router.get('/retention-model/stats', async (req, res) => {
-  const { categoryId } = req.query
-  try {
-    const stats = await retentionModel.getModelStats(req.user.id, categoryId)
-    res.json(stats)
-  } catch (err) {
-    res.status(500).json({ error: err.message })
-  }
-})
-
-/**
- * GET /api/editor/retention-model/training-data?categoryId=
- * Fetch training data for browser-side TF.js training
- */
-router.get('/retention-model/training-data', async (req, res) => {
-  const { categoryId } = req.query
-  try {
-    const data = await retentionModel.getTrainingData(req.user.id, categoryId)
-    res.json(data)
-  } catch (err) {
-    res.status(500).json({ error: err.message })
+    // Results from main thread — handled by askMainThread listeners above
+    case 'TRANSCRIBE_RESULT':
+    case 'AUDIO_META_RESULT':
+    case 'FRAME_RESULT':
+      // These are caught by the addEventListener in askMainThread
+      break
   }
 })
