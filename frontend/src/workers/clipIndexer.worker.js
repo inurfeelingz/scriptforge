@@ -83,18 +83,13 @@ async function transcribeOnMainThread(filename, mimeType, buffer) {
 async function extractFrameOnMainThread(filename) {
   const result = await askMainThread('FRAME_REQUEST', 'FRAME_RESULT', { filename })
   if (!result.imageData) return null
-  // Reconstruct canvas from transferred pixels
   const { width, height, data } = result.imageData
   const imgData = new ImageData(new Uint8ClampedArray(data), width, height)
   const canvas  = new OffscreenCanvas(width, height)
   canvas.getContext('2d').putImageData(imgData, 0, 0)
-  // Convert to Blob — Xenova CLIP accepts Blob input reliably
-  try {
-    const blob = await canvas.convertToBlob({ type: 'image/png' })
-    return blob
-  } catch {
-    return canvas
-  }
+  const blob = await canvas.convertToBlob({ type: 'image/png' })
+  // Return object URL — Xenova CLIP fetches URLs reliably in worker context
+  return URL.createObjectURL(blob)
 }
 
 // ─── FRAME EXTRACTION VIA WEBCODECS (worker-side, for formats that work) ───────
@@ -130,12 +125,8 @@ async function extractFrameWithMP4Box(buffer) {
           const canvas = new OffscreenCanvas(224, 224)
           canvas.getContext('2d').drawImage(frame, 0, 0, 224, 224)
           frame.close()
-          try {
-            const blob = await canvas.convertToBlob({ type: 'image/png' })
-            done(blob)
-          } catch {
-            done(canvas)
-          }
+          const blob = await canvas.convertToBlob({ type: 'image/png' })
+          done(URL.createObjectURL(blob))
         },
         error: (e) => { console.warn('[VideoDecoder] error:', e.message); done(null) },
       })
@@ -214,10 +205,13 @@ async function extractVideoMeta(buffer) {
 }
 
 // ─── VECTORS ──────────────────────────────────────────────────────────────────
-async function visualVector(imageBitmap) {
-  if (!clipExtractor || !imageBitmap) return new Array(512).fill(0)
-  try { return Array.from((await clipExtractor(imageBitmap)).data) }
-  catch { return new Array(512).fill(0) }
+async function visualVector(frame) {
+  if (!clipExtractor || !frame) return new Array(512).fill(0)
+  try {
+    const result = Array.from((await clipExtractor(frame)).data)
+    if (typeof frame === 'string' && frame.startsWith('blob:')) URL.revokeObjectURL(frame)
+    return result
+  } catch { return new Array(512).fill(0) }
 }
 
 async function textVector(text) {
@@ -239,22 +233,38 @@ function cosineSim(a, b) {
   return dot / (Math.sqrt(mA) * Math.sqrt(mB) + 1e-8)
 }
 
-async function tagClip(imageBitmap, clipType) {
-  if (!clipExtractor || !imageBitmap) {
+async function tagClip(frame, clipType) {
+  if (!clipExtractor || !frame) {
     console.warn('[tagClip] No frame available — using clip type as tag')
     return [clipType]
   }
   try {
-    const imgVec = Array.from((await clipExtractor(imageBitmap)).data)
+    // Get visual embedding from frame
+    const imgVec = Array.from((await clipExtractor(frame, { pooling: 'mean' })).data)
+    if (typeof frame === 'string' && frame.startsWith('blob:')) URL.revokeObjectURL(frame)
+
+    // Compare against labels using MiniLM text embeddings (512 dims)
+    // Pad/trim to match CLIP output dimension
     const labels = LABELS[clipType] || LABELS.cam
+    const imgDim = imgVec.length
+
     const scored = await Promise.all(labels.map(async label => {
-      const out = await clipExtractor(label)
-      return { label, score: cosineSim(imgVec, Array.from(out.data)) }
+      try {
+        const out   = await textExtractor(label, { pooling: 'mean', normalize: true })
+        const txtVec = Array.from(out.data)
+        // Pad text vec to image vec length if needed
+        const aligned = txtVec.length >= imgDim
+          ? txtVec.slice(0, imgDim)
+          : [...txtVec, ...new Array(imgDim - txtVec.length).fill(0)]
+        return { label, score: cosineSim(imgVec, aligned) }
+      } catch { return { label, score: 0 } }
     }))
-    const tags = scored.sort((a,b) => b.score - a.score).filter(s => s.score > 0.15).slice(0, 5).map(s => s.label)
+
+    const tags = scored.sort((a,b) => b.score - a.score).filter(s => s.score > 0.1).slice(0, 5).map(s => s.label)
     console.log('[tagClip]', clipType, '→', tags)
     return tags.length ? tags : [clipType]
   } catch (err) {
+    if (typeof frame === 'string' && frame.startsWith('blob:')) URL.revokeObjectURL(frame)
     console.warn('[tagClip] Error:', err.message)
     return [clipType]
   }
