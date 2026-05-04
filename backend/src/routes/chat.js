@@ -28,27 +28,31 @@ function setCachedCtx(key, value) {
 }
 
 // ── Load + save history helpers ───────────────────────────────────────────────
-async function loadHistory(userId, categoryId, mode) {
-  const { data } = await supabase
-    .from('chat_history')
-    .select('messages, updated_at')
-    .eq('user_id', userId)
-    .eq('category_id', categoryId)
-    .eq('mode', mode)
-    .maybeSingle()
-  return { messages: data?.messages || [], updatedAt: data?.updated_at }
-}
-
 async function saveHistory(userId, categoryId, mode, messages) {
+  // Use a zero UUID as placeholder when no category selected
+  // — Postgres NULL != NULL in unique constraints so we need a real value
+  const catId = categoryId || '00000000-0000-0000-0000-000000000000'
   await supabase
     .from('chat_history')
     .upsert({
       user_id:     userId,
-      category_id: categoryId,
+      category_id: catId,
       mode,
       messages,
       updated_at:  new Date().toISOString(),
     }, { onConflict: 'user_id,mode,category_id' })
+}
+
+async function loadHistory(userId, categoryId, mode) {
+  const catId = categoryId || '00000000-0000-0000-0000-000000000000'
+  const { data } = await supabase
+    .from('chat_history')
+    .select('messages, updated_at')
+    .eq('user_id', userId)
+    .eq('category_id', catId)
+    .eq('mode', mode)
+    .maybeSingle()
+  return { messages: data?.messages || [], updatedAt: data?.updated_at }
 }
 
 // ── POST /api/chat/message ─────────────────────────────────────────────────────
