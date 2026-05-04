@@ -83,12 +83,18 @@ async function transcribeOnMainThread(filename, mimeType, buffer) {
 async function extractFrameOnMainThread(filename) {
   const result = await askMainThread('FRAME_REQUEST', 'FRAME_RESULT', { filename })
   if (!result.imageData) return null
-  // Reconstruct into OffscreenCanvas — CLIP pipeline accepts this directly
+  // Reconstruct canvas from transferred pixels
   const { width, height, data } = result.imageData
   const imgData = new ImageData(new Uint8ClampedArray(data), width, height)
   const canvas  = new OffscreenCanvas(width, height)
   canvas.getContext('2d').putImageData(imgData, 0, 0)
-  return canvas  // return canvas, not transferToImageBitmap() — CLIP needs canvas
+  // Convert to Blob — Xenova CLIP accepts Blob input reliably
+  try {
+    const blob = await canvas.convertToBlob({ type: 'image/png' })
+    return blob
+  } catch {
+    return canvas
+  }
 }
 
 // ─── FRAME EXTRACTION VIA WEBCODECS (worker-side, for formats that work) ───────
@@ -119,12 +125,17 @@ async function extractFrameWithMP4Box(buffer) {
       }
 
       decoder = new VideoDecoder({
-        output: (frame) => {
+        output: async (frame) => {
           if (resolved) { frame.close(); return }
           const canvas = new OffscreenCanvas(224, 224)
           canvas.getContext('2d').drawImage(frame, 0, 0, 224, 224)
           frame.close()
-          done(canvas)  // return canvas — CLIP accepts OffscreenCanvas directly
+          try {
+            const blob = await canvas.convertToBlob({ type: 'image/png' })
+            done(blob)
+          } catch {
+            done(canvas)
+          }
         },
         error: (e) => { console.warn('[VideoDecoder] error:', e.message); done(null) },
       })
