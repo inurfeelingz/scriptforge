@@ -325,7 +325,7 @@ async function computeSearchVectors(query) {
 }
 
 // ─── MESSAGE HANDLER ──────────────────────────────────────────────────────────
-self.onmessage = async ({ data }) => {
+self.addEventListener('message', async ({ data }) => {
   const { type, payload } = data
   switch (type) {
     case 'INIT':
@@ -372,4 +372,4 @@ self.onmessage = async ({ data }) => {
       // These are caught by the addEventListener in askMainThread
       break
   }
-}
+})
