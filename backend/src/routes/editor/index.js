@@ -163,19 +163,21 @@ router.post('/clips/transcribe', (req, res, next) => {
   if (!process.env.OPENAI_API_KEY) return res.json({ text: '' })
 
   const inputPath  = req.file.path
-  const outputPath = path.join(os.tmpdir(), `audio-${Date.now()}.mp3`)
+  const audioPath  = path.join(os.tmpdir(), `audio-${Date.now()}.mp3`)
+
+  // Send keepalive whitespace every 10s to prevent Railway 30s idle timeout
+  res.setHeader('Content-Type', 'application/json')
+  res.setHeader('X-Accel-Buffering', 'no')
+  const keepalive = setInterval(() => { try { res.write(' ') } catch {} }, 10000)
 
   try {
-    // Extract audio track to small MP3
     console.log(`[clips/transcribe] Extracting audio from ${req.file.originalname} (${Math.round(req.file.size/1024/1024)}MB)`)
-    await extractAudio(inputPath, outputPath)
+    await extractAudio(inputPath, audioPath)
+    const audioSize = fs.statSync(audioPath).size
+    console.log(`[clips/transcribe] Audio extracted: ${Math.round(audioSize/1024)}KB`)
 
-    const audioStats = fs.statSync(outputPath)
-    console.log(`[clips/transcribe] Audio extracted: ${Math.round(audioStats.size/1024)}KB`)
-
-    // Send audio to Whisper
     const form = new FormData()
-    form.append('file', fs.createReadStream(outputPath), { filename: 'audio.mp3', contentType: 'audio/mpeg' })
+    form.append('file', fs.createReadStream(audioPath), { filename: 'audio.mp3', contentType: 'audio/mpeg' })
     form.append('model', 'whisper-1')
     form.append('language', 'en')
 
@@ -183,18 +185,21 @@ router.post('/clips/transcribe', (req, res, next) => {
       headers: { ...form.getHeaders(), Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
       maxContentLength: Infinity,
       maxBodyLength: Infinity,
-      timeout: 120000,
+      timeout: 300000,
     })
 
-    res.json({ text: response.data?.text?.trim() || '' })
+    const text = response.data?.text?.trim() || ''
+    console.log(`[clips/transcribe] Done: "${text.slice(0, 80)}"`)
+    clearInterval(keepalive)
+    res.end(JSON.stringify({ text }))
 
   } catch (err) {
     console.error('[clips/transcribe]', err.response?.data || err.message)
-    res.json({ text: '' })
+    clearInterval(keepalive)
+    res.end(JSON.stringify({ text: '' }))
   } finally {
-    // Clean up temp files
     try { fs.unlinkSync(inputPath) } catch {}
-    try { fs.unlinkSync(outputPath) } catch {}
+    try { fs.unlinkSync(audioPath) } catch {}
   }
 })
 

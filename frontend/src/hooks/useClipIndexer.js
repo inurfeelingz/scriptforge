@@ -122,7 +122,8 @@ export function useClipIndexer() {
               body:    form,
             })
             console.log('[transcribe] Response status:', res.status, data.filename)
-            const json = res.ok ? await res.json() : {}
+            const raw  = res.ok ? await res.text() : '{}'
+            const json = JSON.parse(raw.trim()) || {}
             console.log('[transcribe] Transcript:', json.text?.slice(0, 80), data.filename)
             workerRef.current?.postMessage({ type: 'TRANSCRIBE_RESULT', id: data.id, transcript: json.text || '' })
           } catch (err) {
