@@ -239,30 +239,31 @@ async function tagClip(frame, clipType) {
     return [clipType]
   }
   try {
-    // Get visual embedding from frame
-    const imgVec = Array.from((await clipExtractor(frame, { pooling: 'mean' })).data)
+    // Get image embedding via CLIP vision encoder
+    const imgOut = await clipExtractor(frame, { pooling: 'mean', normalize: true })
+    const imgVec = Array.from(imgOut.data)
     if (typeof frame === 'string' && frame.startsWith('blob:')) URL.revokeObjectURL(frame)
 
-    // Compare against labels using MiniLM text embeddings (512 dims)
-    // Pad/trim to match CLIP output dimension
     const labels = LABELS[clipType] || LABELS.cam
-    const imgDim = imgVec.length
 
+    // Get text embeddings via CLIP text encoder
+    // Xenova CLIP pipeline embeds text when passed a string directly
     const scored = await Promise.all(labels.map(async label => {
       try {
-        const out   = await textExtractor(label, { pooling: 'mean', normalize: true })
-        const txtVec = Array.from(out.data)
-        // Pad text vec to image vec length if needed
-        const aligned = txtVec.length >= imgDim
-          ? txtVec.slice(0, imgDim)
-          : [...txtVec, ...new Array(imgDim - txtVec.length).fill(0)]
-        return { label, score: cosineSim(imgVec, aligned) }
-      } catch { return { label, score: 0 } }
+        // Use the underlying model's text encoder directly
+        const out = await clipExtractor.model.get_text_features({
+          ...await clipExtractor.tokenizer(label, { padding: true, truncation: true }),
+        })
+        const txtVec = Array.from(out.text_embeds?.data || out.data || [])
+        return { label, score: cosineSim(imgVec, txtVec) }
+      } catch {
+        return { label, score: 0 }
+      }
     }))
 
-    const tags = scored.sort((a,b) => b.score - a.score).slice(0, 5)
+    const tags = scored.sort((a,b) => b.score - a.score)
     console.log('[tagClip] scores:', tags.map(t => `${t.label}:${t.score.toFixed(3)}`).join(', '))
-    const filtered = tags.filter(s => s.score > 0.05).map(s => s.label)
+    const filtered = tags.filter(s => s.score > 0.2).slice(0, 5).map(s => s.label)
     return filtered.length ? filtered : [clipType]
   } catch (err) {
     if (typeof frame === 'string' && frame.startsWith('blob:')) URL.revokeObjectURL(frame)
