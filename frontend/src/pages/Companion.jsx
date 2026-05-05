@@ -318,8 +318,8 @@ export default function Companion() {
 
       {/* ── TAB BAR ── */}
       <div style={{display:'flex',justifyContent:'center',gap:8,padding:'8px 16px',borderBottom:'1px solid rgba(255,255,255,0.05)',flexShrink:0}}>
-        {[{id:'record',label:'Record',icon:'⏺'},{id:'brainstorm',label:'Brainstorm',icon:'✦'}].map(tab=>(
-          <button key={tab.id} onClick={()=>set({screen:tab.id})} style={{fontFamily:"'Figtree',sans-serif",fontSize:11,fontWeight:state.screen===tab.id?600:400,padding:'5px 16px',borderRadius:20,border:`1px solid ${state.screen===tab.id?'rgba(74,222,128,0.4)':'rgba(255,255,255,0.08)'}`,background:state.screen===tab.id?KB_GREEN_FAINT:'transparent',color:state.screen===tab.id?KB_GREEN_DIM:'rgba(255,255,255,0.3)',cursor:'pointer',transition:'all 0.2s',display:'flex',alignItems:'center',gap:5}}>
+        {[{id:'record',label:'Record',icon:'⏺',activeColor:'rgba(224,48,48,1)',activeFaint:'rgba(224,48,48,0.08)',activeBorder:'rgba(224,48,48,0.4)'},{id:'brainstorm',label:'Brainstorm',icon:'✦',activeColor:KB_GREEN_DIM,activeFaint:KB_GREEN_FAINT,activeBorder:'rgba(74,222,128,0.4)'}].map(tab=>(
+          <button key={tab.id} onClick={()=>set({screen:tab.id})} style={{fontFamily:"'Figtree',sans-serif",fontSize:11,fontWeight:state.screen===tab.id?600:400,padding:'5px 18px',borderRadius:20,border:`1px solid ${state.screen===tab.id?tab.activeBorder:'rgba(255,255,255,0.08)'}`,background:state.screen===tab.id?tab.activeFaint:'transparent',color:state.screen===tab.id?tab.activeColor:'rgba(255,255,255,0.3)',cursor:'pointer',transition:'all 0.2s',display:'flex',alignItems:'center',gap:5}}>
             <span style={{fontSize:9}}>{tab.icon}</span> {tab.label}
           </button>
         ))}
@@ -363,7 +363,7 @@ export default function Companion() {
               {state.status==='idle'&&(
                 <div className="idle-hint">
                   <p className="idle-title">Hold to start recording</p>
-                  <p className="idle-body">Open this before your DAW. Describe what you're hearing, what's working, what you're trying — in the moment, in your own words.</p>
+                  <InfoBubble text="Open this before your DAW. Describe what you're hearing, what's working, what you're trying — in the moment, in your own words. It becomes your episode voice memo."/>
                   {state.micLabel&&<p className="mic-hint">{state.isExternal?`🎙 ${state.micInfo||state.micLabel}`:'Built-in mic'}</p>}
                 </div>
               )}
@@ -383,41 +383,88 @@ export default function Companion() {
           )}
 
           <div className="record-section">
-            {state.recording&&!state.showMarkInput&&(
-              <div className="mark-section">
-                <button className={`mark-btn ${state.justMarked?'mark-btn-flash':''}`}
-                  onTouchStart={e=>{markStartRef.current={y:e.touches[0].clientY}}}
-                  onTouchEnd={e=>{const dy=markStartRef.current.y-e.changedTouches[0].clientY;if(dy>40)set({showMarkInput:true});else markMoment()}}
-                  onMouseDown={()=>markMoment()}>
-                  <Flag size={20}/>
-                  <span className="mark-btn-label">{state.justMarked?'✓ Marked':'Mark'}</span>
-                  <span className="mark-swipe-hint">↑ label</span>
-                </button>
-                <div className="quick-marks">
-                  {QUICK_MARKS.map(m=><button key={m.label} className="quick-mark-chip" onClick={()=>markMoment(m.label)}>{m.icon}</button>)}
-                </div>
-              </div>
-            )}
 
-            {state.showMarkInput&&(
+            {/* Mark label input — slides in above toolbar */}
+            {state.showMarkInput && (
               <div className="mark-input-row">
                 <input autoFocus className="mark-input" placeholder="What's happening right now?" value={state.markLabel}
                   onChange={e=>set({markLabel:e.target.value})}
-                  onKeyDown={e=>{if(e.key==='Enter')markMoment(state.markLabel);if(e.key==='Escape')set({showMarkInput:false,markLabel:''})}}/>
+                  onKeyDown={e=>{
+                    if(e.key==='Enter')markMoment(state.markLabel)
+                    if(e.key==='Escape')set({showMarkInput:false,markLabel:''})
+                  }}/>
                 <button className="mark-input-send" onClick={()=>markMoment(state.markLabel)}><Check size={18}/></button>
               </div>
             )}
 
-            <div style={{marginTop:8}}>
-              <RecordButton recording={state.recording} status={state.status} audioLevel={state.audioLevel} onPressStart={onLPStart} onPressEnd={onLPEnd}/>
+            {/* ── HORIZONTAL TRANSPORT BAR ── */}
+            <div style={{
+              display:'flex', alignItems:'center', justifyContent:'center',
+              gap:8, width:'100%',
+              background:'rgba(255,255,255,0.025)',
+              border:'1px solid rgba(255,255,255,0.06)',
+              borderRadius:20, padding:'10px 14px',
+            }}>
+              {/* Quick-mark emojis — left side */}
+              <div style={{display:'flex',alignItems:'center',gap:0,flex:1,justifyContent:'flex-start'}}>
+                {QUICK_MARKS.map(m=>(
+                  <button key={m.label} onClick={()=>markMoment(m.label)} disabled={!state.recording} title={m.label}
+                    style={{fontSize:22,padding:'3px 2px',border:'none',background:'none',
+                      cursor:state.recording?'pointer':'default',
+                      opacity:state.recording?1:0.18,
+                      transition:'opacity 0.2s, transform 0.1s',
+                      WebkitTapHighlightColor:'transparent',lineHeight:1}}
+                    onMouseDown={e=>{if(state.recording)e.currentTarget.style.transform='scale(0.78)'}}
+                    onMouseUp={e=>{e.currentTarget.style.transform='scale(1)'}}
+                    onTouchStart={e=>{if(state.recording)e.currentTarget.style.transform='scale(0.78)'}}
+                    onTouchEnd={e=>{e.currentTarget.style.transform='scale(1)'}}
+                    onMouseLeave={e=>{e.currentTarget.style.transform='scale(1)'}}
+                  >{m.icon}</button>
+                ))}
+              </div>
+
+              {/* Record button — centre, small */}
+              <RecordButton
+                recording={state.recording}
+                status={state.status}
+                audioLevel={state.audioLevel}
+                onPressStart={onLPStart}
+                onPressEnd={onLPEnd}
+                small
+              />
+
+              {/* Flag mark button — right side, rounded square to match record btn */}
+              <div style={{flex:1,display:'flex',justifyContent:'flex-end'}}>
+                <button
+                  onClick={()=>markMoment()}
+                  onContextMenu={e=>{e.preventDefault();if(state.recording)set({showMarkInput:true})}}
+                  disabled={!state.recording}
+                  title="Mark moment (right-click to label)"
+                  style={{
+                    position:'relative',
+                    width:56,height:56,borderRadius:14,flexShrink:0,
+                    border:`1.5px solid ${state.justMarked?'rgba(212,168,83,0.7)':'rgba(255,255,255,0.18)'}`,
+                    background:state.justMarked?'rgba(212,168,83,0.12)':'rgba(255,255,255,0.05)',
+                    color:state.justMarked?'#e8c46a':'rgba(255,255,255,0.85)',
+                    cursor:state.recording?'pointer':'default',
+                    opacity:state.recording?1:0.18,
+                    display:'flex',alignItems:'center',justifyContent:'center',
+                    transition:'all 0.15s',
+                    boxShadow:state.justMarked?'0 0 14px rgba(212,168,83,0.3), inset 0 1px 0 rgba(255,255,255,0.08)':'inset 0 1px 0 rgba(255,255,255,0.08), 0 2px 8px rgba(0,0,0,0.4)',
+                    WebkitTapHighlightColor:'transparent',
+                  }}
+                >
+                  {state.justMarked?<Check size={20}/>:<Flag size={20}/>}
+                </button>
+              </div>
             </div>
 
             <p className="record-hint">
-              {state.status==='starting'&&'Connecting mic...'}
-              {state.status==='stopping'&&'Saving session...'}
-              {state.status==='recording'&&`${state.entries.filter(e=>e.type!=='marker').length} utterances · ${state.entries.filter(e=>e.type==='marker').length} marks`}
-              {state.status==='idle'&&'Hold 0.6s to start'}
-              {state.status==='error'&&'Tap to retry'}
+              {state.status==='starting'  && 'Connecting mic...'}
+              {state.status==='stopping'  && 'Saving session...'}
+              {state.status==='recording' && `${state.entries.filter(e=>e.type!=='marker').length} utterances · ${state.entries.filter(e=>e.type==='marker').length} marks`}
+              {state.status==='idle'      && 'Hold mic to start'}
+              {state.status==='error'     && 'Tap to retry'}
             </p>
           </div>
 
@@ -459,8 +506,44 @@ export default function Companion() {
   )
 }
 
+// ─── INFO BUBBLE ─────────────────────────────────────────────────────────────
+function InfoBubble({ text }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div style={{display:'flex',flexDirection:'column',alignItems:'center',gap:6,marginTop:4}}>
+      <button
+        onClick={()=>setOpen(o=>!o)}
+        style={{
+          width:28,height:28,borderRadius:'50%',
+          border:'1px solid rgba(255,255,255,0.15)',
+          background:'rgba(255,255,255,0.05)',
+          color:'rgba(255,255,255,0.45)',
+          fontSize:13,fontWeight:600,
+          cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',
+          transition:'all 0.15s',
+          WebkitTapHighlightColor:'transparent',
+          flexShrink:0,
+        }}
+      >i</button>
+      {open && (
+        <div style={{
+          fontSize:12,color:'rgba(255,255,255,0.4)',lineHeight:1.6,textAlign:'center',
+          maxWidth:260,padding:'10px 14px',
+          background:'rgba(255,255,255,0.03)',
+          border:'1px solid rgba(255,255,255,0.07)',
+          borderRadius:10,
+          animation:'fadeIn 0.15s ease',
+        }}>
+          {text}
+        </div>
+      )}
+      <style>{`@keyframes fadeIn{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:translateY(0)}}`}</style>
+    </div>
+  )
+}
+
 // ─── RECORD BUTTON ────────────────────────────────────────────────────────────
-function RecordButton({ recording, status, audioLevel, onPressStart, onPressEnd }) {
+function RecordButton({ recording, status, audioLevel, onPressStart, onPressEnd, small }) {
   const [holdPct, setHoldPct] = useState(0)
   const hRef = useRef(null)
   function startHold() {
@@ -469,17 +552,57 @@ function RecordButton({ recording, status, audioLevel, onPressStart, onPressEnd 
     hRef.current=setInterval(()=>{const p=Math.min(100,(Date.now()-t)/LONG_PRESS_MS*100);setHoldPct(p);if(p>=100){clearInterval(hRef.current);setHoldPct(0)}},20)
   }
   function endHold() { clearInterval(hRef.current); onPressEnd(); setTimeout(()=>setHoldPct(0),200) }
+
+  const size    = small ? 56 : 88
+  const radius  = small ? 14 : 22   // rounded square
+  const iconSize = small ? 20 : 28
+
+  // Colour states
+  const isRecording = recording
+  const isStarting  = status === 'starting'
+  const bg      = isRecording ? 'rgba(224,48,48,0.12)' : 'rgba(255,255,255,0.05)'
+  const border  = isRecording ? 'rgba(224,48,48,0.7)'  : isStarting ? '#d4a853' : 'rgba(255,255,255,0.18)'
+  const color   = isRecording ? '#e03030' : 'rgba(255,255,255,0.85)'
+  const shadow  = isRecording ? '0 0 18px rgba(224,48,48,0.35), inset 0 1px 0 rgba(255,255,255,0.08)' : 'inset 0 1px 0 rgba(255,255,255,0.08), 0 2px 8px rgba(0,0,0,0.4)'
+
   return (
-    <button className={`record-btn ${recording?'record-btn-active':''} ${status==='starting'?'record-btn-starting':''}`}
-      onTouchStart={startHold} onTouchEnd={endHold} onMouseDown={startHold} onMouseUp={endHold} onMouseLeave={endHold}
-      style={{transform:`scale(${recording?1+audioLevel*0.08:1})`}}>
+    <button
+      onTouchStart={startHold} onTouchEnd={endHold}
+      onMouseDown={startHold}  onMouseUp={endHold} onMouseLeave={endHold}
+      style={{
+        position:'relative',
+        width:size, height:size, flexShrink:0,
+        borderRadius:radius,
+        border:`1.5px solid ${border}`,
+        background:bg,
+        color,
+        display:'flex',alignItems:'center',justifyContent:'center',
+        cursor:'pointer',
+        transition:'transform 80ms ease, background 200ms, border-color 200ms, box-shadow 200ms',
+        boxShadow:shadow,
+        transform:`scale(${isRecording?1+audioLevel*0.06:1})`,
+        WebkitTapHighlightColor:'transparent',
+      }}
+    >
+      {/* Hold progress arc */}
       {holdPct>0&&holdPct<100&&(
-        <svg className="hold-ring" viewBox="0 0 100 100">
-          <circle cx="50" cy="50" r="46" fill="none" stroke="rgba(255,255,255,0.6)" strokeWidth="4" strokeDasharray={`${holdPct*2.89} 289`} strokeLinecap="round" transform="rotate(-90 50 50)"/>
+        <svg style={{position:'absolute',inset:-3,width:'calc(100% + 6px)',height:'calc(100% + 6px)',pointerEvents:'none'}} viewBox="0 0 100 100">
+          <rect x="2" y="2" width="96" height="96" rx={radius*1.5} ry={radius*1.5} fill="none" stroke="rgba(255,255,255,0.55)" strokeWidth="3"
+            strokeDasharray={`${holdPct*3.76} 376`} strokeLinecap="round"
+            style={{transformOrigin:'50% 50%',transform:'rotate(-90deg)'}}/>
         </svg>
       )}
-      {recording&&<div className="pulse-ring" style={{transform:`scale(${1+audioLevel*0.4})`,opacity:0.3+audioLevel*0.5}}/>}
-      {status==='starting'?<Loader2 size={36} className="animate-spin"/>:recording?<Square size={32}/>:<Mic size={36}/>}
+      {/* Recording pulse glow */}
+      {isRecording&&(
+        <div style={{position:'absolute',inset:-4,borderRadius:radius+4,border:'1.5px solid rgba(224,48,48,0.3)',animation:'rec-pulse 1.4s ease infinite',pointerEvents:'none'}}/>
+      )}
+      {isStarting
+        ? <Loader2 size={iconSize} style={{animation:'spin 1s linear infinite'}}/>
+        : isRecording
+        ? <Square size={iconSize}/>
+        : <Mic size={iconSize}/>
+      }
+      <style>{`@keyframes rec-pulse{0%,100%{opacity:0.3;transform:scale(1)}50%{opacity:0.7;transform:scale(1.08)}}`}</style>
     </button>
   )
 }
