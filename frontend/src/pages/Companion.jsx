@@ -29,13 +29,13 @@ import {
   Volume2, Radio, Clock, RefreshCw
 } from 'lucide-react'
 import { useStore } from '../store'
-import { api } from '../lib/api'
+import { api, chat as chatApi } from '../lib/api'
 import { getSession, supabase } from '../lib/supabase'
 import { detectMic, buildConstraints, getRecordingBitrate, needsStereoSum, describeMic } from '../lib/micDetect'
 import MascotOrb from '../components/companion/MascotOrb'
 
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
-const SCREENS = ['record']
+const SCREENS = ['record', 'brainstorm']
 const CHUNK_MS        = 12000      // transcribe every 12s
 const WAVEFORM_BARS   = 48         // number of bars in visualiser
 const LONG_PRESS_MS   = 600        // ms for long-press start
@@ -775,7 +775,7 @@ export default function Companion() {
             </div>
           ) : (
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center' }}>
-              <MascotOrb mood={state.orbMood} audioLevel={state.audioLevel} size={220}/>
+              <MascotOrb mood={state.orbMood} audioLevel={state.audioLevel} size={253}/>
               {/* Idle instructions */}
               {state.status === 'idle' && (
                 <div className="idle-hint">
@@ -934,7 +934,21 @@ export default function Companion() {
           )}
         </div>
 
+        {/* ══ SCREEN 1: BRAINSTORM ════════════════════════════════════════════ */}
+        <BrainstormScreen categoryId={activeCategoryId}/>
+
       </div>{/* end screens */}
+
+      {/* Screen dots */}
+      <div style={{ position: 'fixed', bottom: 12, left: 0, right: 0, display: 'flex', justifyContent: 'center', gap: 6, zIndex: 10 }}>
+        {SCREENS.map((_, i) => (
+          <div key={i} style={{
+            width: 5, height: 5, borderRadius: '50%',
+            background: state.screen === i ? 'rgba(200,184,154,0.8)' : 'rgba(255,255,255,0.15)',
+            transition: 'background 0.3s',
+          }}/>
+        ))}
+      </div>
 
     </div>
   )
@@ -1092,6 +1106,194 @@ function SwipeableEntry({ entry, onDelete }) {
       {offsetX < -30 && (
         <Trash2 size={14} className="text-red-400 shrink-0" style={{ opacity: Math.min(1, (-offsetX - 30) / 40) }}/>
       )}
+    </div>
+  )
+}
+
+// ─── BRAINSTORM SCREEN ────────────────────────────────────────────────────────
+// KB chat with the companion orb — brainstorm anywhere, generate from chat
+function BrainstormScreen({ categoryId }) {
+  const [messages,   setMessages]   = useState([])
+  const [input,      setInput]      = useState('')
+  const [streaming,  setStreaming]  = useState(false)
+  const [streamText, setStreamText] = useState('')
+  const [orbMood,    setOrbMood]    = useState('idle')
+  const [generating, setGenerating] = useState(false)
+  const [generated,  setGenerated]  = useState(null)
+  const bottomRef = useRef(null)
+  const inputRef  = useRef(null)
+  const ORB_SIZE  = 253  // 15% bigger than 220
+
+  useEffect(() => {
+    if (!categoryId) return
+    chatApi.getHistory({ categoryId, mode: 'generate' })
+      .then(({ messages: h }) => setMessages(h || []))
+      .catch(() => {})
+  }, [categoryId])
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [messages, streamText])
+
+  async function send() {
+    const text = input.trim()
+    if (!text || streaming) return
+    setMessages(prev => [...prev, { role: 'user', content: text, timestamp: new Date().toISOString() }])
+    setInput('')
+    setStreaming(true)
+    setStreamText('')
+    setOrbMood('processing')
+
+    try {
+      await chatApi.send(
+        { categoryId, mode: 'generate', message: text, messages: [] },
+        {
+          chunk: ({ text: t }) => setStreamText(prev => prev + t),
+          done:  ({ response }) => {
+            setMessages(prev => [...prev, { role: 'assistant', content: response, timestamp: new Date().toISOString() }])
+            setStreamText('')
+            setStreaming(false)
+            setOrbMood('active')
+            setTimeout(() => setOrbMood('idle'), 3000)
+          },
+          error: ({ message: e }) => {
+            setStreamText('')
+            setStreaming(false)
+            setOrbMood('idle')
+          },
+        }
+      )
+    } catch {
+      setStreaming(false)
+      setOrbMood('idle')
+    }
+  }
+
+  async function generateFromChat() {
+    if (generating || !categoryId) return
+    setGenerating(true)
+    setOrbMood('processing')
+    try {
+      await chatApi.generateEpisode(
+        { categoryId, mode: 'generate' },
+        {
+          progress: ({ message }) => {
+            setMessages(prev => {
+              const last = prev[prev.length - 1]
+              if (last?.isGenerating) return [...prev.slice(0,-1), { ...last, content: message }]
+              return [...prev, { role: 'assistant', content: message, isGenerating: true }]
+            })
+          },
+          done: ({ parsed }) => {
+            setMessages(prev => prev.filter(m => !m.isGenerating))
+            setGenerated(parsed?.metadata?.trackName)
+            setGenerating(false)
+            setOrbMood('discovery')
+            setTimeout(() => setOrbMood('idle'), 4000)
+          },
+          error: ({ message: e }) => {
+            setMessages(prev => prev.filter(m => !m.isGenerating))
+            setGenerating(false)
+            setOrbMood('idle')
+          },
+        }
+      )
+    } catch {
+      setGenerating(false)
+      setOrbMood('idle')
+    }
+  }
+
+  const canGenerate = messages.length >= 4 && !streaming && !generating
+
+  return (
+    <div className="screen" style={{ display: 'flex', flexDirection: 'column', background: '#06060a' }}>
+
+      {/* Orb — centred, larger */}
+      <div style={{ display: 'flex', justifyContent: 'center', paddingTop: 24, paddingBottom: 8, flexShrink: 0 }}>
+        <MascotOrb mood={orbMood} audioLevel={0} size={ORB_SIZE}/>
+      </div>
+
+      {/* Messages */}
+      <div style={{ flex: 1, overflowY: 'auto', padding: '0 16px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {messages.length === 0 && !streaming && (
+          <div style={{ textAlign: 'center', marginTop: 16, color: '#333', fontSize: 11, lineHeight: 1.6 }}>
+            Tell KB what you want to create.<br/>
+            <span style={{ color: '#c8b89a40' }}>Swipe left to record.</span>
+          </div>
+        )}
+        {messages.map((m, i) => (
+          <div key={i} style={{ display: 'flex', justifyContent: m.role === 'user' ? 'flex-end' : 'flex-start' }}>
+            <div style={{
+              maxWidth: '88%', fontSize: 12, lineHeight: 1.6, padding: '10px 14px', borderRadius: 16,
+              borderBottomRightRadius: m.role === 'user' ? 4 : 16,
+              borderBottomLeftRadius:  m.role === 'user' ? 16 : 4,
+              background:  m.role === 'user' ? 'rgba(200,184,154,0.12)' : '#0f0f18',
+              color:       m.role === 'user' ? '#c8b89a' : '#c8c8d8',
+              border:      m.role === 'user' ? '1px solid rgba(200,184,154,0.2)' : '1px solid #1e1e2e',
+            }}>
+              {m.content}
+              {m.isGenerating && <span style={{ color: '#6a9a6a', marginLeft: 6 }}>✦</span>}
+            </div>
+          </div>
+        ))}
+        {streaming && streamText && (
+          <div style={{ display: 'flex', justifyContent: 'flex-start' }}>
+            <div style={{ maxWidth: '88%', fontSize: 12, lineHeight: 1.6, padding: '10px 14px', borderRadius: 16, borderBottomLeftRadius: 4, background: '#0f0f18', color: '#c8c8d8', border: '1px solid #1e1e2e' }}>
+              {streamText}<span style={{ display: 'inline-block', width: 2, height: 12, background: 'rgba(200,184,154,0.6)', marginLeft: 2, animation: 'pulse 1s infinite' }}/>
+            </div>
+          </div>
+        )}
+        {streaming && !streamText && (
+          <div style={{ display: 'flex', gap: 4, padding: '4px 0' }}>
+            {[0,1,2].map(i => (
+              <div key={i} style={{ width: 6, height: 6, borderRadius: '50%', background: 'rgba(200,184,154,0.4)', animation: `bounce 0.8s ${i*0.15}s infinite` }}/>
+            ))}
+          </div>
+        )}
+        <div ref={bottomRef}/>
+      </div>
+
+      {/* Generate banner */}
+      {generated && (
+        <div style={{ margin: '8px 16px', padding: '10px 14px', borderRadius: 10, background: '#0a140a', border: '1px solid #2a4a2a', color: '#6abf6a', fontSize: 11 }}>
+          ✓ "{generated}" ready — open WhispaCuts to review
+        </div>
+      )}
+
+      {/* Input */}
+      <div style={{ padding: '8px 16px 24px', flexShrink: 0 }}>
+        {canGenerate && (
+          <button
+            onClick={generateFromChat}
+            style={{ width: '100%', marginBottom: 8, padding: '10px', borderRadius: 10, border: '1px solid #2a4a2a', background: '#0a140a', color: '#6a9a6a', fontSize: 11, cursor: 'pointer' }}
+          >
+            {generating ? '⟳ Generating episode...' : '✦ Generate episode from this conversation'}
+          </button>
+        )}
+        <div style={{ display: 'flex', gap: 8 }}>
+          <input
+            ref={inputRef}
+            value={input}
+            onChange={e => setInput(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && send()}
+            placeholder="Tell KB what you want to create..."
+            style={{
+              flex: 1, background: '#0d0d14', border: '1px solid rgba(200,184,154,0.2)', borderRadius: 12,
+              padding: '10px 14px', fontSize: 12, color: '#ccc', outline: 'none',
+            }}
+          />
+          <button
+            onClick={send}
+            disabled={!input.trim() || streaming}
+            style={{ width: 40, height: 40, borderRadius: '50%', background: streaming ? '#111' : 'rgba(200,184,154,0.9)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={streaming ? '#444' : '#080808'} strokeWidth="2">
+              <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
+            </svg>
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
