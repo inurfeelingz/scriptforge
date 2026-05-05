@@ -21,6 +21,7 @@ const BillingPage         = lazy(() => import('./pages/BillingPage'))
 const PrivacyPage         = lazy(() => import('./pages/PrivacyPage'))
 const TermsPage           = lazy(() => import('./pages/TermsPage'))
 const ScriptLibraryPage   = lazy(() => import('./pages/ScriptLibraryPage'))
+const StoryboardPage      = lazy(() => import('./pages/StoryboardPage'))
 const AnalyticsPage       = lazy(() => import('./pages/AnalyticsPage'))
 const EpisodeReview       = lazy(() => import('./pages/EpisodeReview'))
 const Teleprompter        = lazy(() => import('./pages/Teleprompter'))
@@ -59,10 +60,24 @@ function SplashScreen() {
 }
 
 export default function App() {
-  const init = useStore(s => s.init)
+  const init        = useStore(s => s.init)
   const initialized = useStore(s => s.initialized)
+  const reauth      = useStore(s => s.reauth || s.init)  // re-init session on visibility
 
   useEffect(() => { init() }, [init])
+  useKeepAlive()
+
+  // Re-check auth when tab becomes visible after being hidden
+  // Prevents stale token / "logged out" feeling after leaving tab open
+  useEffect(() => {
+    const handler = () => {
+      if (document.visibilityState === 'visible') {
+        reauth()
+      }
+    }
+    document.addEventListener('visibilitychange', handler)
+    return () => document.removeEventListener('visibilitychange', handler)
+  }, [reauth])
 
   if (!initialized) return <SplashScreen />
 
@@ -86,6 +101,7 @@ export default function App() {
           <Route path="billing"      element={<BillingPage />} />
           <Route path="journals"     element={<SessionJournalsPage />} />
           <Route path="scripts"      element={<ScriptLibraryPage />} />
+          <Route path="storyboard"   element={<StoryboardPage />} />
           <Route path="vault"         element={<VaultPage />} />
           <Route path="analytics"              element={<AnalyticsPage />} />
           <Route path="analytics/review/:episodeId" element={<EpisodeReview />} />

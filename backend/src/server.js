@@ -13,6 +13,7 @@ const analyticsRoutes = require('./routes/analytics')
 const billingRoutes   = require('./routes/billing')
 const seriesRoutes    = require('./routes/series')
 const categoryRoutes  = require('./routes/categories')
+const storyboardRoutes = require('./routes/storyboard')
 const chatRoutes      = require('./routes/chat')
 const refreshRoutes   = require('./routes/refresh')
 const collabRoutes    = require('./routes/collab')
@@ -118,6 +119,9 @@ app.get('/health', (req, res) => {
 // ─── API ROUTES ────────────────────────────────────────────────────────────────
 // All registered BEFORE app.listen() — Express requires this
 
+// Public health check — no auth, used by keepalive pings and monitoring
+app.get('/health', (req, res) => res.json({ ok: true, ts: new Date().toISOString() }))
+
 app.use('/api/users',      userRoutes)
 app.use('/api/admin',      authMiddleware, adminRoutes)
 app.use('/api/dashboard',  authMiddleware, dashboardRoutes)
@@ -132,6 +136,7 @@ app.use('/api/billing/webhook', billingRoutes)  // webhook before auth — PayPa
 app.use('/api/billing',    authMiddleware, billingRoutes)
 app.use('/api/series',     authMiddleware, seriesRoutes)
 app.use('/api/chat',       authMiddleware, chatRoutes)
+app.use('/api/storyboard', authMiddleware, storyboardRoutes)
 app.use('/api/refresh',    authMiddleware, refreshRoutes)
 app.use('/api/collab',     authMiddleware, collabRoutes)
 app.use('/api/editor',     authMiddleware, editorRoutes)
