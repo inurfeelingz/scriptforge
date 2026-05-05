@@ -414,10 +414,9 @@ export default function AppLayout() {
           overflow:   'hidden',
           transition: 'height 0.4s cubic-bezier(0.32, 0.72, 0, 1), left 0.25s cubic-bezier(0.4,0,0.2,1)',
           zIndex:     40,
-          background: 'rgba(6,6,14,0.97)',
-          borderTop:  chatOpen ? '1px solid rgba(200,184,154,0.12)' : 'none',
-          boxShadow:  chatOpen ? '0 -24px 80px rgba(0,0,0,0.7)' : 'none',
-          backdropFilter: 'blur(12px)',
+          background: 'rgba(10,12,18,0.97)',
+          boxShadow:  chatOpen ? '0 -2px 0 rgba(74,222,128,0.6), 0 -20px 60px rgba(74,222,128,0.04), 0 -40px 120px rgba(0,0,0,0.8)' : 'none',
+          backdropFilter: 'blur(16px)',
         }}>
           {chatOpen && <ChatPanel/>}
         </div>
