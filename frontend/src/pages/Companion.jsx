@@ -718,7 +718,13 @@ export default function Companion() {
 
 
       {/* ── SLIDING SCREENS ─────────────────────────────────────────────────── */}
-      <div className="screens-container">
+      <div
+        className="screens-container"
+        style={{
+          transform:  `translateX(${-state.screen * 100}%)`,
+          transition: 'transform 0.35s cubic-bezier(0.4,0,0.2,1)',
+        }}
+      >
 
         {/* ══ SCREEN 0: RECORD ═══════════════════════════════════════════════ */}
         <div className="screen">
@@ -774,8 +780,8 @@ export default function Companion() {
               </div>
             </div>
           ) : (
-            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center' }}>
-              <MascotOrb mood={state.orbMood} audioLevel={state.audioLevel} size={253}/>
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', gap: 0 }}>
+              <MascotOrb mood={state.orbMood} audioLevel={state.audioLevel} size={300}/>
               {/* Idle instructions */}
               {state.status === 'idle' && (
                 <div className="idle-hint">
@@ -863,13 +869,15 @@ export default function Companion() {
             )}
 
             {/* The main record button */}
-            <RecordButton
-              recording={state.recording}
-              status={state.status}
-              audioLevel={state.audioLevel}
-              onPressStart={onRecordPressStart}
-              onPressEnd={onRecordPressEnd}
-            />
+            <div style={{ marginTop: 8 }}>
+              <RecordButton
+                recording={state.recording}
+                status={state.status}
+                audioLevel={state.audioLevel}
+                onPressStart={onRecordPressStart}
+                onPressEnd={onRecordPressEnd}
+              />
+            </div>
 
             <p className="record-hint">
               {state.status === 'starting'  && 'Connecting mic...'}
@@ -939,14 +947,32 @@ export default function Companion() {
 
       </div>{/* end screens */}
 
-      {/* Screen dots */}
-      <div style={{ position: 'fixed', bottom: 12, left: 0, right: 0, display: 'flex', justifyContent: 'center', gap: 6, zIndex: 10 }}>
-        {SCREENS.map((_, i) => (
-          <div key={i} style={{
-            width: 5, height: 5, borderRadius: '50%',
-            background: state.screen === i ? 'rgba(200,184,154,0.8)' : 'rgba(255,255,255,0.15)',
-            transition: 'background 0.3s',
-          }}/>
+      {/* Tab navigation — tappable, not just swipeable */}
+      <div style={{
+        position: 'fixed', bottom: 'calc(env(safe-area-inset-bottom) + 8px)',
+        left: 0, right: 0,
+        display: 'flex', justifyContent: 'center', gap: 8, zIndex: 10,
+      }}>
+        {[{ label: 'Record', icon: '⏺' }, { label: 'Brainstorm', icon: '✦' }].map((tab, i) => (
+          <button
+            key={i}
+            onClick={() => set({ screen: i })}
+            style={{
+              fontFamily: "'Figtree', sans-serif",
+              fontSize: 11,
+              fontWeight: state.screen === i ? 600 : 400,
+              padding: '5px 14px',
+              borderRadius: 20,
+              border: `1px solid ${state.screen === i ? 'rgba(74,222,128,0.4)' : 'rgba(255,255,255,0.1)'}`,
+              background: state.screen === i ? 'rgba(74,222,128,0.1)' : 'rgba(255,255,255,0.04)',
+              color: state.screen === i ? 'rgba(74,222,128,0.9)' : 'rgba(255,255,255,0.35)',
+              cursor: 'pointer',
+              transition: 'all 0.2s',
+              display: 'flex', alignItems: 'center', gap: 5,
+            }}
+          >
+            <span style={{ fontSize: 9 }}>{tab.icon}</span> {tab.label}
+          </button>
         ))}
       </div>
 
@@ -1122,7 +1148,7 @@ function BrainstormScreen({ categoryId }) {
   const [generated,  setGenerated]  = useState(null)
   const bottomRef = useRef(null)
   const inputRef  = useRef(null)
-  const ORB_SIZE  = 253  // 15% bigger than 220
+  const ORB_SIZE  = 300
 
   useEffect(() => {
     if (!categoryId) return
@@ -1207,47 +1233,49 @@ function BrainstormScreen({ categoryId }) {
   const canGenerate = messages.length >= 4 && !streaming && !generating
 
   return (
-    <div className="screen" style={{ display: 'flex', flexDirection: 'column', background: '#06060a' }}>
+    <div className="screen" style={{ display: 'flex', flexDirection: 'column', background: '#080c10', paddingBottom: 60 }}>
 
       {/* Orb — centred, larger */}
-      <div style={{ display: 'flex', justifyContent: 'center', paddingTop: 24, paddingBottom: 8, flexShrink: 0 }}>
+      <div style={{ display: 'flex', justifyContent: 'center', paddingTop: 20, paddingBottom: 6, flexShrink: 0 }}>
         <MascotOrb mood={orbMood} audioLevel={0} size={ORB_SIZE}/>
       </div>
 
       {/* Messages */}
       <div style={{ flex: 1, overflowY: 'auto', padding: '0 16px', display: 'flex', flexDirection: 'column', gap: 10 }}>
         {messages.length === 0 && !streaming && (
-          <div style={{ textAlign: 'center', marginTop: 16, color: '#333', fontSize: 11, lineHeight: 1.6 }}>
+          <div style={{ textAlign: 'center', marginTop: 12, color: 'rgba(255,255,255,0.2)', fontSize: 12, lineHeight: 1.6, fontFamily: "'Figtree', sans-serif" }}>
             Tell KB what you want to create.<br/>
-            <span style={{ color: '#c8b89a40' }}>Swipe left to record.</span>
+            <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.12)' }}>Swipe or tap Record to shoot.</span>
           </div>
         )}
         {messages.map((m, i) => (
           <div key={i} style={{ display: 'flex', justifyContent: m.role === 'user' ? 'flex-end' : 'flex-start' }}>
             <div style={{
-              maxWidth: '88%', fontSize: 12, lineHeight: 1.6, padding: '10px 14px', borderRadius: 16,
-              borderBottomRightRadius: m.role === 'user' ? 4 : 16,
-              borderBottomLeftRadius:  m.role === 'user' ? 16 : 4,
-              background:  m.role === 'user' ? 'rgba(200,184,154,0.12)' : '#0f0f18',
-              color:       m.role === 'user' ? '#c8b89a' : '#c8c8d8',
-              border:      m.role === 'user' ? '1px solid rgba(200,184,154,0.2)' : '1px solid #1e1e2e',
+              maxWidth: '88%', fontSize: 13, lineHeight: 1.6,
+              fontFamily: "'Figtree', sans-serif",
+              padding: '9px 13px', borderRadius: 14,
+              borderBottomRightRadius: m.role === 'user' ? 3 : 14,
+              borderBottomLeftRadius:  m.role === 'user' ? 14 : 3,
+              background:  m.role === 'user' ? 'rgba(255,255,255,0.06)' : 'rgba(255,255,255,0.02)',
+              color:       m.role === 'user' ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.6)',
+              border:      m.role === 'user' ? '1px solid rgba(255,255,255,0.09)' : '1px solid rgba(255,255,255,0.04)',
             }}>
               {m.content}
-              {m.isGenerating && <span style={{ color: '#6a9a6a', marginLeft: 6 }}>✦</span>}
+              {m.isGenerating && <span style={{ color: 'rgba(74,222,128,0.6)', marginLeft: 6 }}>✦</span>}
             </div>
           </div>
         ))}
         {streaming && streamText && (
           <div style={{ display: 'flex', justifyContent: 'flex-start' }}>
-            <div style={{ maxWidth: '88%', fontSize: 12, lineHeight: 1.6, padding: '10px 14px', borderRadius: 16, borderBottomLeftRadius: 4, background: '#0f0f18', color: '#c8c8d8', border: '1px solid #1e1e2e' }}>
-              {streamText}<span style={{ display: 'inline-block', width: 2, height: 12, background: 'rgba(200,184,154,0.6)', marginLeft: 2, animation: 'pulse 1s infinite' }}/>
+            <div style={{ maxWidth: '88%', fontSize: 13, lineHeight: 1.6, fontFamily: "'Figtree', sans-serif", padding: '9px 13px', borderRadius: 14, borderBottomLeftRadius: 3, background: 'rgba(255,255,255,0.02)', color: 'rgba(255,255,255,0.6)', border: '1px solid rgba(255,255,255,0.04)' }}>
+              {streamText}<span style={{ display: 'inline-block', width: 2, height: 12, background: 'rgba(74,222,128,0.6)', marginLeft: 2, verticalAlign: 'middle' }}/>
             </div>
           </div>
         )}
         {streaming && !streamText && (
           <div style={{ display: 'flex', gap: 4, padding: '4px 0' }}>
             {[0,1,2].map(i => (
-              <div key={i} style={{ width: 6, height: 6, borderRadius: '50%', background: 'rgba(200,184,154,0.4)', animation: `bounce 0.8s ${i*0.15}s infinite` }}/>
+              <div key={i} style={{ width: 5, height: 5, borderRadius: '50%', background: 'rgba(74,222,128,0.5)', animation: `kb-bounce 0.8s ${i*0.15}s infinite` }}/>
             ))}
           </div>
         )}
@@ -1256,22 +1284,22 @@ function BrainstormScreen({ categoryId }) {
 
       {/* Generate banner */}
       {generated && (
-        <div style={{ margin: '8px 16px', padding: '10px 14px', borderRadius: 10, background: '#0a140a', border: '1px solid #2a4a2a', color: '#6abf6a', fontSize: 11 }}>
+        <div style={{ margin: '6px 16px', padding: '9px 13px', borderRadius: 9, background: 'rgba(74,222,128,0.04)', border: '1px solid rgba(74,222,128,0.12)', color: 'rgba(74,222,128,0.75)', fontSize: 12, fontFamily: "'Figtree', sans-serif", display: 'flex', alignItems: 'center', gap: 6 }}>
           ✓ "{generated}" ready — open WhispaCuts to review
         </div>
       )}
 
       {/* Input */}
-      <div style={{ padding: '8px 16px 24px', flexShrink: 0 }}>
+      <div style={{ padding: '8px 16px 12px', flexShrink: 0 }}>
         {canGenerate && (
           <button
             onClick={generateFromChat}
-            style={{ width: '100%', marginBottom: 8, padding: '10px', borderRadius: 10, border: '1px solid #2a4a2a', background: '#0a140a', color: '#6a9a6a', fontSize: 11, cursor: 'pointer' }}
+            style={{ width: '100%', marginBottom: 8, padding: '9px', borderRadius: 9, border: '1px solid rgba(74,222,128,0.15)', background: 'rgba(74,222,128,0.05)', color: 'rgba(74,222,128,0.75)', fontSize: 12, fontFamily: "'Figtree', sans-serif", cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
           >
-            {generating ? '⟳ Generating episode...' : '✦ Generate episode from this conversation'}
+            {generating ? '⟳ Generating...' : '✦ Generate episode from conversation'}
           </button>
         )}
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div style={{ display: 'flex', gap: 8, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 10, padding: '8px 12px' }}>
           <input
             ref={inputRef}
             value={input}
@@ -1279,16 +1307,17 @@ function BrainstormScreen({ categoryId }) {
             onKeyDown={e => e.key === 'Enter' && send()}
             placeholder="Tell KB what you want to create..."
             style={{
-              flex: 1, background: '#0d0d14', border: '1px solid rgba(200,184,154,0.2)', borderRadius: 12,
-              padding: '10px 14px', fontSize: 12, color: '#ccc', outline: 'none',
+              flex: 1, background: 'transparent', border: 'none', outline: 'none',
+              fontSize: 13, fontFamily: "'Figtree', sans-serif",
+              color: 'rgba(255,255,255,0.85)',
             }}
           />
           <button
             onClick={send}
             disabled={!input.trim() || streaming}
-            style={{ width: 40, height: 40, borderRadius: '50%', background: streaming ? '#111' : 'rgba(200,184,154,0.9)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}
+            style={{ width: 32, height: 32, borderRadius: 8, background: input.trim() && !streaming ? 'rgba(74,222,128,0.8)' : 'rgba(255,255,255,0.04)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, transition: 'background 0.15s' }}
           >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={streaming ? '#444' : '#080808'} strokeWidth="2">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={input.trim() && !streaming ? '#080808' : 'rgba(255,255,255,0.2)'} strokeWidth="2">
               <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
             </svg>
           </button>
