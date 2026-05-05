@@ -453,8 +453,8 @@ export default function ChatPanel() {
           </button>
         </div>
       </div>
-      </div> {/* end main chat area */}
-    </div> {/* end flex row */}
+      </div>
+    </div>
   )
 }
 
