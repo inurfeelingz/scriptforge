@@ -432,8 +432,14 @@ export default function ChatPanel() {
   const [saved,       setSaved]       = useState(false)
   const [generating,  setGenerating]  = useState(false)
   const [generated,   setGenerated]   = useState(null)
-  const bottomRef = useRef(null)
-  const inputRef  = useRef(null)
+  const bottomRef   = useRef(null)
+  const inputRef    = useRef(null)
+  const abortRef    = useRef(null)   // AbortController for the active stream
+
+  // Cancel any in-flight stream when the panel unmounts (tab switch, page change)
+  useEffect(() => {
+    return () => { abortRef.current?.abort() }
+  }, [])
 
   useEffect(() => {
     if (!activeCategoryId) return
@@ -462,6 +468,11 @@ export default function ChatPanel() {
     setStreaming(true)
     setStreamText('')
 
+    // Cancel any previous stream and create a fresh controller
+    abortRef.current?.abort()
+    const controller = new AbortController()
+    abortRef.current = controller
+
     try {
       await chatApi.send(
         { categoryId: activeCategoryId, mode, message: text, messages: [] },
@@ -477,9 +488,11 @@ export default function ChatPanel() {
             setStreamText('')
             setStreaming(false)
           },
-        }
+        },
+        controller.signal,
       )
     } catch (err) {
+      if (err.name === 'AbortError') { setStreamText(''); setStreaming(false); return }
       setMessages(prev => [...prev, { role: 'assistant', content: `Error: ${err.message}`, isError: true, timestamp: new Date().toISOString() }])
       setStreamText('')
       setStreaming(false)
@@ -530,6 +543,11 @@ export default function ChatPanel() {
     if (!activeCategoryId || generating) return
     setGenerating(true)
     setGenerated(null)
+
+    abortRef.current?.abort()
+    const controller = new AbortController()
+    abortRef.current = controller
+
     try {
       await chatApi.generateEpisode(
         { categoryId: activeCategoryId, mode },
@@ -552,9 +570,13 @@ export default function ChatPanel() {
             notify(e, 'error')
             setGenerating(false)
           },
-        }
+        },
+        controller.signal,
       )
-    } catch (err) { notify(err.message, 'error'); setGenerating(false) }
+    } catch (err) {
+      if (err.name !== 'AbortError') notify(err.message, 'error')
+      setGenerating(false)
+    }
   }
 
   const isSeriesMode = mode === 'series' || mode === 'generate'

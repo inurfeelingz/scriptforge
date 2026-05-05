@@ -45,16 +45,20 @@ async function reqForm(path, formData) {
 // ── SSE streaming helper ──────────────────────────────────────────────────────
 // Returns an EventSource-like object that handles auth via fetch + ReadableStream
 
-export async function streamRequest(path, body, handlers = {}) {
+export async function streamRequest(path, body, handlers = {}, signal = null) {
   const session = await getSession()
-  const response = await fetch(`${BASE}${path}`, {
+
+  const fetchOptions = {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${session?.access_token}`,
     },
     body: JSON.stringify(body),
-  })
+  }
+  if (signal) fetchOptions.signal = signal
+
+  const response = await fetch(`${BASE}${path}`, fetchOptions)
 
   if (!response.ok) throw new Error(`Stream failed: ${response.status}`)
 
@@ -62,26 +66,39 @@ export async function streamRequest(path, body, handlers = {}) {
   const decoder = new TextDecoder()
   let buffer = ''
 
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
+  // Listen for abort — cancel the reader immediately
+  if (signal) {
+    signal.addEventListener('abort', () => { reader.cancel().catch(() => {}) }, { once: true })
+  }
 
-    buffer += decoder.decode(value, { stream: true })
-    const parts = buffer.split('\n\n')
-    buffer = parts.pop()  // keep the incomplete trailing chunk
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      if (signal?.aborted) break
 
-    for (const part of parts) {
-      if (!part.trim() || part.startsWith(':')) continue  // skip empty and comments (keepalive)
-      let event = null
-      let data  = null
-      for (const line of part.split('\n')) {
-        if (line.startsWith('event: ')) event = line.slice(7).trim()
-        if (line.startsWith('data: '))  data  = line.slice(6).trim()
-      }
-      if (event && data) {
-        try { handlers[event]?.(JSON.parse(data)) } catch {}
+      buffer += decoder.decode(value, { stream: true })
+      const parts = buffer.split('\n\n')
+      buffer = parts.pop()
+
+      for (const part of parts) {
+        if (!part.trim() || part.startsWith(':')) continue
+        let event = null
+        let data  = null
+        for (const line of part.split('\n')) {
+          if (line.startsWith('event: ')) event = line.slice(7).trim()
+          if (line.startsWith('data: '))  data  = line.slice(6).trim()
+        }
+        if (event && data) {
+          try { handlers[event]?.(JSON.parse(data)) } catch {}
+        }
       }
     }
+  } catch (err) {
+    // AbortError is expected when signal fires — don't propagate it
+    if (err.name !== 'AbortError') throw err
+  } finally {
+    reader.cancel().catch(() => {})
   }
 }
 
@@ -181,7 +198,7 @@ export const shorts = {
 
 // ── Chat ──────────────────────────────────────────────────────────────────────
 export const chat = {
-  send:             (body, handlers) => streamRequest('/chat/message', body, handlers),
+  send:             (body, handlers, signal) => streamRequest('/chat/message', body, handlers, signal),
   getHistory:       (params) => req('GET', `/chat/history?${new URLSearchParams(params)}`),
   clearHistory:     (body)   => req('DELETE', '/chat/history', body),
   commitEpisode:    (body)   => req('POST', '/chat/commit-episode', body),
@@ -189,7 +206,7 @@ export const chat = {
   getSession:       (id)     => req('GET', `/chat/sessions/${id}`),
   saveSession:      (body)   => req('POST', '/chat/sessions', body),
   deleteSession:    (id)     => req('DELETE', `/chat/sessions/${id}`),
-  generateEpisode:  (body, handlers) => streamRequest('/chat/generate-episode', body, handlers),
+  generateEpisode:  (body, handlers, signal) => streamRequest('/chat/generate-episode', body, handlers, signal),
 }
 
 // ── Refresh ───────────────────────────────────────────────────────────────────

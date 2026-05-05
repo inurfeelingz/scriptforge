@@ -509,6 +509,10 @@ function BrainstormScreen({ categoryId, active }) {
   const [generated,  setGenerated]  = useState(null)
   const bottomRef = useRef(null)
   const inputRef  = useRef(null)
+  const abortRef  = useRef(null)
+
+  // Cancel any in-flight stream on unmount
+  useEffect(() => { return () => { abortRef.current?.abort() } }, [])
 
   useEffect(() => {
     if (!categoryId) return
@@ -525,25 +529,29 @@ function BrainstormScreen({ categoryId, active }) {
     if (!text||streaming) return
     setMessages(p=>[...p,{role:'user',content:text,timestamp:new Date().toISOString()}])
     setInput(''); setStreaming(true); setStreamText(''); setOrbMood('processing')
+    abortRef.current?.abort()
+    const ctrl=new AbortController(); abortRef.current=ctrl
     try {
       await chatApi.send({categoryId,mode:'generate',message:text,messages:[]},{
         chunk:({text:t})=>setStreamText(p=>p+t),
         done:({response})=>{setMessages(p=>[...p,{role:'assistant',content:response,timestamp:new Date().toISOString()}]);setStreamText('');setStreaming(false);setOrbMood('active');setTimeout(()=>setOrbMood('idle'),3000)},
         error:()=>{setStreamText('');setStreaming(false);setOrbMood('idle')},
-      })
-    } catch {setStreaming(false);setOrbMood('idle')}
+      }, ctrl.signal)
+    } catch(e){if(e.name!=='AbortError'){setStreaming(false);setOrbMood('idle')}}
   }
 
   async function generateFromChat() {
     if (generating||!categoryId) return
     setGenerating(true); setOrbMood('processing')
+    abortRef.current?.abort()
+    const ctrl=new AbortController(); abortRef.current=ctrl
     try {
       await chatApi.generateEpisode({categoryId,mode:'generate'},{
         progress:({message})=>setMessages(p=>{const l=p[p.length-1];return l?.isGenerating?[...p.slice(0,-1),{...l,content:message}]:[...p,{role:'assistant',content:message,isGenerating:true}]}),
         done:({parsed})=>{setMessages(p=>p.filter(m=>!m.isGenerating));setGenerated(parsed?.metadata?.trackName);setGenerating(false);setOrbMood('discovery');setTimeout(()=>setOrbMood('idle'),4000)},
         error:()=>{setMessages(p=>p.filter(m=>!m.isGenerating));setGenerating(false);setOrbMood('idle')},
-      })
-    } catch {setGenerating(false);setOrbMood('idle')}
+      }, ctrl.signal)
+    } catch(e){if(e.name!=='AbortError'){setGenerating(false);setOrbMood('idle')}}
   }
 
   const canGenerate=messages.length>=4&&!streaming&&!generating
