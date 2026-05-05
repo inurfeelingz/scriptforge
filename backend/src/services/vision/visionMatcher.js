@@ -5,16 +5,20 @@
 const Anthropic  = require('@anthropic-ai/sdk')
 const { searchClips } = require('./clipIndexer')
 const { supabase }    = require('../../utils/supabase')
+const { embedBatch }  = require('../openaiEmbed')
 
 const client = new Anthropic.Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
 // ─── MATCH A SINGLE BEAT ──────────────────────────────────────────────────────
 
-async function matchBeat(userId, categoryId, beat, queryVisualVector, queryTextVector, usedClipIds = new Set()) {
+async function matchBeat(userId, categoryId, beat, queryVisualVector, queryTextVector, usedClipIds = new Set(), options = {}) {
+  const { visualWeight = 0.6, textWeight = 0.4 } = options
   const candidates = await searchClips(userId, queryVisualVector, queryTextVector, {
     categoryId,
     clipType: beat.clipType || null,
-    count:    8,  // fetch more than needed so we can exclude already-used clips
+    count:    8,
+    visualWeight,
+    textWeight,
   })
 
   if (!candidates.length) {
@@ -59,24 +63,94 @@ async function matchFullEDL(userId, categoryId, edlClipMap, beatVectors = []) {
   const results   = []
   const usedIds   = new Set()
 
-  for (let i = 0; i < beats.length; i++) {
-    const beat    = beats[i]
-    const vectors = beatVectors.find(v => v.beatIndex === i)
+  // If no beat vectors provided, embed intent tags via OpenAI then use vector search
+  const useTextFallback = !beatVectors.length
 
-    if (!vectors?.visualVector || !vectors?.textVector) {
-      results.push({
-        beat,
-        bestMatch:    null,
-        alternatives: [],
-        confidence:   0,
-        warning:      'Vectors not computed — run indexing then re-assemble',
-      })
-      continue
+  if (useTextFallback) {
+    // Batch embed all beat intent tags in one API call
+    const intentTexts = beats.map(b =>
+      [b.intentTag, b.clipType, b.id].filter(Boolean).join(' — ')
+    )
+
+    console.log(`[visionMatcher] Embedding ${beats.length} beats via OpenAI...`)
+    let embeddings
+    try {
+      embeddings = await embedBatch(intentTexts)
+    } catch (err) {
+      console.warn('[visionMatcher] OpenAI embed failed, falling back to keyword match:', err.message)
+      embeddings = null
     }
 
-    const match = await matchBeat(userId, categoryId, beat, vectors.visualVector, vectors.textVector, usedIds)
-    if (match.bestMatch) usedIds.add(match.bestMatch.id)
-    results.push(match)
+    for (let i = 0; i < beats.length; i++) {
+      const beat      = beats[i]
+      const embedding = embeddings?.[i]
+
+      if (embedding) {
+        // Use vector search — pass same embedding as both visual and text query
+        // Visual weight low since we have no actual frame, text weight high
+        try {
+          const match = await matchBeat(
+            userId, categoryId, beat,
+            embedding,   // visual query (approximate — no real frame)
+            embedding,   // text query
+            usedIds,
+            { visualWeight: 0.2, textWeight: 0.8 }
+          )
+          if (match.bestMatch?.id) usedIds.add(match.bestMatch.id)
+          results.push(match)
+          continue
+        } catch (err) {
+          console.warn(`[visionMatcher] Vector search failed for beat ${i}:`, err.message)
+        }
+      }
+
+      // Final fallback: keyword matching
+      const { data: clips } = await supabase
+        .from('clip_index')
+        .select('id, filename, filepath, clip_type, duration_ms, transcript, visual_tags')
+        .eq('user_id', userId)
+        .limit(200)
+
+      const intentWords = (beat.intentTag || '').toLowerCase().split(/\s+/).filter(w => w.length > 3)
+      const pool = (clips || [])
+        .filter(c => !usedIds.has(c.id))
+        .map(c => {
+          const text  = [c.transcript, ...(c.visual_tags || []), c.clip_type].join(' ').toLowerCase()
+          const score = intentWords.filter(w => text.includes(w)).length / Math.max(intentWords.length, 1)
+          return { ...c, combined_score: score }
+        })
+        .sort((a, b) => b.combined_score - a.combined_score)
+
+      if (!pool.length) {
+        results.push({ beat, bestMatch: { id: null, filename: `[NO MATCH] ${beat.intentTag}`, isPlaceholder: true, combined_score: 0 }, alternatives: [], confidence: 0, warning: 'No clips indexed' })
+        continue
+      }
+
+      usedIds.add(pool[0].id)
+      results.push({ beat, bestMatch: pool[0], alternatives: pool.slice(1, 4), confidence: 0.3 + pool[0].combined_score * 0.4, warning: null })
+    }
+
+  } else {
+    // Original vector-based matching (when CLIP vectors are provided)
+    for (let i = 0; i < beats.length; i++) {
+      const beat    = beats[i]
+      const vectors = beatVectors.find(v => v.beatIndex === i)
+
+      if (!vectors?.visualVector || !vectors?.textVector) {
+        results.push({
+          beat,
+          bestMatch:    null,
+          alternatives: [],
+          confidence:   0,
+          warning:      'Vectors not computed — run indexing then re-assemble',
+        })
+        continue
+      }
+
+      const match = await matchBeat(userId, categoryId, beat, vectors.visualVector, vectors.textVector, usedIds)
+      if (match.bestMatch) usedIds.add(match.bestMatch.id)
+      results.push(match)
+    }
   }
 
   const withMatch     = results.filter(r => r.bestMatch)
