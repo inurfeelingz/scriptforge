@@ -123,29 +123,34 @@ export default function KBOrb({ mood = 'idle', onClick, isOpen }) {
       title={isOpen ? 'Close KB' : 'Open KB'}
       style={{
         position:        'fixed',
-        bottom:          28,
-        right:           28,
+        bottom:          32,
+        right:           32,
         width:           size + 16,
         height:          size + 16,
         borderRadius:    '50%',
-        background:      'transparent',
-        border:          'none',
+        background:      'radial-gradient(circle, rgba(12,12,24,0.95) 60%, rgba(6,6,14,0.8) 100%)',
+        border:          isOpen
+          ? '1px solid rgba(200,184,154,0.4)'
+          : '1px solid rgba(255,255,255,0.06)',
         cursor:          'pointer',
         padding:         0,
         display:         'flex',
         alignItems:      'center',
         justifyContent:  'center',
         zIndex:          100,
-        transition:      'transform 0.2s',
-        transform:       isOpen ? 'scale(1.12)' : 'scale(1)',
-        filter:          isOpen ? 'brightness(1.3)' : 'brightness(1)',
+        transition:      'transform 0.3s cubic-bezier(0.34,1.56,0.64,1), box-shadow 0.3s ease, border-color 0.3s ease',
+        transform:       isOpen ? 'scale(1.08)' : 'scale(1)',
+        boxShadow:       isOpen
+          ? '0 0 40px rgba(200,184,154,0.25), 0 0 80px rgba(200,184,154,0.08), 0 8px 32px rgba(0,0,0,0.6)'
+          : '0 0 20px rgba(100,110,160,0.12), 0 8px 24px rgba(0,0,0,0.5)',
+        overflow:        'hidden',
       }}
     >
       <canvas
         ref={canvasRef}
         width={size}
         height={size}
-        style={{ display: 'block', width: size, height: size, background: 'transparent' }}
+        style={{ display: 'block', width: size, height: size, borderRadius: '50%' }}
       />
     </button>
   )

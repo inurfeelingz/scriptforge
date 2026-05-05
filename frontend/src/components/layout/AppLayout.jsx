@@ -404,24 +404,25 @@ export default function AppLayout() {
           </div>
         </div>
 
-        {/* KB full-width sheet — slides up over content */}
+        {/* KB sheet — slides up between sidebar and right edge */}
         <div style={{
           position:   'fixed',
-          left:       0,
+          left:       isMobile ? 0 : (sidebarCollapsed ? 64 : 240),
           right:      0,
           bottom:     0,
           height:     chatOpen ? '72vh' : '0',
           overflow:   'hidden',
-          transition: 'height 0.4s cubic-bezier(0.32, 0.72, 0, 1)',
-          zIndex:     50,
-          background: '#06060a',
-          borderTop:  chatOpen ? '1px solid #1a1a2e' : 'none',
-          boxShadow:  chatOpen ? '0 -20px 60px rgba(0,0,0,0.6)' : 'none',
+          transition: 'height 0.4s cubic-bezier(0.32, 0.72, 0, 1), left 0.25s cubic-bezier(0.4,0,0.2,1)',
+          zIndex:     40,
+          background: 'rgba(6,6,14,0.97)',
+          borderTop:  chatOpen ? '1px solid rgba(200,184,154,0.12)' : 'none',
+          boxShadow:  chatOpen ? '0 -24px 80px rgba(0,0,0,0.7)' : 'none',
+          backdropFilter: 'blur(12px)',
         }}>
           {chatOpen && <ChatPanel/>}
         </div>
 
-        {/* Floating KB orb */}
+        {/* Floating KB orb — bottom right, circular */}
         <KBOrb
           mood={chatOpen ? 'active' : 'idle'}
           onClick={() => setChatOpen(!chatOpen)}
