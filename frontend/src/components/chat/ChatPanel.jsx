@@ -45,6 +45,8 @@ export default function ChatPanel() {
   const [committed,   setCommitted]   = useState(null)
   const [saving,      setSaving]      = useState(false)
   const [saved,       setSaved]       = useState(false)
+  const [generating,  setGenerating]  = useState(false)
+  const [generated,   setGenerated]   = useState(null)
   const bottomRef = useRef(null)
   const inputRef  = useRef(null)
 
@@ -61,11 +63,11 @@ export default function ChatPanel() {
 
   // Load sessions list when switching to history view
   useEffect(() => {
-    if (view !== 'history' || !activeCategoryId) return
-    chatApi.getSessions({ categoryId: activeCategoryId, mode })
+    if (view !== 'history') return
+    chatApi.getSessions({})
       .then(({ sessions: s }) => setSessions(s || []))
       .catch(() => {})
-  }, [view, activeCategoryId, mode])
+  }, [view])
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -155,6 +157,40 @@ export default function ChatPanel() {
     } finally { setCommitting(false) }
   }
 
+  async function generateEpisodeFromChat() {
+    if (!activeCategoryId || generating) return
+    setGenerating(true)
+    setGenerated(null)
+    try {
+      await chatApi.generateEpisode(
+        { categoryId: activeCategoryId, mode },
+        {
+          progress: ({ message, pct }) => {
+            setMessages(prev => {
+              const last = prev[prev.length - 1]
+              if (last?.isGenerating) return [...prev.slice(0,-1), { ...last, content: message, pct }]
+              return [...prev, { role: 'assistant', content: message, isGenerating: true, pct }]
+            })
+          },
+          done: ({ episodeId, parsed }) => {
+            setMessages(prev => prev.filter(m => !m.isGenerating))
+            setGenerated({ episodeId, title: parsed?.metadata?.trackName })
+            notify(`Episode "${parsed?.metadata?.trackName}" generated!`, 'success')
+            setGenerating(false)
+          },
+          error: ({ message: errMsg }) => {
+            notify(errMsg, 'error')
+            setMessages(prev => prev.filter(m => !m.isGenerating))
+            setGenerating(false)
+          },
+        }
+      )
+    } catch (err) {
+      notify(err.message, 'error')
+      setGenerating(false)
+    }
+  }
+
   const isSeriesMode = mode === 'series' || mode === 'generate'
   const canCommit    = isSeriesMode && messages.length >= 4 && !committed
 
@@ -198,6 +234,9 @@ export default function ChatPanel() {
                 </button>
               </div>
               <div className="flex items-center gap-2 mt-1.5">
+                <span className="text-[9px] px-1.5 py-0.5 rounded" style={{ background: meta.color + '15', color: meta.color + '80' }}>
+                  {s.mode}
+                </span>
                 <Clock size={9} className="text-[#333]"/>
                 <span className="text-[10px] text-[#444]">
                   {new Date(s.updated_at).toLocaleDateString('en', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
@@ -212,7 +251,81 @@ export default function ChatPanel() {
 
   // ── CHAT VIEW ──────────────────────────────────────────────────────────────
   return (
-    <div className="flex flex-col h-full" style={{ background: '#06060a' }}>
+    <div className="flex h-full" style={{ background: '#06060a', maxWidth: '100vw' }}>
+
+      {/* Left meta column — mode, quick prompts, session controls */}
+      <div className="flex-col shrink-0 border-r p-4 hidden md:flex"
+        style={{ width: 220, borderColor: '#111', background: '#08080e' }}>
+        <div className="flex items-center gap-2 mb-4">
+          <span style={{ color: meta.color, fontSize: 20 }}>{meta.glyph}</span>
+          <div>
+            <div className="text-xs font-semibold tracking-wide" style={{ color: meta.color }}>KB</div>
+            <div className="text-[9px] capitalize" style={{ color: '#444' }}>{mode} mode</div>
+          </div>
+        </div>
+
+        {/* Quick prompts */}
+        <div className="space-y-1.5 flex-1">
+          <div className="text-[9px] uppercase tracking-widest mb-2" style={{ color: '#333' }}>Quick start</div>
+          {QUICK_PROMPTS[mode]?.map((p, i) => (
+            <button key={i} onClick={() => { setInput(p); inputRef.current?.focus() }}
+              className="w-full text-left text-[10px] px-2.5 py-2 rounded-lg border transition-all leading-relaxed"
+              style={{ borderColor: meta.color + '20', color: '#555', background: meta.color + '08' }}
+              onMouseEnter={e => { e.currentTarget.style.borderColor = meta.color + '50'; e.currentTarget.style.color = meta.color }}
+              onMouseLeave={e => { e.currentTarget.style.borderColor = meta.color + '20'; e.currentTarget.style.color = '#555' }}
+            >
+              {p}
+            </button>
+          ))}
+        </div>
+
+        {/* Session controls */}
+        <div className="flex flex-col gap-2 mt-4 pt-4 border-t" style={{ borderColor: '#111' }}>
+          {messages.length > 2 && !saved && (
+            <button onClick={saveSession} disabled={saving}
+              className="text-[10px] px-2 py-1.5 rounded border transition-all text-left"
+              style={{ color: '#555', background: '#0d0d0d', borderColor: '#1a1a1a' }}>
+              {saving ? 'Saving...' : 'Save conversation'}
+            </button>
+          )}
+          {saved && <div className="text-[10px] flex items-center gap-1" style={{ color: meta.color }}><Check size={9}/> Saved</div>}
+          <button onClick={() => setView(view === 'history' ? 'chat' : 'history')}
+            className="text-[10px] px-2 py-1.5 rounded border transition-all text-left flex items-center gap-1.5"
+            style={{ color: '#555', background: '#0d0d0d', borderColor: '#1a1a1a' }}>
+            <Clock size={9}/> {view === 'history' ? 'Back to chat' : 'Past conversations'}
+          </button>
+          <button onClick={newChat}
+            className="text-[10px] px-2 py-1.5 rounded border transition-all text-left flex items-center gap-1.5"
+            style={{ color: '#555', background: '#0d0d0d', borderColor: '#1a1a1a' }}>
+            <Plus size={9}/> New conversation
+          </button>
+          {canCommit && (
+            <button onClick={commitEpisode} disabled={committing}
+              className="text-[10px] px-2 py-1.5 rounded border transition-all text-left flex items-center gap-1.5"
+              style={{ borderColor: meta.color + '30', color: meta.color + '90', background: meta.color + '08' }}>
+              {committing ? <Loader2 size={9} className="animate-spin"/> : <BookmarkPlus size={9}/>}
+              {committing ? 'Committing...' : 'Commit episode plan'}
+            </button>
+          )}
+          {isSeriesMode && messages.length >= 4 && !generated && (
+            <button onClick={generateEpisodeFromChat} disabled={generating || streaming}
+              className="text-[10px] px-2 py-1.5 rounded border transition-all text-left flex items-center gap-1.5"
+              style={{ borderColor: '#6a9a6a40', color: generating ? '#6a9a6a' : '#4a7a4a', background: '#0a140a' }}>
+              {generating ? <Loader2 size={9} className="animate-spin"/> : <Sparkles size={9}/>}
+              {generating ? 'Generating...' : 'Generate episode from chat'}
+            </button>
+          )}
+          {generated && (
+            <div className="text-[10px] flex items-center gap-1 px-2 py-1.5 rounded border"
+              style={{ borderColor: '#2a4a2a', color: '#6abf6a', background: '#0a140a' }}>
+              <Check size={9}/> "{generated.title}" ready
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Main chat area */}
+      <div className="flex flex-col flex-1 min-w-0">
 
       {/* Header */}
       <Header meta={meta} mode={mode}>
@@ -340,7 +453,8 @@ export default function ChatPanel() {
           </button>
         </div>
       </div>
-    </div>
+      </div> {/* end main chat area */}
+    </div> {/* end flex row */}
   )
 }
 

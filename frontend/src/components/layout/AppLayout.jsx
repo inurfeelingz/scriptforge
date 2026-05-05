@@ -11,8 +11,8 @@ import {
   ChevronLeft, ChevronRight, Plus, RefreshCw, MessageSquare,
   Calendar, Menu, X, FileText, CreditCard,
 } from 'lucide-react'
+import KBOrb from '../chat/KBOrb'
 import { useStore } from '../../store'
-import { categories as catApi } from '../../lib/api'
 import { signOut } from '../../lib/supabase'
 import ChatPanel from '../chat/ChatPanel'
 import Notifications from './Notifications'
@@ -44,7 +44,8 @@ const NAV_GROUPS = [
     label: 'Capture',
     items: [
       { to: '/journals', icon: Mic,      label: 'Journals' },
-      { to: '/scripts',  icon: FileText, label: 'Scripts'  },
+      { to: '/scripts',     icon: FileText, label: 'Scripts'    },
+      { to: '/storyboard',  icon: Film,     label: 'Storyboard' },
     ]
   },
   {
@@ -393,59 +394,39 @@ export default function AppLayout() {
             }}>
               {profile?.tier || 'free'}
             </span>
-            <button
-              onClick={() => setChatOpen(!chatOpen)}
-              style={{
-                display: 'flex', alignItems: 'center', gap: 5,
-                padding: isMobile ? '6px 10px' : '6px 14px', borderRadius: 8, cursor: 'pointer',
-                fontSize: '0.9375rem', fontFamily: 'inherit',
-                border: chatOpen ? '1px solid var(--accent-mid)' : '1px solid var(--border2)',
-                background: chatOpen ? 'var(--accent-lo)' : 'transparent',
-                color: chatOpen ? 'var(--accent)' : 'var(--text3)',
-                transition: 'all 0.15s',
-              }}
-            >
-              <MessageSquare size={15}/>
-              {!isMobile && 'KB'}
-            </button>
           </div>
         </header>
 
-        {/* Content + chat */}
+        {/* Content — full width always */}
         <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
-          <div style={{ flex: 1, overflowY: 'auto', padding: isMobile ? '20px 16px' : '28px 32px', paddingRight: chatOpen && !isMobile ? '352px' : undefined }}>
+          <div style={{ flex: 1, overflowY: 'auto', padding: isMobile ? '20px 16px' : '28px 32px' }}>
             <Outlet/>
           </div>
-          {chatOpen && !isMobile && (
-            <div style={{
-              position: 'fixed',
-              top: 0,
-              right: 0,
-              bottom: 0,
-              width: 320,
-              borderLeft: '1px solid var(--border)',
-              display: 'flex',
-              flexDirection: 'column',
-              background: 'var(--surface)',
-              zIndex: 40,
-            }}>
-              <ChatPanel/>
-            </div>
-          )}
-          {chatOpen && isMobile && (
-            <div style={{ position: 'fixed', inset: 0, zIndex: 45, background: 'var(--surface)', display: 'flex', flexDirection: 'column' }}>
-              <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <span style={{ fontSize: '1rem', fontWeight: 600 }}>KB</span>
-                <button onClick={() => setChatOpen(false)} style={{ background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer', display: 'flex' }}>
-                  <X size={20}/>
-                </button>
-              </div>
-              <div style={{ flex: 1, overflow: 'hidden' }}>
-                <ChatPanel/>
-              </div>
-            </div>
-          )}
         </div>
+
+        {/* KB full-width sheet — slides up over content */}
+        <div style={{
+          position:   'fixed',
+          left:       0,
+          right:      0,
+          bottom:     0,
+          height:     chatOpen ? '72vh' : '0',
+          overflow:   'hidden',
+          transition: 'height 0.4s cubic-bezier(0.32, 0.72, 0, 1)',
+          zIndex:     50,
+          background: '#06060a',
+          borderTop:  chatOpen ? '1px solid #1a1a2e' : 'none',
+          boxShadow:  chatOpen ? '0 -20px 60px rgba(0,0,0,0.6)' : 'none',
+        }}>
+          {chatOpen && <ChatPanel/>}
+        </div>
+
+        {/* Floating KB orb */}
+        <KBOrb
+          mood={chatOpen ? 'active' : 'idle'}
+          onClick={() => setChatOpen(!chatOpen)}
+          isOpen={chatOpen}
+        />
       </main>
 
       <Notifications/>
