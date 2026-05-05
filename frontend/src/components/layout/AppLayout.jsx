@@ -432,7 +432,7 @@ export default function AppLayout() {
         {!isCompanion && (
           <div style={{
             position:   'fixed',
-            left:       isMobile ? 0 : (sidebarCollapsed ? 64 : 240),
+            left:       isMobile ? 24 : (sidebarCollapsed ? 64 : 240),
             right:      24,
             bottom:     0,
             height:     chatOpen ? '72vh' : '0',

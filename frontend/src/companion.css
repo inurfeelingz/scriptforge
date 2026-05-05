@@ -147,8 +147,8 @@
 .screens-container {
   display:        flex;
   flex:           1;
-  /* overflow clipped by companion-root which is position:fixed overflow:hidden */
-  width:          100vw;
+  overflow:       hidden;
+  width:          100%;
   will-change:    transform;
 }
 
