@@ -497,6 +497,52 @@ router.post('/projects/:id/swap', async (req, res) => {
  * Export timeline as EDL, FCPXML, or OTIO
  * STATUS: FULLY WORKING — EDL, FCPXML 1.10, and OTIO all implemented
  */
+router.get('/projects/:id/export', async (req, res) => {
+  const { format = 'edl' } = req.query
+
+  try {
+    const { data: project } = await supabase
+      .from('editor_projects')
+      .select('name, timeline, duration_ms')
+      .eq('id', req.params.id)
+      .eq('user_id', req.user.id)
+      .single()
+
+    if (!project) return res.status(404).json({ error: 'Project not found' })
+
+    const timeline = { clips: project.timeline || [], durationMs: project.duration_ms }
+    let content, filename, mimeType
+
+    if (format === 'fcpxml') {
+      content  = timelineBuilder.exportFCPXML(timeline, project.name)
+      filename = `${project.name.replace(/\s+/g,'-')}.fcpxml`
+      mimeType = 'application/xml'
+    } else if (format === 'otio') {
+      content  = timelineBuilder.exportOTIO(timeline, project.name)
+      filename = `${project.name.replace(/\s+/g,'-')}.otio`
+      mimeType = 'application/json'
+    } else {
+      content  = timelineBuilder.exportEDL(timeline, project.name)
+      filename = `${project.name.replace(/\s+/g,'-')}.edl`
+      mimeType = 'text/plain'
+    }
+
+    await supabase.from('editor_projects').update({
+      last_exported_at: new Date().toISOString(),
+      export_format:    format,
+      status:           'exported',
+    }).eq('id', req.params.id)
+
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`)
+    res.setHeader('Content-Type', mimeType)
+    res.send(content)
+
+  } catch (err) {
+    console.error('[editor/export]', err.message)
+    res.status(500).json({ error: err.message })
+  }
+})
+
 router.post('/projects/:id/export', async (req, res) => {
   const { format = 'edl' } = req.body
 

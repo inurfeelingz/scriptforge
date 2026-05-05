@@ -6,7 +6,7 @@
 import { useState, useEffect } from 'react'
 import {
   Sparkles, AlertTriangle, Check, RefreshCw,
-  ChevronDown, ChevronUp, Zap, AlignCenter, Upload,
+  ChevronDown, ChevronUp, Zap, AlignCenter, Upload, Download,
 } from 'lucide-react'
 import { useStore } from '../../store'
 import { api, episodes as episodesApi } from '../../lib/api'
@@ -99,6 +99,29 @@ export default function HybridTimeline({ project, onProjectUpdate }) {
       const count = updated.filter(c => c.approved).length - timeline.filter(c => c.approved).length
       notify(`Approved ${count} clips with ≥60% confidence`, 'success')
     } catch (err) { notify(err.message, 'error') }
+  }
+
+  // ── Export timeline ───────────────────────────────────────────────────────
+  async function exportTimeline(format) {
+    if (!timeline.length) return notify('Assemble a timeline first', 'error')
+    try {
+      const BASE = import.meta.env.VITE_API_URL || '/api'
+      const session = await getSession()
+      const res = await fetch(`${BASE}/editor/projects/${project.id}/export?format=${format}`, {
+        headers: { Authorization: `Bearer ${session?.access_token}` }
+      })
+      if (!res.ok) throw new Error('Export failed')
+      const blob     = await res.blob()
+      const filename = res.headers.get('Content-Disposition')?.match(/filename="(.+)"/)?.[1]
+        || `timeline.${format}`
+      const url = URL.createObjectURL(blob)
+      const a   = document.createElement('a')
+      a.href = url; a.download = filename; a.click()
+      URL.revokeObjectURL(url)
+      notify(`Exported as ${format.toUpperCase()}`, 'success')
+    } catch (err) {
+      notify('Export failed: ' + err.message, 'error')
+    }
   }
 
   // ── Continuity score ──────────────────────────────────────────────────────
@@ -233,6 +256,27 @@ export default function HybridTimeline({ project, onProjectUpdate }) {
               : <Sparkles size={13}/>}
             {timeline.length ? 'Re-assemble' : 'AI assemble'}
           </button>
+
+          {/* Export buttons — only shown when timeline exists */}
+          {timeline.length > 0 && (
+            <div className="flex items-center gap-1 border-l border-[#1a1a1a] pl-3 ml-1">
+              <span className="text-[10px] text-[#444] mr-1">Export</span>
+              {[
+                { fmt: 'fcpxml', label: 'FCPXML', desc: 'DaVinci / FCP' },
+                { fmt: 'edl',    label: 'EDL',    desc: 'Universal' },
+                { fmt: 'otio',   label: 'OTIO',   desc: 'DaVinci 19+' },
+              ].map(({ fmt, label, desc }) => (
+                <button
+                  key={fmt}
+                  onClick={() => exportTimeline(fmt)}
+                  title={desc}
+                  className="flex items-center gap-1 px-2.5 py-1.5 border border-[#1a1a1a] rounded text-[10px] text-[#555] hover:text-[#c8b89a] hover:border-[#c8b89a]/20 transition-all"
+                >
+                  <Download size={9}/> {label}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 
