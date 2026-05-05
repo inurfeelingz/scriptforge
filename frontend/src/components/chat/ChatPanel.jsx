@@ -87,6 +87,40 @@ const STYLES = `
     flex-direction: column;
     padding: 20px 16px;
     background: rgba(8,10,16,0.5);
+    transition: width 0.25s cubic-bezier(0.4,0,0.2,1), opacity 0.2s, padding 0.25s;
+    overflow: hidden;
+  }
+
+  .kb-sidebar.collapsed {
+    width: 0;
+    padding: 0;
+    opacity: 0;
+    border-right: none;
+  }
+
+  .kb-sidebar-toggle {
+    position: absolute;
+    top: 12px;
+    left: 12px;
+    width: 26px;
+    height: 26px;
+    border-radius: 6px;
+    border: 1px solid rgba(255,255,255,0.08);
+    background: rgba(255,255,255,0.03);
+    color: rgba(255,255,255,0.4);
+    cursor: pointer;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    transition: all 0.15s;
+    z-index: 3;
+  }
+  .kb-sidebar-toggle:hover { background: rgba(255,255,255,0.07); color: rgba(255,255,255,0.7); }
+
+  @media (max-width: 600px) {
+    .kb-sidebar-toggle { display: flex; }
+    .kb-sidebar-toggle.sidebar-open { left: 208px; }
   }
 
   .kb-mode-glyph {
@@ -385,6 +419,8 @@ export default function ChatPanel() {
   }, [])
 
   const [view,        setView]        = useState('chat')
+  const isMobile    = typeof window !== 'undefined' && window.innerWidth < 600
+  const [sidebarOpen, setSidebarOpen] = useState(!isMobile)
   const [messages,    setMessages]    = useState([])
   const [sessions,    setSessions]    = useState([])
   const [input,       setInput]       = useState('')
@@ -529,7 +565,10 @@ export default function ChatPanel() {
   if (view === 'history') {
     return (
       <div className="kb-panel">
-        <div className="kb-sidebar">
+        <button className={`kb-sidebar-toggle ${sidebarOpen ? 'sidebar-open' : ''}`} onClick={() => setSidebarOpen(o => !o)} title={sidebarOpen ? 'Hide sidebar' : 'Show sidebar'}>
+          {sidebarOpen ? '‹' : '›'}
+        </button>
+        <div className={`kb-sidebar ${sidebarOpen ? '' : 'collapsed'}`}>
           <div className="kb-mode-glyph" style={{ color: meta.color }}>{meta.glyph}</div>
           <div className="kb-mode-name">Knowledge Base</div>
           <div className="kb-mode-label" style={{ color: meta.color }}>History</div>
@@ -569,8 +608,17 @@ export default function ChatPanel() {
   return (
     <div className="kb-panel">
 
+      {/* Sidebar toggle — mobile only (shown via CSS media query) */}
+      <button
+        className={`kb-sidebar-toggle ${sidebarOpen ? 'sidebar-open' : ''}`}
+        onClick={() => setSidebarOpen(o => !o)}
+        title={sidebarOpen ? 'Hide sidebar' : 'Show sidebar'}
+      >
+        {sidebarOpen ? '‹' : '›'}
+      </button>
+
       {/* Sidebar */}
-      <div className="kb-sidebar">
+      <div className={`kb-sidebar ${sidebarOpen ? '' : 'collapsed'}`}>
         <div className="kb-mode-glyph" style={{ color: meta.color }}>{meta.glyph}</div>
         <div className="kb-mode-name">Knowledge Base</div>
         <div className="kb-mode-label" style={{ color: meta.color }}>{meta.name}</div>
