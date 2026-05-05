@@ -407,20 +407,37 @@ export default function AppLayout() {
           </div>
         </div>
 
+        {/* Backdrop blur overlay — dims and blurs content when KB is open */}
+        {!isCompanion && chatOpen && (
+          <div
+            onClick={() => setChatOpen(false)}
+            style={{
+              position:   'fixed',
+              inset:      0,
+              zIndex:     39,
+              background: 'rgba(6,8,14,0.45)',
+              backdropFilter: 'blur(4px)',
+              WebkitBackdropFilter: 'blur(4px)',
+              transition: 'opacity 0.3s',
+            }}
+          />
+        )}
+
         {/* KB sheet — hidden on companion route */}
         {!isCompanion && (
           <div style={{
             position:   'fixed',
             left:       isMobile ? 0 : (sidebarCollapsed ? 64 : 240),
-            right:      0,
+            right:      24,
             bottom:     0,
             height:     chatOpen ? '72vh' : '0',
             overflow:   'hidden',
             transition: 'height 0.4s cubic-bezier(0.32, 0.72, 0, 1), left 0.25s cubic-bezier(0.4,0,0.2,1)',
             zIndex:     40,
             background: 'rgba(10,12,18,0.97)',
-            boxShadow:  chatOpen ? '0 -2px 0 rgba(74,222,128,0.6), 0 -20px 60px rgba(74,222,128,0.04), 0 -40px 120px rgba(0,0,0,0.8)' : 'none',
-            backdropFilter: 'blur(16px)',
+            borderRadius: '16px 16px 0 0',
+            boxShadow:  chatOpen ? '0 -2px 0 rgba(74,222,128,0.6), 0 -20px 60px rgba(74,222,128,0.04), -8px 0 40px rgba(0,0,0,0.4), 8px 0 40px rgba(0,0,0,0.4), 0 -40px 120px rgba(0,0,0,0.8)' : 'none',
+            backdropFilter: 'blur(20px)',
           }}>
             {chatOpen && <ChatPanel/>}
           </div>

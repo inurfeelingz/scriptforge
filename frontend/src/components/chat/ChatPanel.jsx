@@ -97,9 +97,9 @@ const STYLES = `
 
   .kb-mode-name {
     font-family: 'Figtree', sans-serif;
-    font-size: 9px;
+    font-size: 10px;
     font-weight: 500;
-    letter-spacing: 0.12em;
+    letter-spacing: 0.10em;
     text-transform: uppercase;
     color: var(--text3);
     margin-bottom: 2px;
@@ -107,7 +107,7 @@ const STYLES = `
 
   .kb-mode-label {
     font-family: 'Syne', sans-serif;
-    font-size: 15px;
+    font-size: 17px;
     font-weight: 600;
     color: var(--text);
     margin-bottom: 20px;
@@ -115,7 +115,7 @@ const STYLES = `
   }
 
   .kb-quick-label {
-    font-size: 9px;
+    font-size: 10px;
     font-weight: 500;
     letter-spacing: 0.1em;
     text-transform: uppercase;
@@ -126,11 +126,11 @@ const STYLES = `
 
   .kb-quick-btn {
     font-family: 'Figtree', sans-serif;
-    font-size: 11px;
+    font-size: 13px;
     font-weight: 400;
     line-height: 1.45;
     text-align: left;
-    padding: 7px 9px;
+    padding: 8px 10px;
     border-radius: 7px;
     border: 1px solid rgba(255,255,255,0.04);
     background: transparent;
@@ -144,10 +144,10 @@ const STYLES = `
 
   .kb-action-btn {
     font-family: 'Figtree', sans-serif;
-    font-size: 11px;
+    font-size: 13px;
     font-weight: 400;
     text-align: left;
-    padding: 6px 9px;
+    padding: 7px 10px;
     border-radius: 6px;
     border: 1px solid rgba(255,255,255,0.05);
     background: transparent;
@@ -192,7 +192,7 @@ const STYLES = `
     gap: 6px;
   }
   .kb-empty-glyph { font-size: 32px; margin-bottom: 4px; opacity: 0.2; }
-  .kb-empty-text { font-size: 11px; color: var(--text3); }
+  .kb-empty-text { font-size: 13px; color: var(--text3); }
 
   .kb-msg { display: flex; }
   .kb-msg.user  { justify-content: flex-end; }
@@ -203,8 +203,8 @@ const STYLES = `
     padding: 10px 14px;
     border-radius: 12px;
     font-family: 'Figtree', sans-serif;
-    font-size: 13px;
-    line-height: 1.6;
+    font-size: 14px;
+    line-height: 1.65;
     font-weight: 400;
   }
 
@@ -231,7 +231,7 @@ const STYLES = `
   .kb-bubble strong { color: var(--text); font-weight: 600; }
   .kb-bubble code {
     font-family: 'Figtree', monospace;
-    font-size: 11px;
+    font-size: 12px;
     background: rgba(255,255,255,0.06);
     padding: 1px 5px;
     border-radius: 3px;
@@ -266,7 +266,7 @@ const STYLES = `
 
   .kb-committed-bar {
     padding: 8px 20px;
-    font-size: 11px;
+    font-size: 13px;
     display: flex;
     align-items: center;
     gap: 7px;
@@ -298,7 +298,7 @@ const STYLES = `
     outline: none;
     resize: none;
     font-family: 'Figtree', sans-serif;
-    font-size: 13px;
+    font-size: 14px;
     line-height: 1.5;
     color: var(--text);
   }
@@ -330,13 +330,13 @@ const STYLES = `
   }
 
   .kb-generate-text {
-    font-size: 11px;
+    font-size: 13px;
     color: rgba(74,222,128,0.55);
   }
 
   .kb-generate-btn {
     font-family: 'Figtree', sans-serif;
-    font-size: 11px;
+    font-size: 13px;
     font-weight: 500;
     padding: 5px 10px;
     border-radius: 6px;
@@ -362,8 +362,8 @@ const STYLES = `
     margin-bottom: 5px;
   }
   .kb-history-item:hover { border-color: rgba(255,255,255,0.09); background: rgba(255,255,255,0.02); }
-  .kb-history-title { font-size: 12px; color: var(--text2); line-height: 1.4; margin-bottom: 4px; }
-  .kb-history-meta { font-size: 10px; color: var(--text3); display: flex; align-items: center; gap: 6px; }
+  .kb-history-title { font-size: 14px; color: var(--text2); line-height: 1.4; margin-bottom: 4px; }
+  .kb-history-meta { font-size: 11px; color: var(--text3); display: flex; align-items: center; gap: 6px; }
   .kb-history-mode { padding: 2px 6px; border-radius: 3px; font-size: 9px; font-weight: 500; letter-spacing: 0.05em; text-transform: uppercase; }
 `
 
