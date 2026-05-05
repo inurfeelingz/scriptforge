@@ -1,31 +1,42 @@
 // frontend/src/lib/storyboardSVG.js
-// South African musician storyboard figure system
-// Front-facing + side-facing full-body vectors, 3 scene environments
-// All frames 320×180 (16:9)
+// SA musician storyboard system — hand-drawn figures, studio environments
+// 14 shot types × 2 genders × 3 scenes (daw, piano, wide)
+// Each shot is self-contained at 320×180. No clip paths.
 
 const W = 320
 const H = 180
 
 // ─── PALETTE ──────────────────────────────────────────────────────────────────
-const SK  = '#3D1F0D'   // primary skin
-const SK2 = '#4a2810'   // skin shadow
-const SK3 = '#5a3318'   // skin highlight
-const HR  = '#0d0808'   // hair
-const JK  = '#1a1f30'   // jacket
-const JK2 = '#222840'   // jacket highlight
-const SH  = '#dde0e8'   // shirt
-const PT  = '#141520'   // pants
-const PT2 = '#1c1e2c'   // pants highlight
-const SN  = '#0a0b10'   // shoes
+const SK  = '#3D1F0D'   // skin base
+const SK2 = '#5a3018'   // skin shadow
+const HR  = '#100a06'   // hair
+const MJ  = '#1e2840'   // male jacket
+const MJ2 = '#283458'   // male jacket highlight
+const MSH = '#d8dce8'   // male shirt
+const MP  = '#141628'   // male pants
+const MSN = '#0c0d18'   // shoes
+const FT  = '#8B3A52'   // female top
+const FT2 = '#a84865'   // female top highlight
+// scene
+const WAL = '#242838'   // wall
+const WAL2= '#1e2130'   // wall dark
+const FLR = '#181a28'   // floor
+const DSK = '#1c1e30'   // desk
+const MON = '#08090e'   // monitor body
+const MSC = '#090c14'   // monitor screen
+const SPK = '#0e1020'   // speaker
+const PNO = '#0b0c16'   // piano body
+const PNO2= '#141628'   // piano lid
+const ACR = '#1e2038'   // acoustic panel
+const ACR2= '#242648'   // acoustic panel alt
 
 // ─── CHROME ───────────────────────────────────────────────────────────────────
 function chrome(label) {
   return `<rect x="0" y="${H-18}" width="${W}" height="18" fill="#0a0c14" opacity="0.97"/>
-<rect x="0" y="0" width="${W}" height="${H}" fill="none" stroke="#c8b89a" stroke-width="1.5"/>
-<rect x="6" y="6" width="${W-12}" height="${H-30}" fill="none" stroke="#c8b89a" stroke-width="0.4" stroke-dasharray="3 3" opacity="0.22"/>
-<text x="8" y="${H-6}" font-family="monospace" font-size="8.5" fill="#c8b89a" opacity="0.88">${label}</text>`
+<rect x="0" y="0" width="${W}" height="${H}" fill="none" stroke="#c8b89a" stroke-width="1.4"/>
+<rect x="5" y="5" width="${W-10}" height="${H-28}" fill="none" stroke="#c8b89a" stroke-width="0.35" stroke-dasharray="3 3" opacity="0.2"/>
+<text x="7" y="${H-6}" font-family="monospace" font-size="8" fill="#c8b89a" opacity="0.88">${label}</text>`
 }
-
 function rof() {
   const ih = H-18
   return `<line x1="${W/3}" y1="0" x2="${W/3}" y2="${ih}" stroke="#c8b89a" stroke-width="0.25" opacity="0.13"/>
@@ -33,326 +44,469 @@ function rof() {
 <line x1="0" y1="${ih/3}" x2="${W}" y2="${ih/3}" stroke="#c8b89a" stroke-width="0.25" opacity="0.13"/>
 <line x1="0" y1="${ih*2/3}" x2="${W}" y2="${ih*2/3}" stroke="#c8b89a" stroke-width="0.25" opacity="0.13"/>`
 }
-
 function eyeLine(y) {
-  return `<line x1="6" y1="${y}" x2="${W-6}" y2="${y}" stroke="#c8b89a" stroke-width="0.4" stroke-dasharray="4 4" opacity="0.3"/>
-<text x="${W-8}" y="${y-3}" font-family="monospace" font-size="6" fill="#c8b89a" opacity="0.38" text-anchor="end">eye line</text>`
+  return `<line x1="6" y1="${y}" x2="${W-6}" y2="${y}" stroke="#c8b89a" stroke-width="0.38" stroke-dasharray="4 4" opacity="0.3"/>
+<text x="${W-8}" y="${y-3}" font-family="monospace" font-size="6" fill="#c8b89a" opacity="0.36" text-anchor="end">eye line</text>`
 }
-
-// ─── ENVIRONMENTS ─────────────────────────────────────────────────────────────
-function envRoom(horizon=112) {
-  return `<rect x="0" y="0" width="${W}" height="${H}" fill="#080a0e"/>
-<rect x="0" y="0" width="${W}" height="${horizon}" fill="#0d0f1a"/>
-<rect x="0" y="${horizon}" width="${W}" height="${H-horizon}" fill="#070810"/>
-<line x1="0" y1="${horizon}" x2="${W}" y2="${horizon}" stroke="#c8b89a" stroke-width="0.6" opacity="0.32"/>
-<line x1="0" y1="0" x2="${W/2}" y2="${horizon}" stroke="#c8b89a" stroke-width="0.3" opacity="0.08"/>
-<line x1="${W}" y1="0" x2="${W/2}" y2="${horizon}" stroke="#c8b89a" stroke-width="0.3" opacity="0.08"/>
-<line x1="0" y1="${horizon+4}" x2="${W}" y2="${horizon+4}" stroke="#c8b89a" stroke-width="0.25" opacity="0.1"/>`
+function wrap(content) {
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}">${content}</svg>`
 }
-
-function envScreen(x, y, w, h) {
-  return `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="2" fill="#0d1020" stroke="#c8b89a" stroke-width="0.6" opacity="0.45"/>
-<rect x="${x+3}" y="${y+3}" width="${w-6}" height="${h-6}" fill="#0f1a28"/>
-<line x1="${x+6}" y1="${y+11}" x2="${x+w-6}" y2="${y+11}" stroke="#4a7ab8" stroke-width="1.8" opacity="0.45"/>
-<line x1="${x+6}" y1="${y+17}" x2="${x+w*0.72}" y2="${y+17}" stroke="#6a48b8" stroke-width="1.5" opacity="0.38"/>
-<line x1="${x+6}" y1="${y+23}" x2="${x+w-6}" y2="${y+23}" stroke="#4a8a68" stroke-width="1.8" opacity="0.4"/>
-<line x1="${x+6}" y1="${y+29}" x2="${x+w*0.6}" y2="${y+29}" stroke="#4a7ab8" stroke-width="1.2" opacity="0.28"/>
-<line x1="${x+w/2}" y1="${y+h}" x2="${x+w/2}" y2="${y+h+8}" stroke="#c8b89a" stroke-width="0.8" opacity="0.2"/>
-<line x1="${x+w/2-9}" y1="${y+h+8}" x2="${x+w/2+9}" y2="${y+h+8}" stroke="#c8b89a" stroke-width="0.8" opacity="0.18"/>`
-}
-
-function envWindow(x, y, w, h) {
-  return `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="2" fill="#080e1c" stroke="#c8b89a" stroke-width="0.6" opacity="0.38"/>
-<line x1="${x+w/2}" y1="${y}" x2="${x+w/2}" y2="${y+h}" stroke="#c8b89a" stroke-width="0.4" opacity="0.28"/>
-<line x1="${x}" y1="${y+h*0.45}" x2="${x+w}" y2="${y+h*0.45}" stroke="#c8b89a" stroke-width="0.4" opacity="0.28"/>`
-}
-
-// ─── SA FRONT FIGURE ──────────────────────────────────────────────────────────
-// cx = centre x, ground = y of feet, s = scale
-function figFront(cx, ground, s=1, variant=0) {
-  const skins  = [SK,  '#2e1508','#5a3020','#3a1c08']
-  const hairs  = [HR,  '#080404','#100808','#0a0606']
-  const shirts = [SH,  '#d8dce4','#e4e8f0','#ccd0d8']
-  const jackets= [JK,  '#1c2238','#202838','#181e30']
-  const pants  = [PT,  '#121420','#181a28','#100e1c']
-  const sk=skins[variant%4], sk2=skins[(variant+2)%4]
-  const hr=hairs[variant%4], sh=shirts[variant%4]
-  const jk=jackets[variant%4], pt=pants[variant%4]
-  const c=cx, g=ground
-
-  return `
-<ellipse cx="${c}" cy="${g}" rx="${20*s}" ry="${5*s}" fill="#04050a" opacity="0.5"/>
-<path d="M${c-9*s} ${g-3} Q${c-13*s} ${g-2} ${c-13*s} ${g} L${c-4*s} ${g} Z" fill="${SN}"/>
-<rect x="${c+3*s}" y="${g-12*s}" width="${10*s}" height="${12*s}" rx="${2*s}" fill="${SN}"/>
-<path d="M${c+3*s} ${g-4} Q${c+13*s} ${g-2} ${c+13*s} ${g} L${c+4*s} ${g} Z" fill="${SN}"/>
-<path d="M${c-10*s} ${g-52*s} L${c-12*s} ${g-3} L${c-3*s} ${g-1} L${c-1*s} ${g-34*s} L${c+1*s} ${g-34*s} L${c+3*s} ${g-1} L${c+12*s} ${g-3} L${c+10*s} ${g-52*s} Z" fill="${pt}"/>
-<path d="M${c-10*s} ${g-52*s} L${c-12*s} ${g-3} L${c-7*s} ${g-2} L${c-1*s} ${g-34*s} L${c+1*s} ${g-34*s} L${c-1*s} ${g-52*s} Z" fill="${PT2}"/>
-<path d="M${c-18*s} ${g-104*s} L${c-16*s} ${g-52*s} L${c+16*s} ${g-52*s} L${c+18*s} ${g-104*s} L${c+14*s} ${g-112*s} L${c} ${g-116*s} L${c-14*s} ${g-112*s} Z" fill="${jk}"/>
-<path d="M${c-4*s} ${g-112*s} L${c-6*s} ${g-84*s} L${c-6*s} ${g-52*s} L${c} ${g-52*s} L${c+6*s} ${g-52*s} L${c+6*s} ${g-84*s} L${c+4*s} ${g-112*s} Z" fill="${sh}"/>
-<path d="M${c-4*s} ${g-112*s} L${c-6*s} ${g-88*s} L${c-8*s} ${g-104*s} L${c-14*s} ${g-112*s} Z" fill="${JK2}"/>
-<path d="M${c+4*s} ${g-112*s} L${c+6*s} ${g-88*s} L${c+8*s} ${g-104*s} L${c+14*s} ${g-112*s} Z" fill="${JK2}"/>
-<path d="M${c-18*s} ${g-104*s} L${c-25*s} ${g-74*s} L${c-23*s} ${g-60*s} L${c-18*s} ${g-63*s} L${c-16*s} ${g-90*s} Z" fill="${jk}"/>
-<path d="M${c-25*s} ${g-73*s} Q${c-26*s} ${g-62*s} ${c-25*s} ${g-54*s} Q${c-22*s} ${g-48*s} ${c-18*s} ${g-49*s} Q${c-14*s} ${g-50*s} ${c-14*s} ${g-57*s} L${c-18*s} ${g-63*s} Z" fill="${sk}"/>
-<line x1="${c-25*s}" y1="${g-56*s}" x2="${c-29*s}" y2="${g-50*s}" stroke="${SK}" stroke-width="${3*s}" stroke-linecap="round"/>
-<line x1="${c-23*s}" y1="${g-54*s}" x2="${c-27*s}" y2="${g-48*s}" stroke="${SK}" stroke-width="${3*s}" stroke-linecap="round"/>
-<line x1="${c-20*s}" y1="${g-53*s}" x2="${c-23*s}" y2="${g-47*s}" stroke="${SK}" stroke-width="${3*s}" stroke-linecap="round"/>
-<path d="M${c+18*s} ${g-104*s} L${c+25*s} ${g-74*s} L${c+23*s} ${g-60*s} L${c+18*s} ${g-63*s} L${c+16*s} ${g-90*s} Z" fill="${jk}"/>
-<path d="M${c+25*s} ${g-73*s} Q${c+26*s} ${g-62*s} ${c+25*s} ${g-54*s} Q${c+22*s} ${g-48*s} ${c+18*s} ${g-49*s} Q${c+14*s} ${g-50*s} ${c+14*s} ${g-57*s} L${c+18*s} ${g-63*s} Z" fill="${sk}"/>
-<line x1="${c+25*s}" y1="${g-56*s}" x2="${c+29*s}" y2="${g-50*s}" stroke="${SK}" stroke-width="${3*s}" stroke-linecap="round"/>
-<line x1="${c+23*s}" y1="${g-54*s}" x2="${c+27*s}" y2="${g-48*s}" stroke="${SK}" stroke-width="${3*s}" stroke-linecap="round"/>
-<line x1="${c+20*s}" y1="${g-53*s}" x2="${c+23*s}" y2="${g-47*s}" stroke="${SK}" stroke-width="${3*s}" stroke-linecap="round"/>
-<path d="M${c-5*s} ${g-115*s} L${c-5*s} ${g-126*s} Q${c} ${g-129*s} ${c+5*s} ${g-126*s} L${c+5*s} ${g-115*s} Q${c} ${g-118*s} ${c-5*s} ${g-115*s} Z" fill="${sk2}"/>
-<path d="M${c-14*s} ${g-112*s} L${c-10*s} ${g-120*s} L${c} ${g-122*s} L${c+10*s} ${g-120*s} L${c+14*s} ${g-112*s} L${c+8*s} ${g-116*s} L${c} ${g-117*s} L${c-8*s} ${g-116*s} Z" fill="${jk}"/>
-<path d="M${c-18*s} ${g-134*s} Q${c-21*s} ${g-152*s} ${c-14*s} ${g-160*s} Q${c-6*s} ${g-167*s} ${c} ${g-166*s} Q${c+6*s} ${g-167*s} ${c+14*s} ${g-160*s} Q${c+21*s} ${g-152*s} ${c+18*s} ${g-134*s} Q${c+15*s} ${g-124*s} ${c} ${g-122*s} Q${c-15*s} ${g-124*s} ${c-18*s} ${g-134*s} Z" fill="${sk}"/>
-<path d="M${c-18*s} ${g-140*s} Q${c-22*s} ${g-156*s} ${c-15*s} ${g-165*s} Q${c-6*s} ${g-173*s} ${c} ${g-172*s} Q${c+6*s} ${g-173*s} ${c+15*s} ${g-165*s} Q${c+22*s} ${g-156*s} ${c+18*s} ${g-140*s} Q${c+10*s} ${g-157*s} ${c} ${g-156*s} Q${c-10*s} ${g-157*s} ${c-18*s} ${g-140*s} Z" fill="${hr}"/>
-<path d="M${c-16*s} ${g-152*s} Q${c-18*s} ${g-165*s} ${c-10*s} ${g-172*s} Q${c-16*s} ${g-162*s} ${c-17*s} ${g-152*s} Z" fill="${hr}"/>
-<path d="M${c+16*s} ${g-152*s} Q${c+18*s} ${g-165*s} ${c+10*s} ${g-172*s} Q${c+16*s} ${g-162*s} ${c+17*s} ${g-152*s} Z" fill="${hr}"/>
-<path d="M${c-5*s} ${g-165*s} Q${c-7*s} ${g-170*s} ${c-7*s} ${g-175*s} Q${c-7*s} ${g-180*s} ${c-4*s} ${g-182*s} Q${c-6*s} ${g-178*s} ${c-7*s} ${g-174*s} Z" fill="${sk2}"/>
-<path d="M${c+5*s} ${g-165*s} Q${c+7*s} ${g-170*s} ${c+7*s} ${g-175*s} Q${c+7*s} ${g-180*s} ${c+4*s} ${g-182*s} Q${c+6*s} ${g-178*s} ${c+7*s} ${g-174*s} Z" fill="${sk2}"/>
-<path d="M${c-6*s} ${g-148*s} Q${c-8*s} ${g-152*s} ${c-8*s} ${g-157*s} Q${c-8*s} ${g-160*s} ${c-5*s} ${g-161*s} Q${c-6*s} ${g-157*s} ${c-7*s} ${g-152*s} Q${c-6*s} ${g-148*s} ${c-5*s} ${g-148*s} Z" fill="${sk2}"/>
-<path d="M${c+6*s} ${g-148*s} Q${c+8*s} ${g-152*s} ${c+8*s} ${g-157*s} Q${c+8*s} ${g-160*s} ${c+5*s} ${g-161*s} Q${c+6*s} ${g-157*s} ${c+7*s} ${g-152*s} Q${c+6*s} ${g-148*s} ${c+5*s} ${g-148*s} Z" fill="${sk2}"/>
-<path d="M${c-9*s} ${g-148*s} Q${c-12*s} ${g-152*s} ${c-12*s} ${g-158*s} Q${c-11*s} ${g-161*s} ${c-8*s} ${g-160*s}" fill="none" stroke="${sk2}" stroke-width="${1.4*s}"/>
-<path d="M${c+9*s} ${g-148*s} Q${c+12*s} ${g-152*s} ${c+12*s} ${g-158*s} Q${c+11*s} ${g-161*s} ${c+8*s} ${g-160*s}" fill="none" stroke="${sk2}" stroke-width="${1.4*s}"/>
-<path d="M${c-8*s} ${g-148*s} Q${c-6*s} ${g-152*s} ${c-2*s} ${g-150*s} Q${c+2*s} ${g-150*s} ${c+6*s} ${g-148*s}" fill="none" stroke="${sk2}" stroke-width="${1.4*s}"/>
-<ellipse cx="${c-6*s}" cy="${g-147*s}" rx="${5*s}" ry="${3.5*s}" fill="#0e1018" opacity="0.85"/>
-<ellipse cx="${c+6*s}" cy="${g-147*s}" rx="${5*s}" ry="${3.5*s}" fill="#0e1018" opacity="0.85"/>
-<ellipse cx="${c-6*s}" cy="${g-147.5*s}" rx="${3*s}" ry="${2.5*s}" fill="#1a0d05"/>
-<ellipse cx="${c+6*s}" cy="${g-147.5*s}" rx="${3*s}" ry="${2.5*s}" fill="#1a0d05"/>
-<ellipse cx="${c-4.5*s}" cy="${g-149*s}" rx="${1.2*s}" ry="${1.2*s}" fill="#e8e0d0" opacity="0.6"/>
-<ellipse cx="${c+7.5*s}" cy="${g-149*s}" rx="${1.2*s}" ry="${1.2*s}" fill="#e8e0d0" opacity="0.6"/>
-<path d="M${c-11*s} ${g-153*s} Q${c-6*s} ${g-156*s} ${c-1*s} ${g-153*s}" fill="none" stroke="${hr}" stroke-width="${2.2*s}" stroke-linecap="round"/>
-<path d="M${c+1*s} ${g-153*s} Q${c+6*s} ${g-156*s} ${c+11*s} ${g-153*s}" fill="none" stroke="${hr}" stroke-width="${2.2*s}" stroke-linecap="round"/>
-<path d="M${c} ${g-148*s} L${c-2*s} ${g-139*s} Q${c} ${g-136*s} ${c+2*s} ${g-139*s}" fill="none" stroke="${sk2}" stroke-width="${1.2*s}" stroke-linecap="round"/>
-<ellipse cx="${c-6*s}" cy="${g-136*s}" rx="${3.5*s}" ry="${2.5*s}" fill="#1a0d05" opacity="0.5"/>
-<ellipse cx="${c+6*s}" cy="${g-136*s}" rx="${3.5*s}" ry="${2.5*s}" fill="#1a0d05" opacity="0.5"/>
-<path d="M${c-8*s} ${g-131*s} Q${c} ${g-127*s} ${c+8*s} ${g-131*s}" fill="${sk}" opacity="0.6"/>
-<path d="M${c-7*s} ${g-131*s} Q${c} ${g-129*s} ${c+7*s} ${g-131*s}" fill="none" stroke="${sk2}" stroke-width="${1.4*s}" stroke-linecap="round"/>`
-}
-
-// ─── SA SIDE FIGURE ───────────────────────────────────────────────────────────
-function figSide(cx, ground, s=1, variant=0) {
-  const skins  = [SK,  '#2e1508','#5a3020','#3a1c08']
-  const hairs  = [HR,  '#080404','#100808','#0a0606']
-  const shirts = [SH,  '#d8dce4','#e4e8f0','#ccd0d8']
-  const jackets= [JK,  '#1c2238','#202838','#181e30']
-  const pants  = [PT,  '#121420','#181a28','#100e1c']
-  const sk=skins[variant%4], sk2=skins[(variant+2)%4]
-  const hr=hairs[variant%4], sh=shirts[variant%4]
-  const jk=jackets[variant%4], pt=pants[variant%4]
-  const c=cx, g=ground
-
-  return `
-<ellipse cx="${c}" cy="${g}" rx="${18*s}" ry="${4*s}" fill="#04050a" opacity="0.45"/>
-<path d="M${c-12*s} ${g-5} Q${c-18*s} ${g-3} ${c-18*s} ${g} L${c-5*s} ${g} L${c-4*s} ${g-10*s} Z" fill="${SN}"/>
-<rect x="${c-4*s}" y="${g-14*s}" width="${8*s}" height="${14*s}" rx="${2*s}" fill="${SN}"/>
-<path d="M${c-12*s} ${g-5} Q${c+8*s} ${g-3} ${c+8*s} ${g} L${c-5*s} ${g} Z" fill="${SN}" opacity="0.5"/>
-<path d="M${c-10*s} ${g-52*s} L${c-10*s} ${g-4} L${c+4*s} ${g-4} L${c+4*s} ${g-52*s} Z" fill="${pt}"/>
-<path d="M${c+2*s} ${g-52*s} L${c+4*s} ${g-3} L${c+10*s} ${g-3} L${c+12*s} ${g-52*s} Z" fill="${PT2}" opacity="0.7"/>
-<path d="M${c-14*s} ${g-112*s} L${c-12*s} ${g-52*s} L${c+16*s} ${g-52*s} L${c+18*s} ${g-112*s} L${c+12*s} ${g-118*s} L${c} ${g-120*s} L${c-8*s} ${g-116*s} Z" fill="${jk}"/>
-<path d="M${c-4*s} ${g-118*s} L${c-6*s} ${g-90*s} L${c-6*s} ${g-52*s} L${c+4*s} ${g-52*s} L${c+4*s} ${g-90*s} L${c+2*s} ${g-118*s} Z" fill="${sh}"/>
-<path d="M${c-14*s} ${g-112*s} L${c-22*s} ${g-78*s} L${c-20*s} ${g-62*s} L${c-14*s} ${g-65*s} L${c-12*s} ${g-96*s} Z" fill="${jk}"/>
-<path d="M${c-22*s} ${g-76*s} Q${c-24*s} ${g-64*s} ${c-23*s} ${g-56*s} Q${c-20*s} ${g-48*s} ${c-16*s} ${g-49*s} Q${c-12*s} ${g-50*s} ${c-12*s} ${g-58*s} L${c-14*s} ${g-65*s} Z" fill="${sk}"/>
-<line x1="${c-22*s}" y1="${g-58*s}" x2="${c-26*s}" y2="${g-52*s}" stroke="${SK}" stroke-width="${3*s}" stroke-linecap="round"/>
-<line x1="${c-19*s}" y1="${g-55*s}" x2="${c-23*s}" y2="${g-49*s}" stroke="${SK}" stroke-width="${3*s}" stroke-linecap="round"/>
-<line x1="${c-16*s}" y1="${g-53*s}" x2="${c-19*s}" y2="${g-47*s}" stroke="${SK}" stroke-width="${3*s}" stroke-linecap="round"/>
-<path d="M${c+18*s} ${g-112*s} L${c+26*s} ${g-80*s} L${c+22*s} ${g-62*s} L${c+16*s} ${g-64*s} L${c+16*s} ${g-96*s} Z" fill="${jk}"/>
-<path d="M${c+24*s} ${g-78*s} Q${c+27*s} ${g-66*s} ${c+24*s} ${g-58*s} Q${c+20*s} ${g-50*s} ${c+16*s} ${g-52*s} Q${c+12*s} ${g-53*s} ${c+12*s} ${g-60*s} L${c+16*s} ${g-64*s} Z" fill="${sk}"/>
-<line x1="${c+24*s}" y1="${g-60*s}" x2="${c+28*s}" y2="${g-54*s}" stroke="${SK}" stroke-width="${3*s}" stroke-linecap="round"/>
-<line x1="${c+22*s}" y1="${g-57*s}" x2="${c+26*s}" y2="${g-51*s}" stroke="${SK}" stroke-width="${3*s}" stroke-linecap="round"/>
-<line x1="${c+19*s}" y1="${g-55*s}" x2="${c+22*s}" y2="${g-49*s}" stroke="${SK}" stroke-width="${3*s}" stroke-linecap="round"/>
-<path d="M${c-2*s} ${g-118*s} L${c-2*s} ${g-128*s} Q${c+3*s} ${g-130*s} ${c+6*s} ${g-127*s} L${c+6*s} ${g-118*s} Q${c+2*s} ${g-121*s} ${c-2*s} ${g-118*s} Z" fill="${sk2}"/>
-<path d="M${c-16*s} ${g-134*s} Q${c-18*s} ${g-148*s} ${c-14*s} ${g-158*s} Q${c-6*s} ${g-166*s} ${c+2*s} ${g-165*s} Q${c+10*s} ${g-164*s} ${c+16*s} ${g-156*s} Q${c+20*s} ${g-144*s} ${c+18*s} ${g-130*s} Q${c+14*s} ${g-122*s} ${c} ${g-120*s} Q${c-12*s} ${g-122*s} ${c-16*s} ${g-134*s} Z" fill="${sk}"/>
-<path d="M${c-16*s} ${g-140*s} Q${c-20*s} ${g-152*s} ${c-16*s} ${g-162*s} Q${c-8*s} ${g-172*s} ${c+2*s} ${g-171*s} Q${c+10*s} ${g-170*s} ${c+16*s} ${g-160*s} Q${c+20*s} ${g-148*s} ${c+18*s} ${g-136*s} Q${c+10*s} ${g-152*s} ${c} ${g-151*s} Q${c-10*s} ${g-152*s} ${c-16*s} ${g-140*s} Z" fill="${hr}"/>
-<path d="M${c-14*s} ${g-154*s} Q${c-18*s} ${g-164*s} ${c-15*s} ${g-172*s} Q${c-17*s} ${g-164*s} ${c-16*s} ${g-154*s} Z" fill="${hr}"/>
-<path d="M${c+14*s} ${g-148*s} Q${c+19*s} ${g-156*s} ${c+18*s} ${g-166*s} Q${c+18*s} ${g-156*s} ${c+16*s} ${g-148*s} Z" fill="${hr}"/>
-<path d="M${c-4*s} ${g-128*s} Q${c-8*s} ${g-134*s} ${c-8*s} ${g-140*s} Q${c-8*s} ${g-145*s} ${c-4*s} ${g-147*s} Q${c-6*s} ${g-142*s} ${c-7*s} ${g-137*s} Q${c-6*s} ${g-131*s} ${c-4*s} ${g-128*s} Z" fill="${sk2}"/>
-<path d="M${c+4*s} ${g-128*s} Q${c+8*s} ${g-134*s} ${c+8*s} ${g-140*s} Q${c+8*s} ${g-145*s} ${c+4*s} ${g-147*s} Q${c+6*s} ${g-142*s} ${c+7*s} ${g-137*s} Q${c+6*s} ${g-131*s} ${c+4*s} ${g-128*s} Z" fill="${sk2}"/>
-<path d="M${c+16*s} ${g-136*s} Q${c+22*s} ${g-143*s} ${c+22*s} ${g-152*s} Q${c+22*s} ${g-160*s} ${c+16*s} ${g-163*s} Q${c+20*s} ${g-158*s} ${c+20*s} ${g-150*s} Q${c+20*s} ${g-142*s} ${c+16*s} ${g-136*s} Z" fill="${sk2}"/>
-<path d="M${c+10*s} ${g-136*s} Q${c+8*s} ${g-140*s} ${c+6*s} ${g-148*s} Q${c+6*s} ${g-152*s} ${c+8*s} ${g-154*s} Q${c+8*s} ${g-150*s} ${c+9*s} ${g-145*s} Z" fill="#0e1018" opacity="0.75"/>
-<ellipse cx="${c+11*s}" cy="${g-146*s}" rx="${4.5*s}" ry="${3*s}" fill="#1a0d05"/>
-<ellipse cx="${c+13*s}" cy="${g-148*s}" rx="${1.5*s}" ry="${1.5*s}" fill="#e8e0d0" opacity="0.6"/>
-<path d="M${c+9*s} ${g-150*s} Q${c+13*s} ${g-155*s} ${c+18*s} ${g-150*s}" fill="none" stroke="${hr}" stroke-width="${2.5*s}" stroke-linecap="round"/>
-<path d="M${c+18*s} ${g-135*s} Q${c+26*s} ${g-143*s} ${c+24*s} ${g-155*s} Q${c+22*s} ${g-161*s} ${c+17*s} ${g-160*s}" fill="none" stroke="${sk2}" stroke-width="${2*s}" stroke-linecap="round"/>
-<path d="M${c+12*s} ${g-128*s} Q${c+18*s} ${g-132*s} ${c+22*s} ${g-130*s}" fill="none" stroke="${sk2}" stroke-width="${1.5*s}" stroke-linecap="round"/>
-<path d="M${c+4*s} ${g-126*s} Q${c+8*s} ${g-123*s} ${c+10*s} ${g-126*s}" fill="${sk}" opacity="0.5"/>
-<path d="M${c+5*s} ${g-126*s} Q${c+8*s} ${g-124*s} ${c+10*s} ${g-126*s}" fill="none" stroke="${sk2}" stroke-width="${1.4*s}" stroke-linecap="round"/>`
-}
-
-// ─── HASH FOR VARIANT SELECTION ───────────────────────────────────────────────
 function hv(id) {
   let h=5381; const s=String(id||'x')
   for(let i=0;i<s.length;i++) h=((h<<5)+h)^s.charCodeAt(i)
   return Math.abs(h)&0x7fffffff
 }
 
-function wrap(content) {
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}">${content}</svg>`
+// ─── STUDIO ENVIRONMENTS ─────────────────────────────────────────────────────
+// Each returns SVG string for the background layer
+
+function sceneDAW() {
+  // Camera faces creator. DAW monitors visible behind head. Desk+keyboard in frame.
+  const kw=13, kh=16 // key dimensions
+  const keys=(x,y,n)=>{
+    let s=''
+    const bpat=[0,1,0,1,0,0,1,0,1,0,1,0] // black key pattern per 12
+    for(let i=0;i<n;i++){
+      s+=`<rect x="${x+i*kw}" y="${y}" width="${kw-1}" height="${kh}" rx="0.5" fill="#ccc8b4" opacity="0.88"/>`
+    }
+    for(let i=0;i<n-1;i++){
+      if(bpat[i%12]) s+=`<rect x="${x+i*kw+9}" y="${y}" width="8" height="10" rx="0.5" fill="#0a0b14"/>`
+    }
+    return s
+  }
+  return `
+<rect width="${W}" height="${H}" fill="${WAL}"/>
+<rect x="0" y="0" width="${W}" height="142" fill="#242838"/>
+<rect x="0" y="142" width="${W}" height="${H-142}" fill="${FLR}"/>
+<line x1="0" y1="142" x2="${W}" y2="142" stroke="#c8b89a" stroke-width="0.5" opacity="0.25"/>
+<rect x="0"   y="4" width="22" height="128" rx="2" fill="${ACR}"  stroke="#c8b89a" stroke-width="0.35" opacity="0.3"/>
+<rect x="24"  y="4" width="22" height="128" rx="2" fill="${ACR2}" stroke="#c8b89a" stroke-width="0.35" opacity="0.24"/>
+<rect x="274" y="4" width="22" height="128" rx="2" fill="${ACR2}" stroke="#c8b89a" stroke-width="0.35" opacity="0.24"/>
+<rect x="296" y="4" width="22" height="128" rx="2" fill="${ACR}"  stroke="#c8b89a" stroke-width="0.35" opacity="0.3"/>
+<rect x="58" y="18" width="78" height="52" rx="2" fill="${MON}" stroke="#c8b89a" stroke-width="0.6" opacity="0.55"/>
+<rect x="61" y="21" width="72" height="46" fill="${MSC}"/>
+<rect x="61" y="21" width="72" height="7" fill="#111e2c" opacity="0.9"/>
+<line x1="64" y1="34" x2="96" y2="34" stroke="#4a7ab8" stroke-width="4" opacity="0.55"/>
+<line x1="64" y1="42" x2="84" y2="42" stroke="#6a48b8" stroke-width="3" opacity="0.45"/>
+<line x1="64" y1="50" x2="92" y2="50" stroke="#4a8a68" stroke-width="4" opacity="0.5"/>
+<line x1="64" y1="58" x2="78" y2="58" stroke="#8a6838" stroke-width="3" opacity="0.42"/>
+<rect x="100" y="28" width="3" height="14" rx="1" fill="#4a7ab8" opacity="0.6"/>
+<rect x="105" y="32" width="3" height="10" rx="1" fill="#4a7ab8" opacity="0.5"/>
+<rect x="110" y="26" width="3" height="18" rx="1" fill="#4a7ab8" opacity="0.65"/>
+<rect x="115" y="30" width="3" height="12" rx="1" fill="#4a7ab8" opacity="0.55"/>
+<rect x="120" y="27" width="3" height="16" rx="1" fill="#4a7ab8" opacity="0.6"/>
+<line x1="97"  y1="70" x2="97"  y2="80" stroke="#c8b89a" stroke-width="1.1" opacity="0.2"/>
+<line x1="86"  y1="80" x2="108" y2="80" stroke="#c8b89a" stroke-width="0.9" opacity="0.16"/>
+<rect x="184" y="18" width="78" height="52" rx="2" fill="${MON}" stroke="#c8b89a" stroke-width="0.6" opacity="0.55"/>
+<rect x="187" y="21" width="72" height="46" fill="${MSC}"/>
+<rect x="187" y="21" width="72" height="7" fill="#111e2c" opacity="0.9"/>
+<line x1="190" y1="34" x2="256" y2="34" stroke="#c8b89a" stroke-width="0.7" opacity="0.18"/>
+<line x1="190" y1="42" x2="256" y2="42" stroke="#c8b89a" stroke-width="0.7" opacity="0.14"/>
+<line x1="190" y1="50" x2="256" y2="50" stroke="#c8b89a" stroke-width="0.7" opacity="0.18"/>
+<line x1="190" y1="58" x2="256" y2="58" stroke="#c8b89a" stroke-width="0.7" opacity="0.14"/>
+<line x1="223" y1="70" x2="223" y2="80" stroke="#c8b89a" stroke-width="1.1" opacity="0.2"/>
+<line x1="212" y1="80" x2="234" y2="80" stroke="#c8b89a" stroke-width="0.9" opacity="0.16"/>
+<rect x="10"  y="80" width="26" height="32" rx="2" fill="${SPK}" stroke="#c8b89a" stroke-width="0.5" opacity="0.5"/>
+<ellipse cx="23" cy="90" rx="8" ry="8" fill="#0c0e18" stroke="#c8b89a" stroke-width="0.5" opacity="0.55"/>
+<ellipse cx="23" cy="90" rx="3.5" ry="3.5" fill="#0a0b14"/>
+<ellipse cx="23" cy="104" rx="4" ry="2.8" fill="#0c0e18" stroke="#c8b89a" stroke-width="0.3" opacity="0.4"/>
+<rect x="284" y="80" width="26" height="32" rx="2" fill="${SPK}" stroke="#c8b89a" stroke-width="0.5" opacity="0.5"/>
+<ellipse cx="297" cy="90" rx="8" ry="8" fill="#0c0e18" stroke="#c8b89a" stroke-width="0.5" opacity="0.55"/>
+<ellipse cx="297" cy="90" rx="3.5" ry="3.5" fill="#0a0b14"/>
+<ellipse cx="297" cy="104" rx="4" ry="2.8" fill="#0c0e18" stroke="#c8b89a" stroke-width="0.3" opacity="0.4"/>
+<rect x="8"  y="114" width="304" height="11" rx="1" fill="${DSK}" stroke="#c8b89a" stroke-width="0.5" opacity="0.5"/>
+${keys(52,116,16)}
+<rect x="40"  y="114" width="42" height="18" rx="2" fill="#111220" stroke="#c8b89a" stroke-width="0.45" opacity="0.42"/>
+<circle cx="50" cy="123" r="4.5" fill="none" stroke="#c8b89a" stroke-width="0.6" opacity="0.38"/>
+<circle cx="62" cy="123" r="4.5" fill="none" stroke="#c8b89a" stroke-width="0.6" opacity="0.38"/>
+<circle cx="73" cy="123" r="3.5" fill="none" stroke="#c8b89a" stroke-width="0.5" opacity="0.32"/>`
+}
+
+function scenePiano() {
+  // Camera faces pianist. Piano keyboard in FOREGROUND (bottom of frame). Pianist visible above/behind.
+  const bpat=[0,1,0,1,0,0,1,0,1,0,1,0]
+  let whites='', blacks=''
+  for(let i=0;i<15;i++){
+    whites+=`<rect x="${18+i*19}" y="108" width="18" height="30" rx="0.5" fill="#ccc8b4" opacity="0.92"/>`
+  }
+  for(let i=0;i<14;i++){
+    if(bpat[i%12]) blacks+=`<rect x="${28+i*19}" y="108" width="13" height="19" rx="0.5" fill="#0a0b14"/>`
+  }
+  return `
+<rect width="${W}" height="${H}" fill="${WAL}"/>
+<rect x="0" y="0" width="${W}" height="138" fill="#242838"/>
+<rect x="0" y="138" width="${W}" height="${H-138}" fill="${FLR}"/>
+<line x1="0" y1="138" x2="${W}" y2="138" stroke="#c8b89a" stroke-width="0.5" opacity="0.25"/>
+<rect x="0"   y="4" width="20" height="122" rx="2" fill="${ACR}"  stroke="#c8b89a" stroke-width="0.35" opacity="0.28"/>
+<rect x="22"  y="4" width="20" height="122" rx="2" fill="${ACR2}" stroke="#c8b89a" stroke-width="0.35" opacity="0.22"/>
+<rect x="278" y="4" width="20" height="122" rx="2" fill="${ACR2}" stroke="#c8b89a" stroke-width="0.35" opacity="0.22"/>
+<rect x="300" y="4" width="20" height="122" rx="2" fill="${ACR}"  stroke="#c8b89a" stroke-width="0.35" opacity="0.28"/>
+<rect x="128" y="16" width="64" height="50" rx="1" fill="#1a1c2e" stroke="#c8b89a" stroke-width="0.5" opacity="0.45"/>
+<line x1="136" y1="26" x2="184" y2="26" stroke="#c8b89a" stroke-width="0.5" opacity="0.28"/>
+<line x1="136" y1="32" x2="184" y2="32" stroke="#c8b89a" stroke-width="0.5" opacity="0.22"/>
+<line x1="136" y1="38" x2="178" y2="38" stroke="#c8b89a" stroke-width="0.5" opacity="0.26"/>
+<line x1="136" y1="44" x2="184" y2="44" stroke="#c8b89a" stroke-width="0.5" opacity="0.2"/>
+<line x1="136" y1="50" x2="172" y2="50" stroke="#c8b89a" stroke-width="0.5" opacity="0.24"/>
+<line x1="160" y1="66" x2="160" y2="76" stroke="#c8b89a" stroke-width="1.4" opacity="0.28"/>
+<path d="M0 138 L18 106 L${W-18} 106 L${W} 138 Z" fill="${PNO}" stroke="#c8b89a" stroke-width="0.7" opacity="0.58"/>
+<rect x="16" y="102" width="${W-32}" height="7" rx="0.5" fill="#0e0f1c" stroke="#c8b89a" stroke-width="0.5" opacity="0.6"/>
+<rect x="14" y="108" width="${W-28}" height="32" rx="1" fill="#181a2c" stroke="#c8b89a" stroke-width="0.55" opacity="0.55"/>
+${whites}${blacks}
+<path d="M0 138 L18 106 L18 ${H} L0 ${H} Z" fill="#090a14" opacity="0.9"/>`
+}
+
+function sceneWide() {
+  // Wide shot — full studio. DAW left, piano right, mic centre, figure small centre.
+  const bpat=[0,1,0,1,0,0,1,0,1,0,1,0]
+  let wk='', bk=''
+  for(let i=0;i<9;i++) wk+=`<rect x="${216+i*9}" y="76" width="8" height="13" rx="0.3" fill="#ccc8b4" opacity="0.88"/>`
+  for(let i=0;i<8;i++){
+    if(bpat[i%12]) bk+=`<rect x="${220+i*9}" y="76" width="6" height="8" rx="0.2" fill="#0a0b14"/>`
+  }
+  return `
+<rect width="${W}" height="${H}" fill="${WAL}"/>
+<rect x="0" y="0" width="${W}" height="124" fill="#242838"/>
+<rect x="0" y="124" width="${W}" height="${H-124}" fill="${FLR}"/>
+<line x1="0" y1="124" x2="${W}" y2="124" stroke="#c8b89a" stroke-width="0.5" opacity="0.25"/>
+<line x1="160" y1="124" x2="0"   y2="${H}"   stroke="#c8b89a" stroke-width="0.4" opacity="0.12"/>
+<line x1="160" y1="124" x2="${W}" y2="${H}"   stroke="#c8b89a" stroke-width="0.4" opacity="0.12"/>
+<rect x="0"   y="4" width="16" height="112" rx="2" fill="${ACR}"  stroke="#c8b89a" stroke-width="0.3" opacity="0.28"/>
+<rect x="18"  y="4" width="16" height="112" rx="2" fill="${ACR2}" stroke="#c8b89a" stroke-width="0.3" opacity="0.22"/>
+<rect x="36"  y="4" width="16" height="112" rx="2" fill="${ACR}"  stroke="#c8b89a" stroke-width="0.3" opacity="0.25"/>
+<rect x="54"  y="4" width="16" height="112" rx="2" fill="${ACR2}" stroke="#c8b89a" stroke-width="0.3" opacity="0.2"/>
+<rect x="234" y="4" width="16" height="112" rx="2" fill="${ACR2}" stroke="#c8b89a" stroke-width="0.3" opacity="0.2"/>
+<rect x="252" y="4" width="16" height="112" rx="2" fill="${ACR}"  stroke="#c8b89a" stroke-width="0.3" opacity="0.25"/>
+<rect x="270" y="4" width="16" height="112" rx="2" fill="${ACR2}" stroke="#c8b89a" stroke-width="0.3" opacity="0.22"/>
+<rect x="288" y="4" width="16" height="112" rx="2" fill="${ACR}"  stroke="#c8b89a" stroke-width="0.3" opacity="0.28"/>
+<rect x="4"   y="88" width="76" height="8" rx="1" fill="${DSK}" stroke="#c8b89a" stroke-width="0.45" opacity="0.45"/>
+<rect x="8"   y="52" width="44" height="38" rx="1" fill="${MON}" stroke="#c8b89a" stroke-width="0.45" opacity="0.48"/>
+<rect x="10"  y="54" width="40" height="34" fill="${MSC}"/>
+<line x1="13" y1="60" x2="48" y2="60" stroke="#4a7ab8" stroke-width="2" opacity="0.4"/>
+<line x1="13" y1="66" x2="42" y2="66" stroke="#6a48b8" stroke-width="1.5" opacity="0.35"/>
+<line x1="13" y1="72" x2="46" y2="72" stroke="#4a8a68" stroke-width="2" opacity="0.38"/>
+<rect x="6"   y="62" width="7" height="18" rx="1" fill="${SPK}" stroke="#c8b89a" stroke-width="0.28" opacity="0.4"/>
+<ellipse cx="9.5" cy="69" rx="2.5" ry="2.5" fill="#0c0e18" stroke="#c8b89a" stroke-width="0.28" opacity="0.5"/>
+<rect x="8"   y="90" width="66" height="9" rx="0.5" fill="#1c1e30" stroke="#c8b89a" stroke-width="0.35" opacity="0.4"/>
+<rect x="10"  y="91" width="5" height="6" rx="0.3" fill="#ccc8b4" opacity="0.85"/>
+<rect x="17"  y="91" width="5" height="6" rx="0.3" fill="#ccc8b4" opacity="0.85"/>
+<rect x="24"  y="91" width="5" height="6" rx="0.3" fill="#ccc8b4" opacity="0.85"/>
+<rect x="31"  y="91" width="5" height="6" rx="0.3" fill="#ccc8b4" opacity="0.85"/>
+<rect x="38"  y="91" width="5" height="6" rx="0.3" fill="#ccc8b4" opacity="0.85"/>
+<rect x="13"  y="91" width="3.5" height="4" rx="0.2" fill="#0a0b14"/>
+<rect x="27"  y="91" width="3.5" height="4" rx="0.2" fill="#0a0b14"/>
+<rect x="41"  y="91" width="3.5" height="4" rx="0.2" fill="#0a0b14"/>
+<rect x="210" y="62" width="100" height="62" rx="1" fill="${PNO}" stroke="#c8b89a" stroke-width="0.55" opacity="0.58"/>
+<path d="M210 62 L234 34 L310 34 L310 62 Z" fill="${PNO2}" stroke="#c8b89a" stroke-width="0.45" opacity="0.45"/>
+<line x1="286" y1="34" x2="298" y2="62" stroke="#c8b89a" stroke-width="0.55" opacity="0.28"/>
+<rect x="214" y="74" width="94" height="20" rx="0.5" fill="#181a2c" stroke="#c8b89a" stroke-width="0.38" opacity="0.5"/>
+${wk}${bk}
+<rect x="214" y="124" width="5" height="14" rx="1" fill="#090a14" opacity="0.8"/>
+<rect x="303" y="124" width="5" height="14" rx="1" fill="#090a14" opacity="0.8"/>
+<rect x="246" y="128" width="9" height="4" rx="1" fill="#1a1c2e" stroke="#c8b89a" stroke-width="0.28" opacity="0.42"/>
+<rect x="259" y="128" width="9" height="4" rx="1" fill="#1a1c2e" stroke="#c8b89a" stroke-width="0.28" opacity="0.42"/>
+<line x1="160" y1="124" x2="160" y2="52" stroke="#c8b89a" stroke-width="1.1" opacity="0.28"/>
+<line x1="150" y1="82" x2="170" y2="82" stroke="#c8b89a" stroke-width="0.7" opacity="0.18"/>
+<ellipse cx="160" cy="50" rx="5.5" ry="8" fill="#0e1020" stroke="#c8b89a" stroke-width="0.65" opacity="0.52"/>`
+}
+
+// ─── MALE FIGURE PRIMITIVES ───────────────────────────────────────────────────
+// cx=centre, chinY=chin level, s=scale (1=full reference size ~130px tall)
+
+function mHead(cx, chinY, s) {
+  const c=cx, y=chinY
+  return `
+<ellipse cx="${c}" cy="${y-s*24}" rx="${s*20}" ry="${s*26}" fill="${SK}"/>
+<path d="M${c-s*20} ${y-s*30} Q${c-s*22} ${y-s*50} ${c-s*14} ${y-s*58} Q${c} ${y-s*64} ${c+s*14} ${y-s*58} Q${c+s*22} ${y-s*50} ${c+s*20} ${y-s*30} Q${c+s*12} ${y-s*46} ${c} ${y-s*44} Q${c-s*12} ${y-s*46} ${c-s*20} ${y-s*30} Z" fill="${HR}"/>
+<path d="M${c-s*20} ${y-s*30} Q${c-s*28} ${y-s*40} ${c-s*28} ${y-s*52} Q${c-s*28} ${y-s*60} ${c-s*20} ${y-s*62} Q${c-s*25} ${y-s*54} ${c-s*24} ${y-s*44} Z" fill="${HR}"/>
+<path d="M${c+s*20} ${y-s*30} Q${c+s*28} ${y-s*40} ${c+s*28} ${y-s*52} Q${c+s*28} ${y-s*60} ${c+s*20} ${y-s*62} Q${c+s*25} ${y-s*54} ${c+s*24} ${y-s*44} Z" fill="${HR}"/>
+<path d="M${c-s*20} ${y-s*22} Q${c-s*26} ${y-s*18} ${c-s*26} ${y-s*10} Q${c-s*26} ${y-s*4} ${c-s*20} ${y-s*1} Q${c-s*24} ${y-s*6} ${c-s*23} ${y-s*14} Z" fill="${SK2}"/>
+<path d="M${c+s*20} ${y-s*22} Q${c+s*26} ${y-s*18} ${c+s*26} ${y-s*10} Q${c+s*26} ${y-s*4} ${c+s*20} ${y-s*1} Q${c+s*24} ${y-s*6} ${c+s*23} ${y-s*14} Z" fill="${SK2}"/>
+<path d="M${c-s*13} ${y-s*28} Q${c-s*8} ${y-s*34} ${c-s*1} ${y-s*31} Q${c} ${y-s*25} ${c-s*4} ${y-s*21} Q${c-s*8} ${y-s*19} ${c-s*13} ${y-s*23} Z" fill="#0c0e18" opacity="0.92"/>
+<path d="M${c+s*1} ${y-s*31} Q${c+s*8} ${y-s*34} ${c+s*13} ${y-s*28} Q${c+s*14} ${y-s*22} ${c+s*10} ${y-s*19} Q${c+s*6} ${y-s*17} ${c+s*1} ${y-s*22} Z" fill="#0c0e18" opacity="0.92"/>
+<ellipse cx="${c-s*7}" cy="${y-s*26}" rx="${s*4.5}" ry="${s*4}" fill="#1a0d05"/>
+<ellipse cx="${c+s*7}" cy="${y-s*26}" rx="${s*4.5}" ry="${s*4}" fill="#1a0d05"/>
+<ellipse cx="${c-s*5}" cy="${y-s*28}" rx="${s*1.8}" ry="${s*1.8}" fill="#e0d8c8" opacity="0.7"/>
+<ellipse cx="${c+s*9}" cy="${y-s*28}" rx="${s*1.8}" ry="${s*1.8}" fill="#e0d8c8" opacity="0.7"/>
+<path d="M${c-s*17} ${y-s*35} Q${c-s*8} ${y-s*41} ${c-s*1} ${y-s*38}" fill="none" stroke="${HR}" stroke-width="${s*2.8}" stroke-linecap="round"/>
+<path d="M${c+s*1} ${y-s*38} Q${c+s*8} ${y-s*41} ${c+s*17} ${y-s*35}" fill="none" stroke="${HR}" stroke-width="${s*2.8}" stroke-linecap="round"/>
+<path d="M${c} ${y-s*25} L${c-s*2} ${y-s*14}" fill="none" stroke="${SK2}" stroke-width="${s*1.4}"/>
+<path d="M${c-s*7} ${y-s*10} Q${c-s*4} ${y-s*7} ${c} ${y-s*6} Q${c+s*4} ${y-s*7} ${c+s*7} ${y-s*10}" fill="none" stroke="${SK2}" stroke-width="${s*1.3}"/>
+<ellipse cx="${c-s*6}" cy="${y-s*11}" rx="${s*4.5}" ry="${s*3}" fill="${SK2}" opacity="0.24"/>
+<ellipse cx="${c+s*6}" cy="${y-s*11}" rx="${s*4.5}" ry="${s*3}" fill="${SK2}" opacity="0.24"/>
+<path d="M${c-s*9} ${y-s*3} Q${c} ${y+s*2} ${c+s*9} ${y-s*3}" fill="#2a1005" opacity="0.58"/>
+<path d="M${c-s*8} ${y-s*3} Q${c} ${y+s*1} ${c+s*8} ${y-s*3}" fill="none" stroke="#1a0804" stroke-width="${s*1.5}"/>`
+}
+
+function mNeck(cx, chinY, s) {
+  const c=cx, y=chinY
+  return `<rect x="${c-s*5}" y="${y}" width="${s*10}" height="${s*14}" rx="${s*4}" fill="${SK2}"/>`
+}
+
+function mBody(cx, chinY, s) {
+  const c=cx, y=chinY
+  return `
+<path d="M${c-s*24} ${y+s*70} L${c-s*22} ${y+s*14} L${c+s*22} ${y+s*14} L${c+s*24} ${y+s*70} L${c+s*16} ${y+s*78} L${c} ${y+s*82} L${c-s*16} ${y+s*78} Z" fill="${MJ}"/>
+<path d="M${c-s*14} ${y+s*14} L${c-s*12} ${y+s*44} L${c-s*11} ${y+s*70} L${c} ${y+s*70} L${c+s*11} ${y+s*70} L${c+s*12} ${y+s*44} L${c+s*14} ${y+s*14} L${c+s*8} ${y+s*22} L${c} ${y+s*26} L${c-s*8} ${y+s*22} Z" fill="${MJ2}"/>
+<path d="M${c-s*4} ${y+s*14} L${c-s*6} ${y+s*44} L${c-s*6} ${y+s*70} L${c+s*6} ${y+s*70} L${c+s*6} ${y+s*44} L${c+s*4} ${y+s*14} Z" fill="${MSH}"/>
+<path d="M${c-s*14} ${y+s*14} L${c-s*4} ${y+s*14} L${c-s*8} ${y+s*34} L${c-s*22} ${y+s*26} Z" fill="${MJ}"/>
+<path d="M${c+s*14} ${y+s*14} L${c+s*4} ${y+s*14} L${c+s*8} ${y+s*34} L${c+s*22} ${y+s*26} Z" fill="${MJ}"/>
+<path d="M${c-s*24} ${y+s*70} L${c-s*32} ${y+s*110} L${c-s*26} ${y+s*116} L${c-s*20} ${y+s*112} L${c-s*16} ${y+s*74} Z" fill="${MJ}"/>
+<path d="M${c+s*24} ${y+s*70} L${c+s*32} ${y+s*110} L${c+s*26} ${y+s*116} L${c+s*20} ${y+s*112} L${c+s*16} ${y+s*74} Z" fill="${MJ}"/>
+<path d="M${c-s*32} ${y+s*108} Q${c-s*36} ${y+s*114} ${c-s*34} ${y+s*122} Q${c-s*30} ${y+s*128} ${c-s*23} ${y+s*126} Q${c-s*17} ${y+s*120} ${c-s*17} ${y+s*112} Z" fill="${SK}"/>
+<path d="M${c+s*32} ${y+s*108} Q${c+s*36} ${y+s*114} ${c+s*34} ${y+s*122} Q${c+s*30} ${y+s*128} ${c+s*23} ${y+s*126} Q${c+s*17} ${y+s*120} ${c+s*17} ${y+s*112} Z" fill="${SK}"/>
+<path d="M${c-s*14} ${y+s*82} L${c-s*14} ${y+s*160} L${c-s*8} ${y+s*160} L${c} ${y+s*126} L${c+s*8} ${y+s*160} L${c+s*14} ${y+s*160} L${c+s*14} ${y+s*82} Z" fill="${MP}"/>
+<path d="M${c-s*16} ${y+s*158} Q${c-s*22} ${y+s*158} ${c-s*24} ${y+s*162} L${c-s*10} ${y+s*162} Z" fill="${MSN}"/>
+<path d="M${c+s*16} ${y+s*158} Q${c+s*22} ${y+s*158} ${c+s*24} ${y+s*162} L${c+s*10} ${y+s*162} Z" fill="${MSN}"/>`
+}
+
+// Female figure
+function fHead(cx, chinY, s) {
+  const c=cx, y=chinY
+  return `
+<ellipse cx="${c}" cy="${y-s*24}" rx="${s*19}" ry="${s*25}" fill="${SK}"/>
+<path d="M${c-s*19} ${y-s*30} Q${c-s*21} ${y-s*50} ${c-s*13} ${y-s*58} Q${c} ${y-s*63} ${c+s*13} ${y-s*58} Q${c+s*21} ${y-s*50} ${c+s*19} ${y-s*30} Q${c+s*11} ${y-s*45} ${c} ${y-s*43} Q${c-s*11} ${y-s*45} ${c-s*19} ${y-s*30} Z" fill="${HR}"/>
+<path d="M${c-s*19} ${y-s*30} Q${c-s*27} ${y-s*40} ${c-s*27} ${y-s*52} Q${c-s*27} ${y-s*60} ${c-s*19} ${y-s*62} Q${c-s*23} ${y-s*53} ${c-s*22} ${y-s*43} Z" fill="${HR}"/>
+<path d="M${c+s*19} ${y-s*30} Q${c+s*27} ${y-s*40} ${c+s*27} ${y-s*52} Q${c+s*27} ${y-s*60} ${c+s*19} ${y-s*62} Q${c+s*23} ${y-s*53} ${c+s*22} ${y-s*43} Z" fill="${HR}"/>
+<path d="M${c-s*19} ${y-s*22} Q${c-s*27} ${y-s*32} ${c-s*25} ${y-s*52}" fill="none" stroke="${HR}" stroke-width="${s*5}" stroke-linecap="round"/>
+<path d="M${c-s*16} ${y-s*18} Q${c-s*24} ${y-s*28} ${c-s*22} ${y-s*48}" fill="none" stroke="${HR}" stroke-width="${s*3.5}" stroke-linecap="round"/>
+<path d="M${c-s*12} ${y-s*14} Q${c-s*20} ${y-s*22} ${c-s*18} ${y-s*42}" fill="none" stroke="${HR}" stroke-width="${s*2.5}" stroke-linecap="round"/>
+<path d="M${c+s*19} ${y-s*22} Q${c+s*27} ${y-s*32} ${c+s*25} ${y-s*52}" fill="none" stroke="${HR}" stroke-width="${s*5}" stroke-linecap="round"/>
+<path d="M${c+s*16} ${y-s*18} Q${c+s*24} ${y-s*28} ${c+s*22} ${y-s*48}" fill="none" stroke="${HR}" stroke-width="${s*3.5}" stroke-linecap="round"/>
+<path d="M${c+s*12} ${y-s*14} Q${c+s*20} ${y-s*22} ${c+s*18} ${y-s*42}" fill="none" stroke="${HR}" stroke-width="${s*2.5}" stroke-linecap="round"/>
+<path d="M${c-s*19} ${y-s*22} Q${c-s*25} ${y-s*18} ${c-s*25} ${y-s*10} Q${c-s*25} ${y-s*4} ${c-s*19} ${y-s*1} Q${c-s*22} ${y-s*6} ${c-s*22} ${y-s*13} Z" fill="${SK2}"/>
+<path d="M${c+s*19} ${y-s*22} Q${c+s*25} ${y-s*18} ${c+s*25} ${y-s*10} Q${c+s*25} ${y-s*4} ${c+s*19} ${y-s*1} Q${c+s*22} ${y-s*6} ${c+s*22} ${y-s*13} Z" fill="${SK2}"/>
+<circle cx="${c-s*24}" cy="${y-s*9}" r="${s*3.5}" fill="#c8a840" opacity="0.88"/>
+<circle cx="${c+s*24}" cy="${y-s*9}" r="${s*3.5}" fill="#c8a840" opacity="0.88"/>
+<path d="M${c-s*13} ${y-s*28} Q${c-s*8} ${y-s*34} ${c-s*1} ${y-s*31} Q${c} ${y-s*25} ${c-s*4} ${y-s*21} Q${c-s*8} ${y-s*19} ${c-s*13} ${y-s*23} Z" fill="#0c0e18" opacity="0.92"/>
+<path d="M${c+s*1} ${y-s*31} Q${c+s*8} ${y-s*34} ${c+s*13} ${y-s*28} Q${c+s*14} ${y-s*22} ${c+s*10} ${y-s*19} Q${c+s*6} ${y-s*17} ${c+s*1} ${y-s*22} Z" fill="#0c0e18" opacity="0.92"/>
+<ellipse cx="${c-s*7}" cy="${y-s*26}" rx="${s*4.5}" ry="${s*4}" fill="#1a0d05"/>
+<ellipse cx="${c+s*7}" cy="${y-s*26}" rx="${s*4.5}" ry="${s*4}" fill="#1a0d05"/>
+<ellipse cx="${c-s*5}" cy="${y-s*28}" rx="${s*1.8}" ry="${s*1.8}" fill="#e0d8c8" opacity="0.7"/>
+<ellipse cx="${c+s*9}" cy="${y-s*28}" rx="${s*1.8}" ry="${s*1.8}" fill="#e0d8c8" opacity="0.7"/>
+<path d="M${c-s*17} ${y-s*36} Q${c-s*7} ${y-s*43} ${c+s*1} ${y-s*39}" fill="none" stroke="${HR}" stroke-width="${s*3.2}" stroke-linecap="round"/>
+<path d="M${c-s*1} ${y-s*39} Q${c+s*7} ${y-s*43} ${c+s*17} ${y-s*36}" fill="none" stroke="${HR}" stroke-width="${s*3.2}" stroke-linecap="round"/>
+<path d="M${c} ${y-s*25} L${c-s*2} ${y-s*14}" fill="none" stroke="${SK2}" stroke-width="${s*1.4}"/>
+<path d="M${c-s*7} ${y-s*10} Q${c-s*4} ${y-s*7} ${c} ${y-s*6} Q${c+s*4} ${y-s*7} ${c+s*7} ${y-s*10}" fill="none" stroke="${SK2}" stroke-width="${s*1.3}"/>
+<ellipse cx="${c-s*6}" cy="${y-s*11}" rx="${s*4.5}" ry="${s*3}" fill="${SK2}" opacity="0.24"/>
+<ellipse cx="${c+s*6}" cy="${y-s*11}" rx="${s*4.5}" ry="${s*3}" fill="${SK2}" opacity="0.24"/>
+<path d="M${c-s*9} ${y-s*3} Q${c} ${y+s*3} ${c+s*9} ${y-s*3}" fill="#8B3A52" opacity="0.7"/>
+<path d="M${c-s*8} ${y-s*3} Q${c} ${y+s*1} ${c+s*8} ${y-s*3}" fill="none" stroke="#6a2438" stroke-width="${s*1.7}"/>`
+}
+
+function fBody(cx, chinY, s) {
+  const c=cx, y=chinY
+  return `
+<rect x="${c-s*5}" y="${y}" width="${s*10}" height="${s*14}" rx="${s*4}" fill="${SK2}"/>
+<path d="M${c-s*24} ${y+s*70} L${c-s*22} ${y+s*14} L${c+s*22} ${y+s*14} L${c+s*24} ${y+s*70} L${c+s*16} ${y+s*78} L${c} ${y+s*82} L${c-s*16} ${y+s*78} Z" fill="${FT}"/>
+<path d="M${c-s*14} ${y+s*14} L${c-s*12} ${y+s*44} L${c-s*11} ${y+s*70} L${c} ${y+s*70} L${c+s*11} ${y+s*70} L${c+s*12} ${y+s*44} L${c+s*14} ${y+s*14} L${c+s*8} ${y+s*22} L${c} ${y+s*26} L${c-s*8} ${y+s*22} Z" fill="${FT2}"/>
+<path d="M${c-s*14} ${y+s*14} L${c-s*4} ${y+s*14} L${c-s*8} ${y+s*34} L${c-s*22} ${y+s*26} Z" fill="${FT}"/>
+<path d="M${c+s*14} ${y+s*14} L${c+s*4} ${y+s*14} L${c+s*8} ${y+s*34} L${c+s*22} ${y+s*26} Z" fill="${FT}"/>
+<path d="M${c-s*24} ${y+s*70} L${c-s*32} ${y+s*110} L${c-s*26} ${y+s*116} L${c-s*20} ${y+s*112} L${c-s*16} ${y+s*74} Z" fill="${FT}"/>
+<path d="M${c+s*24} ${y+s*70} L${c+s*32} ${y+s*110} L${c+s*26} ${y+s*116} L${c+s*20} ${y+s*112} L${c+s*16} ${y+s*74} Z" fill="${FT}"/>
+<path d="M${c-s*32} ${y+s*108} Q${c-s*36} ${y+s*114} ${c-s*34} ${y+s*122} Q${c-s*30} ${y+s*128} ${c-s*23} ${y+s*126} Q${c-s*17} ${y+s*120} ${c-s*17} ${y+s*112} Z" fill="${SK}"/>
+<path d="M${c+s*32} ${y+s*108} Q${c+s*36} ${y+s*114} ${c+s*34} ${y+s*122} Q${c+s*30} ${y+s*128} ${c+s*23} ${y+s*126} Q${c+s*17} ${y+s*120} ${c+s*17} ${y+s*112} Z" fill="${SK}"/>
+<path d="M${c-s*14} ${y+s*80} L${c-s*20} ${y+s*162} L${c-s*10} ${y+s*162} L${c} ${y+s*128} L${c+s*10} ${y+s*162} L${c+s*20} ${y+s*162} L${c+s*14} ${y+s*80} Z" fill="${FT}"/>
+<path d="M${c-s*18} ${y+s*158} Q${c-s*24} ${y+s*158} ${c-s*26} ${y+s*162} L${c-s*8} ${y+s*162} Z" fill="#3a2418" opacity="0.8"/>
+<path d="M${c+s*18} ${y+s*158} Q${c+s*24} ${y+s*158} ${c+s*26} ${y+s*162} L${c+s*8} ${y+s*162} Z" fill="#3a2418" opacity="0.8"/>`
 }
 
 // ─── SHOT GENERATORS ─────────────────────────────────────────────────────────
+// scene: 'daw'|'piano'|'wide' — picked by hv hash from instanceId
+
+function pickScene(id) {
+  const n = hv(id) % 3
+  return ['daw','piano','wide'][n]
+}
+
+function getScene(scene) {
+  if(scene==='piano') return scenePiano()
+  if(scene==='wide')  return sceneWide()
+  return sceneDAW()
+}
+
+function figure(gender, cx, chinY, s) {
+  if(gender==='female') return fHead(cx,chinY,s)+fBody(cx,chinY,s)
+  return mHead(cx,chinY,s)+mNeck(cx,chinY,s)+mBody(cx,chinY,s)
+}
+
+// ECU — face only, no environment needed
 function ecu(gender, id) {
-  const v=hv(id), sk=SK, sk2=SK2, hr=HR
-  const cx=W/2, ey=54
-  return wrap(`<rect width="${W}" height="${H}" fill="#060709"/>
-<rect x="0" y="0" width="70" height="${H-18}" fill="#03040a" opacity="0.55"/>
-<rect x="${W-70}" y="0" width="70" height="${H-18}" fill="#03040a" opacity="0.55"/>
-<path d="M${cx-58} ${ey+55} Q${cx-64} ${ey-30} ${cx-32} ${ey-58} Q${cx} ${ey-68} ${cx+32} ${ey-58} Q${cx+64} ${ey-30} ${cx+58} ${ey+55} Q${cx+44} ${ey+64} ${cx} ${ey+66} Q${cx-44} ${ey+64} ${cx-58} ${ey+55} Z" fill="${sk}"/>
-<path d="M${cx-58} ${ey+18} Q${cx-66} ${ey-34} ${cx-30} ${ey-64} Q${cx} ${ey-74} ${cx+30} ${ey-64} Q${cx+66} ${ey-34} ${cx+58} ${ey+18} Q${cx+40} ${ey-8} ${cx} ${ey-6} Q${cx-40} ${ey-8} ${cx-58} ${ey+18} Z" fill="${hr}"/>
-<path d="M${cx-58} ${ey+14} Q${cx-68} ${ey+2} ${cx-66} ${ey+22} Q${cx-64} ${ey+36} ${cx-56} ${ey+38} Q${cx-60} ${ey+30} ${cx-62} ${ey+18} Z" fill="${sk2}"/>
-<path d="M${cx+58} ${ey+14} Q${cx+68} ${ey+2} ${cx+66} ${ey+22} Q${cx+64} ${ey+36} ${cx+56} ${ey+38} Q${cx+60} ${ey+30} ${cx+62} ${ey+18} Z" fill="${sk2}"/>
-<path d="M${cx-22} ${ey} Q${cx-14} ${ey-10} ${cx-4} ${ey-4} Q${cx-3} ${ey+4} ${cx-8} ${ey+10} Q${cx-16} ${ey+14} ${cx-22} ${ey+8} Z" fill="#0e1018" opacity="0.9"/>
-<path d="M${cx+4} ${ey-4} Q${cx+14} ${ey-10} ${cx+22} ${ey} Q${cx+23} ${ey+8} ${cx+17} ${ey+12} Q${cx+10} ${ey+14} ${cx+3} ${ey+10} Z" fill="#0e1018" opacity="0.9"/>
-<ellipse cx="${cx-14}" cy="${ey+2}" rx="8" ry="6.5" fill="#1a0d05"/>
-<ellipse cx="${cx+14}" cy="${ey+2}" rx="8" ry="6.5" fill="#1a0d05"/>
-<ellipse cx="${cx-11}" cy="${ey}" rx="3" ry="3" fill="#e8e0d0" opacity="0.65"/>
-<ellipse cx="${cx+17}" cy="${ey}" rx="3" ry="3" fill="#e8e0d0" opacity="0.65"/>
-<path d="M${cx-22} ${ey-2} Q${cx-14} ${ey-11} ${cx-4} ${ey-5}" fill="none" stroke="${sk2}" stroke-width="1.5"/>
-<path d="M${cx+4} ${ey-5} Q${cx+14} ${ey-11} ${cx+22} ${ey-2}" fill="none" stroke="${sk2}" stroke-width="1.5"/>
-<path d="M${cx-22} ${ey+10} Q${cx-14} ${ey+15} ${cx-4} ${ey+10}" fill="none" stroke="${sk2}" stroke-width="1"/>
-<path d="M${cx+3} ${ey+10} Q${cx+11} ${ey+15} ${cx+22} ${ey+10}" fill="none" stroke="${sk2}" stroke-width="1"/>
-<path d="M${cx-26} ${ey-16} Q${cx-14} ${ey-24} ${cx-2} ${ey-17}" fill="none" stroke="${hr}" stroke-width="3.5" stroke-linecap="round"/>
-<path d="M${cx+2} ${ey-17} Q${cx+14} ${ey-24} ${cx+26} ${ey-16}" fill="none" stroke="${hr}" stroke-width="3.5" stroke-linecap="round"/>
-<path d="M${cx} ${ey+2} L${cx-5} ${ey+20} Q${cx} ${ey+25} ${cx+5} ${ey+20}" fill="none" stroke="${sk2}" stroke-width="1.8" stroke-linecap="round"/>
-<ellipse cx="${cx-8}" cy="${ey+33}" rx="5" ry="3.5" fill="#1a0d05" opacity="0.5"/>
-<ellipse cx="${cx+8}" cy="${ey+33}" rx="5" ry="3.5" fill="#1a0d05" opacity="0.5"/>
-<path d="M${cx-16} ${ey+42} Q${cx} ${ey+50} ${cx+16} ${ey+42}" fill="${sk}" opacity="0.55"/>
-<path d="M${cx-14} ${ey+42} Q${cx} ${ey+48} ${cx+14} ${ey+42}" fill="none" stroke="${sk2}" stroke-width="2" stroke-linecap="round"/>
+  const cx=W/2, cy=90
+  const head = gender==='female'
+    ? fHead(cx,cy+26*1.8,1.8)
+    : mHead(cx,cy+26*1.8,1.8)+mNeck(cx,cy+26*1.8,1.8)
+  return wrap(`
+<rect width="${W}" height="${H}" fill="#1a1c28"/>
+<rect x="0" y="0" width="60" height="${H-18}" fill="#0e0f18" opacity="0.55"/>
+<rect x="${W-60}" y="0" width="60" height="${H-18}" fill="#0e0f18" opacity="0.55"/>
+${head}
 ${chrome('ECU — Extreme Close-Up')}${rof()}`)
 }
 
+// CU — head + shoulders, DAW scene
 function cu(gender, id) {
-  const v=hv(id), cx=W/2, chinY=126
-  return wrap(`${envRoom(122)}
-${gender==='female'?figSide(cx,chinY+60,1.18,v):figFront(cx,chinY+60,1.18,v)}
-${eyeLine(52)}
+  const scene = pickScene(id)
+  const chinY = H-18
+  const s = 0.72
+  return wrap(`
+${getScene(scene)}
+${figure(gender, W/2, chinY, s)}
+${eyeLine(chinY - s*50)}
 ${chrome('CU — Close-Up')}`)
 }
 
+// MCU — chest up
 function mcu(gender, id) {
-  const v=hv(id)
-  return wrap(`${envRoom(128)}${envScreen(196,14,86,55)}
-${figFront(W/2,220,1.32,v)}
-${eyeLine(44)}
+  const scene = pickScene(id)
+  const chinY = H+10
+  const s = 0.62
+  return wrap(`
+${getScene(scene)}
+${figure(gender, W/2, chinY, s)}
+${eyeLine(chinY - s*50)}
 ${chrome('MCU — Medium Close-Up')}${rof()}`)
 }
 
+// MS — waist up
 function ms(gender, id) {
-  const v=hv(id)
-  return wrap(`${envRoom(130)}${envWindow(212,10,70,82)}
-${figFront(W/2,186,0.82,v)}
-${eyeLine(54)}
+  const scene = pickScene(id)
+  const chinY = H+40
+  const s = 0.46
+  return wrap(`
+${getScene(scene)}
+${figure(gender, W/2, chinY, s)}
+${eyeLine(chinY - s*50)}
 ${chrome('MS — Medium Shot')}`)
 }
 
+// MWS — knees up
 function mws(gender, id) {
-  const v=hv(id)
-  return wrap(`${envRoom(134)}
-${figFront(W/2,162,0.62,v)}
+  const scene = pickScene(id)
+  const chinY = H+80
+  const s = 0.36
+  return wrap(`
+${getScene(scene)}
+${figure(gender, W/2, chinY, s)}
 ${chrome('MWS — Medium Wide')}`)
 }
 
+// WS — full body
 function ws(gender, id) {
-  const v=hv(id)
-  return wrap(`${envRoom(138)}${envScreen(194,14,86,56)}
-${figFront(W/2,150,0.44,v)}
+  const chinY = H-18+162*0.36
+  const s = 0.26
+  return wrap(`
+${sceneWide()}
+${figure(gender, W/2, chinY, s)}
 ${chrome('WS — Wide Shot')}`)
 }
 
+// EWS — tiny figure, vast space
 function ews(gender, id) {
-  const v=hv(id)
-  return wrap(`<rect width="${W}" height="${H}" fill="#07080d"/>
-<rect x="0" y="0" width="${W}" height="96" fill="#0b0d18"/>
-<rect x="0" y="96" width="${W}" height="${H-96}" fill="#06070c"/>
-<line x1="0" y1="96" x2="${W}" y2="96" stroke="#c8b89a" stroke-width="0.5" opacity="0.2"/>
-<rect x="55" y="68" width="14" height="28" fill="#0f1224" opacity="0.55"/>
-<rect x="76" y="58" width="20" height="38" fill="#0e1120" opacity="0.5"/>
-<rect x="220" y="62" width="16" height="34" fill="#0f1224" opacity="0.55"/>
-<rect x="244" y="54" width="12" height="42" fill="#0e1120" opacity="0.5"/>
-${figFront(W/2,126,0.18,v)}
+  const chinY = H-18+162*0.22
+  const s = 0.14
+  return wrap(`
+${sceneWide()}
+${figure(gender, W/2, chinY, s)}
 ${chrome('EWS — Extreme Wide')}`)
 }
 
+// OTS
 function ots(gender, id) {
-  const v=hv(id), v2=hv((id||'')+'opp')
-  return wrap(`${envRoom(122)}
-${figFront(W*0.64,185,0.78,v2)}
-<g opacity="0.88">
-  <path d="M${W*0.06} ${H-18} L${W*0.1} ${H*0.24} Q${W*0.18} ${H*0.08} ${W*0.28} ${H*0.06} Q${W*0.36} ${H*0.04} ${W*0.42} ${H*0.1} L${W*0.44} ${H-18} Z" fill="#1a1828"/>
-  <path d="M${W*0.15} ${H*0.12} Q${W*0.12} ${H*0.05} ${W*0.22} ${H*0.02} Q${W*0.3} ${H*0} ${W*0.38} ${H*0.04} Q${W*0.42} ${H*0.08} ${W*0.42} ${H*0.14} Q${W*0.34} ${H*0.08} ${W*0.26} ${H*0.08} Q${W*0.18} ${H*0.08} ${W*0.15} ${H*0.12} Z" fill="#0d0b1a"/>
+  const scene = pickScene(id)
+  const opp = gender==='female'?'male':'female'
+  const subjChinY = H+30, sS=0.5
+  const backChinY = H-18+162*0.55, bS=0.55
+  return wrap(`
+${getScene(scene)}
+${figure(opp, W*0.65, subjChinY, sS)}
+<g opacity="0.9">
+<path d="M${W*0.04} ${H-18} L${W*0.06} ${H*0.22} Q${W*0.14} ${H*0.04} ${W*0.28} ${H*0.02} Q${W*0.4} ${H*0.0} ${W*0.46} ${H*0.08} L${W*0.48} ${H-18} Z" fill="#1a1828" opacity="0.95"/>
+<path d="M${W*0.12} ${H*0.08} Q${W*0.1} ${H*0.02} ${W*0.22} ${H*0} Q${W*0.32} ${H*0} ${W*0.42} ${H*0.06} Q${W*0.46} ${H*0.1} ${W*0.46} ${H*0.16} Q${W*0.38} ${H*0.06} ${W*0.26} ${H*0.06} Q${W*0.16} ${H*0.06} ${W*0.12} ${H*0.1} Z" fill="#0e0c1e"/>
 </g>
-<line x1="${W*0.38}" y1="${H*0.2}" x2="${W*0.56}" y2="${H*0.18}" stroke="#c8b89a" stroke-width="0.5" stroke-dasharray="3 2" opacity="0.35"/>
+<line x1="${W*0.4}" y1="${H*0.18}" x2="${W*0.58}" y2="${H*0.16}" stroke="#c8b89a" stroke-width="0.5" stroke-dasharray="3 2" opacity="0.36"/>
 ${chrome('OTS — Over The Shoulder')}`)
 }
 
+// TWO
 function two(gender, id) {
-  const v=hv(id), v2=hv((id||'')+'two')
-  return wrap(`${envRoom(134)}
-${figFront(W*0.28,168,0.56,v)}
-${figFront(W*0.72,168,0.56,v2)}
+  const scene = pickScene(id)
+  const opp = gender==='female'?'male':'female'
+  const chinY = H+30, s=0.44
+  return wrap(`
+${getScene(scene)}
+${figure(gender, W*0.28, chinY, s)}
+${figure(opp, W*0.72, chinY, s)}
 <line x1="${W/2}" y1="0" x2="${W/2}" y2="${H-18}" stroke="#c8b89a" stroke-width="0.4" opacity="0.18"/>
 ${chrome('TWO — Two Shot')}`)
 }
 
+// LOW
 function low(gender, id) {
-  const v=hv(id)
-  return wrap(`<rect width="${W}" height="${H}" fill="#07080d"/>
-<rect x="0" y="0" width="${W}" height="28" fill="#0c0e1a"/>
-<line x1="0" y1="28" x2="${W}" y2="28" stroke="#c8b89a" stroke-width="0.6" opacity="0.28"/>
-<rect x="0" y="28" width="${W}" height="${H-28}" fill="#0a0c16"/>
-<line x1="0" y1="${H-18}" x2="${W/2}" y2="28" stroke="#c8b89a" stroke-width="0.4" opacity="0.14"/>
-<line x1="${W}" y1="${H-18}" x2="${W/2}" y2="28" stroke="#c8b89a" stroke-width="0.4" opacity="0.14"/>
-<g transform="scale(1.12,0.94) translate(${-(W*0.06)},9)">
-${figFront(W/2,168,0.58,v)}
+  const scene = pickScene(id)
+  const chinY = H+20, s=0.52
+  return wrap(`
+<rect width="${W}" height="${H}" fill="#1e2030"/>
+<rect x="0" y="0" width="${W}" height="22" fill="#252840"/>
+<line x1="0" y1="22" x2="${W}" y2="22" stroke="#c8b89a" stroke-width="0.5" opacity="0.25"/>
+<rect x="0" y="22" width="${W}" height="${H-22}" fill="${WAL}"/>
+<line x1="0" y1="${H-18}" x2="${W/2}" y2="22" stroke="#c8b89a" stroke-width="0.4" opacity="0.13"/>
+<line x1="${W}" y1="${H-18}" x2="${W/2}" y2="22" stroke="#c8b89a" stroke-width="0.4" opacity="0.13"/>
+<text x="${W-10}" y="18" font-family="monospace" font-size="7" fill="#c8b89a" opacity="0.5" text-anchor="end">↑ cam</text>
+<g transform="scale(1.1,0.94) translate(${-(W*0.05)},6)">
+${figure(gender, W/2, chinY, s)}
 </g>
-<text x="${W-10}" y="20" font-family="monospace" font-size="7" fill="#c8b89a" opacity="0.5" text-anchor="end">↑ cam low</text>
 ${chrome('LOW — Low Angle')}`)
 }
 
+// HIGH
 function high(gender, id) {
-  const v=hv(id)
-  return wrap(`${envRoom(108)}
-<line x1="${W*0.2}" y1="108" x2="${W*0.35}" y2="${H-18}" stroke="#c8b89a" stroke-width="0.3" opacity="0.1"/>
-<line x1="${W*0.5}" y1="108" x2="${W*0.5}" y2="${H-18}" stroke="#c8b89a" stroke-width="0.3" opacity="0.1"/>
-<line x1="${W*0.8}" y1="108" x2="${W*0.65}" y2="${H-18}" stroke="#c8b89a" stroke-width="0.3" opacity="0.1"/>
-<g transform="scale(1,0.8) translate(0,20)">
-${figFront(W/2,156,0.46,v)}
+  const scene = pickScene(id)
+  const chinY = H+10, s=0.42
+  return wrap(`
+${getScene(scene)}
+<line x1="${W*0.18}" y1="102" x2="${W*0.08}" y2="${H-18}" stroke="#c8b89a" stroke-width="0.3" opacity="0.1"/>
+<line x1="${W*0.5}"  y1="102" x2="${W*0.5}"  y2="${H-18}" stroke="#c8b89a" stroke-width="0.3" opacity="0.1"/>
+<line x1="${W*0.82}" y1="102" x2="${W*0.92}" y2="${H-18}" stroke="#c8b89a" stroke-width="0.3" opacity="0.1"/>
+<text x="${W-10}" y="14" font-family="monospace" font-size="7" fill="#c8b89a" opacity="0.5" text-anchor="end">↓ cam</text>
+<g transform="scale(1,0.8) translate(0,16)">
+${figure(gender, W/2, chinY, s)}
 </g>
-<text x="${W-10}" y="14" font-family="monospace" font-size="7" fill="#c8b89a" opacity="0.5" text-anchor="end">↓ cam high</text>
 ${chrome('HIGH — High Angle')}`)
 }
 
+// DUTCH
 function dutch(gender, id) {
-  const v=hv(id), cx=W/2, cy=(H-18)/2
-  return wrap(`<rect width="${W}" height="${H}" fill="#07080d"/>
+  const scene = pickScene(id)
+  const chinY = H+20, s=0.48, cx=W/2, cy=(H-18)/2
+  return wrap(`
+<rect width="${W}" height="${H}" fill="#1e2030"/>
 <g transform="rotate(-14,${cx},${cy})">
-${envRoom(128)}
-${figFront(W/2,155,0.50,v)}
+${getScene(scene)}
+${figure(gender, W/2, chinY, s)}
 </g>
 <line x1="0" y1="${H*0.2}" x2="${W}" y2="${H*0.44}" stroke="#c8b89a" stroke-width="0.4" opacity="0.14"/>
 <text x="${W-10}" y="14" font-family="monospace" font-size="7" fill="#c8b89a" opacity="0.5" text-anchor="end">⟳ dutch</text>
 ${chrome('DUTCH — Dutch Angle')}`)
 }
 
+// POV — what the creator sees at their desk
 function pov(gender, id) {
-  return wrap(`<rect width="${W}" height="${H}" fill="#07080d"/>
-${envRoom(104)}
-<rect x="0" y="104" width="${W}" height="${H-104}" fill="#07080c"/>
-<line x1="0" y1="104" x2="${W}" y2="104" stroke="#c8b89a" stroke-width="0.7" opacity="0.28"/>
-${envScreen(88,22,144,74)}
-<rect x="100" y="108" width="120" height="18" rx="3" fill="#111420" stroke="#c8b89a" stroke-width="0.5" opacity="0.32"/>
-<line x1="0" y1="${H-18}" x2="88" y2="104" stroke="#c8b89a" stroke-width="0.3" opacity="0.1"/>
-<line x1="${W}" y1="${H-18}" x2="${W-88}" y2="104" stroke="#c8b89a" stroke-width="0.3" opacity="0.1"/>
-<circle cx="${W/2}" cy="59" r="7" fill="none" stroke="#c8b89a" stroke-width="0.7" opacity="0.42"/>
-<line x1="${W/2-14}" y1="59" x2="${W/2+14}" y2="59" stroke="#c8b89a" stroke-width="0.5" opacity="0.42"/>
-<line x1="${W/2}" y1="45" x2="${W/2}" y2="73" stroke="#c8b89a" stroke-width="0.5" opacity="0.42"/>
+  return wrap(`
+${sceneDAW()}
+<circle cx="${W/2}" cy="56" r="6" fill="none" stroke="#c8b89a" stroke-width="0.65" opacity="0.44"/>
+<line x1="${W/2-12}" y1="56" x2="${W/2+12}" y2="56" stroke="#c8b89a" stroke-width="0.5" opacity="0.44"/>
+<line x1="${W/2}" y1="44" x2="${W/2}" y2="68" stroke="#c8b89a" stroke-width="0.5" opacity="0.44"/>
 ${chrome('POV — Point of View')}`)
 }
 
+// TH — talking head, figure offset left, screen right
 function th(gender, id) {
-  const v=hv(id)
-  return wrap(`${envRoom(128)}${envScreen(188,12,102,64)}
-${figFront(W*0.34,218,1.25,v)}
-${eyeLine(42)}${rof()}
+  const scene = pickScene(id)
+  const chinY = H+10, s=0.62
+  return wrap(`
+${getScene(scene)}
+${figure(gender, W*0.34, chinY, s)}
+${eyeLine(chinY - s*50)}${rof()}
 ${chrome('TH — Talking Head')}`)
 }
 
@@ -376,12 +530,12 @@ export const SHOT_TYPES = [
 
 const GENERATORS = { ecu, cu, mcu, ms, mws, ws, ews, ots, two, low, high, dutch, pov, th }
 
-export function getShotSVG(shotId, gender = 'male', instanceId = '') {
+export function getShotSVG(shotId, gender='male', instanceId='') {
   const gen = GENERATORS[shotId]
   if (!gen) return null
   return gen(gender, instanceId || `${shotId}-${gender}`)
 }
 
-export function getAllShots(gender = 'male') {
+export function getAllShots(gender='male') {
   return SHOT_TYPES.map(shot => ({ ...shot, svg: getShotSVG(shot.id, gender) }))
 }
