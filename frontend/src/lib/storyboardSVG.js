@@ -84,7 +84,8 @@ function clipRect(id) {
 // ─── SHOT GENERATORS ──────────────────────────────────────────────────────────
 
 // Extreme Close-Up — just the face region
-function ecu(gender) {
+function ecu(gender, instanceId) {
+  instanceId = instanceId || `ecu-${gender}`
   const fig = gender === 'male' ? maleFigure : femaleFigure
   const cx = W / 2
   // Position figure so only face shows
@@ -93,11 +94,11 @@ function ecu(gender) {
   const s = 3.2
   const cy = H * 0.6  // push figure down so head is centered
   return svg('ecu', gender, `
-    ${clipRect('clip-ecu-' + gender)}
-    <g clip-path="url(#clip-ecu-${gender})">
+    ${frameBase('ECU — Extreme Close-Up')}
+    ${clipRect('clip-ecu-' + instanceId)}
+    <g clip-path="url(#clip-ecu-${instanceId})">
       ${fig(cx, cy, s)}
     </g>
-    ${frameBase('ECU — Extreme Close-Up')}
     <!-- Rule of thirds guides -->
     <line x1="${W/3}" y1="0" x2="${W/3}" y2="${H-22}" stroke="${LINE}" stroke-width="0.3" opacity="0.2"/>
     <line x1="${W*2/3}" y1="0" x2="${W*2/3}" y2="${H-22}" stroke="${LINE}" stroke-width="0.3" opacity="0.2"/>
@@ -105,103 +106,110 @@ function ecu(gender) {
 }
 
 // Close-Up — head and shoulders
-function cu(gender) {
+function cu(gender, instanceId) {
+  instanceId = instanceId || `cu-${gender}`
   const fig = gender === 'male' ? maleFigure : femaleFigure
   const cx = W / 2
   const s = 1.8
   const cy = H + 10
   return svg('cu', gender, `
-    ${clipRect('clip-cu-' + gender)}
-    <g clip-path="url(#clip-cu-${gender})">
+    ${frameBase('CU — Close-Up')}
+    ${clipRect('clip-cu-' + instanceId)}
+    <g clip-path="url(#clip-cu-${instanceId})">
       ${fig(cx, cy, s)}
     </g>
-    ${frameBase('CU — Close-Up')}
   `)
 }
 
 // Medium Close-Up — chest up
-function mcu(gender) {
+function mcu(gender, instanceId) {
+  instanceId = instanceId || `mcu-${gender}`
   const fig = gender === 'male' ? maleFigure : femaleFigure
   const cx = W / 2
   const s = 1.2
   const cy = H * 1.1
   return svg('mcu', gender, `
-    ${clipRect('clip-mcu-' + gender)}
-    <g clip-path="url(#clip-mcu-${gender})">
+    ${frameBase('MCU — Medium Close-Up')}
+    ${clipRect('clip-mcu-' + instanceId)}
+    <g clip-path="url(#clip-mcu-${instanceId})">
       ${fig(cx, cy, s)}
     </g>
-    ${frameBase('MCU — Medium Close-Up')}
   `)
 }
 
 // Medium Shot — waist up
-function ms(gender) {
+function ms(gender, instanceId) {
+  instanceId = instanceId || `ms-${gender}`
   const fig = gender === 'male' ? maleFigure : femaleFigure
   const cx = W / 2
   const s = 0.9
   const cy = H * 1.05
   return svg('ms', gender, `
-    ${clipRect('clip-ms-' + gender)}
-    <g clip-path="url(#clip-ms-${gender})">
+    ${frameBase('MS — Medium Shot')}
+    ${clipRect('clip-ms-' + instanceId)}
+    <g clip-path="url(#clip-ms-${instanceId})">
       ${fig(cx, cy, s)}
     </g>
-    ${frameBase('MS — Medium Shot')}
   `)
 }
 
 // Medium Wide — knees up
-function mws(gender) {
+function mws(gender, instanceId) {
+  instanceId = instanceId || `mws-${gender}`
   const fig = gender === 'male' ? maleFigure : femaleFigure
   const cx = W / 2
   const s = 0.72
   const cy = H * 1.12
   return svg('mws', gender, `
-    ${clipRect('clip-mws-' + gender)}
-    <g clip-path="url(#clip-mws-${gender})">
+    ${frameBase('MWS — Medium Wide Shot')}
+    ${clipRect('clip-mws-' + instanceId)}
+    <g clip-path="url(#clip-mws-${instanceId})">
       ${fig(cx, cy, s)}
     </g>
-    ${frameBase('MWS — Medium Wide Shot')}
   `)
 }
 
 // Wide Shot — full body
-function ws(gender) {
+function ws(gender, instanceId) {
+  instanceId = instanceId || `ws-${gender}`
   const fig = gender === 'male' ? maleFigure : femaleFigure
   const cx = W / 2
   const s = 0.55
   const cy = H * 0.88
   return svg('ws', gender, `
-    ${clipRect('clip-ws-' + gender)}
-    <g clip-path="url(#clip-ws-${gender})">
+    ${frameBase('WS — Wide Shot')}
+    ${clipRect('clip-ws-' + instanceId)}
+    <g clip-path="url(#clip-ws-${instanceId})">
       ${fig(cx, cy, s)}
     </g>
     <!-- Ground line -->
     <line x1="0" y1="${H * 0.89}" x2="${W}" y2="${H * 0.89}" stroke="${LINE}" stroke-width="0.5" opacity="0.25"/>
-    ${frameBase('WS — Wide Shot')}
   `)
 }
 
 // Extreme Wide — tiny figure
-function ews(gender) {
+function ews(gender, instanceId) {
+  instanceId = instanceId || `ews-${gender}`
   const fig = gender === 'male' ? maleFigure : femaleFigure
   const cx = W / 2
   const s = 0.28
   const cy = H * 0.80
   return svg('ews', gender, `
-    ${clipRect('clip-ews-' + gender)}
-    <g clip-path="url(#clip-ews-${gender})">
+    ${frameBase('EWS — Extreme Wide Shot')}
+    ${clipRect('clip-ews-' + instanceId)}
+    <g clip-path="url(#clip-ews-${instanceId})">
       ${fig(cx, cy, s)}
     </g>
     <!-- Horizon line -->
     <line x1="0" y1="${H * 0.72}" x2="${W}" y2="${H * 0.72}" stroke="${LINE}" stroke-width="0.5" opacity="0.2"/>
     <!-- Perspective lines -->
     <line x1="0" y1="${H * 0.6}" x2="${W}" y2="${H * 0.6}" stroke="${LINE}" stroke-width="0.3" opacity="0.1"/>
-    ${frameBase('EWS — Extreme Wide Shot')}
   `)
 }
 
 // Over The Shoulder — back figure (OTS) toward subject
-function ots(gender) {
+function ots(gender, instanceId) {
+  instanceId = instanceId || `ots-${gender}`
   const fig = gender === 'male' ? maleFigure : femaleFigure
   const opposite = gender === 'male' ? femaleFigure : maleFigure
   const s = 0.9
@@ -212,8 +220,9 @@ function ots(gender) {
   const subjectX = W * 0.62
   const subjectY = H * 0.95
   return svg('ots', gender, `
-    ${clipRect('clip-ots-' + gender)}
-    <g clip-path="url(#clip-ots-${gender})">
+    ${frameBase('OTS — Over The Shoulder')}
+    ${clipRect('clip-ots-' + instanceId)}
+    <g clip-path="url(#clip-ots-${instanceId})">
       <!-- Back figure (dark/silhouette) -->
       ${fig(backX, backY, s * 1.1, DIM)}
       <!-- Subject figure -->
@@ -221,37 +230,39 @@ function ots(gender) {
     </g>
     <!-- OTS guide line -->
     <line x1="${backX}" y1="${backY - 90*s}" x2="${subjectX}" y2="${subjectY - 80*s*0.8}" stroke="${LINE}" stroke-width="0.5" stroke-dasharray="3 2" opacity="0.3"/>
-    ${frameBase('OTS — Over The Shoulder')}
   `)
 }
 
 // Two Shot
-function two(gender) {
+function two(gender, instanceId) {
+  instanceId = instanceId || `two-${gender}`
   const fig = gender === 'male' ? maleFigure : femaleFigure
   const opposite = gender === 'male' ? femaleFigure : maleFigure
   const s = 0.65
   const cy = H * 0.96
   return svg('two', gender, `
-    ${clipRect('clip-two-' + gender)}
-    <g clip-path="url(#clip-two-${gender})">
+    ${frameBase('TWO — Two Shot')}
+    ${clipRect('clip-two-' + instanceId)}
+    <g clip-path="url(#clip-two-${instanceId})">
       ${fig(W * 0.33, cy, s)}
       ${opposite(W * 0.67, cy, s)}
     </g>
     <!-- Center divider suggestion -->
     <line x1="${W/2}" y1="0" x2="${W/2}" y2="${H-22}" stroke="${LINE}" stroke-width="0.3" opacity="0.15"/>
-    ${frameBase('TWO — Two Shot')}
   `)
 }
 
 // Low Angle — camera looks up (figure tilted perspective)
-function low(gender) {
+function low(gender, instanceId) {
+  instanceId = instanceId || `low-${gender}`
   const fig = gender === 'male' ? maleFigure : femaleFigure
   const cx = W / 2
   const s = 0.75
   const cy = H * 0.75
   return svg('low', gender, `
-    ${clipRect('clip-low-' + gender)}
-    <g clip-path="url(#clip-low-${gender})">
+    ${frameBase('LOW — Low Angle')}
+    ${clipRect('clip-low-' + instanceId)}
+    <g clip-path="url(#clip-low-${instanceId})">
       <!-- Perspective: figure appears larger at bottom, smaller at top -->
       <g transform="scale(1, 0.88) translate(0, ${H * 0.08})">
         ${fig(cx, cy, s * 1.15)}
@@ -261,19 +272,20 @@ function low(gender) {
     <line x1="${W*0.1}" y1="${H-22}" x2="${W*0.45}" y2="${H*0.3}" stroke="${LINE}" stroke-width="0.4" opacity="0.2"/>
     <line x1="${W*0.9}" y1="${H-22}" x2="${W*0.55}" y2="${H*0.3}" stroke="${LINE}" stroke-width="0.4" opacity="0.2"/>
     <text x="${W - 10}" y="18" font-family="monospace" font-size="7" fill="${LINE}" opacity="0.5" text-anchor="end">↑ cam</text>
-    ${frameBase('LOW — Low Angle')}
   `)
 }
 
 // High Angle — camera looks down
-function high(gender) {
+function high(gender, instanceId) {
+  instanceId = instanceId || `high-${gender}`
   const fig = gender === 'male' ? maleFigure : femaleFigure
   const cx = W / 2
   const s = 0.65
   const cy = H * 0.72
   return svg('high', gender, `
-    ${clipRect('clip-high-' + gender)}
-    <g clip-path="url(#clip-high-${gender})">
+    ${frameBase('HIGH — High Angle')}
+    ${clipRect('clip-high-' + instanceId)}
+    <g clip-path="url(#clip-high-${instanceId})">
       <!-- Perspective: squash vertically, head appears bigger -->
       <g transform="scale(1, 0.82) translate(0, ${H * 0.1})">
         ${fig(cx, cy, s)}
@@ -283,19 +295,20 @@ function high(gender) {
     <line x1="${W*0.1}" y1="0" x2="${W*0.45}" y2="${H*0.55}" stroke="${LINE}" stroke-width="0.4" opacity="0.2"/>
     <line x1="${W*0.9}" y1="0" x2="${W*0.55}" y2="${H*0.55}" stroke="${LINE}" stroke-width="0.4" opacity="0.2"/>
     <text x="${W - 10}" y="18" font-family="monospace" font-size="7" fill="${LINE}" opacity="0.5" text-anchor="end">↓ cam</text>
-    ${frameBase('HIGH — High Angle')}
   `)
 }
 
 // Dutch Angle — tilted frame
-function dutch(gender) {
+function dutch(gender, instanceId) {
+  instanceId = instanceId || `dutch-${gender}`
   const fig = gender === 'male' ? maleFigure : femaleFigure
   const cx = W / 2
   const s = 0.85
   const cy = H * 0.95
   return svg('dutch', gender, `
-    ${clipRect('clip-dutch-' + gender)}
-    <g clip-path="url(#clip-dutch-${gender})">
+    ${frameBase('DUTCH — Dutch Angle')}
+    ${clipRect('clip-dutch-' + instanceId)}
+    <g clip-path="url(#clip-dutch-${instanceId})">
       <!-- Rotate the figure slightly to suggest tilt -->
       <g transform="rotate(-12, ${cx}, ${cy - 50*s})">
         ${fig(cx, cy, s)}
@@ -304,17 +317,18 @@ function dutch(gender) {
     <!-- Diagonal frame lines to show tilt -->
     <line x1="0" y1="${H*0.15}" x2="${W}" y2="${H*0.35}" stroke="${LINE}" stroke-width="0.5" opacity="0.2"/>
     <text x="${W - 10}" y="18" font-family="monospace" font-size="7" fill="${LINE}" opacity="0.5" text-anchor="end">⟳ tilt</text>
-    ${frameBase('DUTCH — Dutch Angle')}
   `)
 }
 
 // POV — first person, no figure, just framing hands/perspective
-function pov(gender) {
+function pov(gender, instanceId) {
+  instanceId = instanceId || `pov-${gender}`
   // POV has no subject — shows what the character sees
   // Gender affects whose hands are shown at bottom
   const handColor = LINE
   const s = gender === 'male' ? 1 : 0.88
   return svg('pov', gender, `
+    ${frameBase('POV — Point of View')}
     <!-- Perspective vanishing point -->
     <line x1="${W/2}" y1="${H*0.4}" x2="0" y2="${H-22}" stroke="${LINE}" stroke-width="0.4" opacity="0.15"/>
     <line x1="${W/2}" y1="${H*0.4}" x2="${W}" y2="${H-22}" stroke="${LINE}" stroke-width="0.4" opacity="0.15"/>
@@ -329,20 +343,21 @@ function pov(gender) {
     <circle cx="${W/2}" cy="${H*0.45}" r="4" fill="none" stroke="${LINE}" stroke-width="0.6" opacity="0.4"/>
     <line x1="${W/2 - 8}" y1="${H*0.45}" x2="${W/2 + 8}" y2="${H*0.45}" stroke="${LINE}" stroke-width="0.5" opacity="0.4"/>
     <line x1="${W/2}" y1="${H*0.45 - 8}" x2="${W/2}" y2="${H*0.45 + 8}" stroke="${LINE}" stroke-width="0.5" opacity="0.4"/>
-    ${frameBase('POV — Point of View')}
   `)
 }
 
 // Talking Head — classic YouTube/presenter 16:9 with subject on rule-of-thirds
-function th(gender) {
+function th(gender, instanceId) {
+  instanceId = instanceId || `th-${gender}`
   const fig = gender === 'male' ? maleFigure : femaleFigure
   // Position on left third, head at upper third intersection
   const cx = W * 0.38
   const s = 1.1
   const cy = H * 1.05
   return svg('th', gender, `
-    ${clipRect('clip-th-' + gender)}
-    <g clip-path="url(#clip-th-${gender})">
+    ${frameBase('TH — Talking Head')}
+    ${clipRect('clip-th-' + instanceId)}
+    <g clip-path="url(#clip-th-${instanceId})">
       ${fig(cx, cy, s)}
     </g>
     <!-- Rule of thirds grid (subtle) -->
@@ -354,7 +369,6 @@ function th(gender) {
     <text x="${W - 10}" y="${cy - 95*s - 3}" font-family="monospace" font-size="7" fill="${LINE}" opacity="0.5" text-anchor="end">eye line</text>
     <!-- Headroom indicator -->
     <text x="${W*0.72}" y="18" font-family="monospace" font-size="7" fill="${LINE}" opacity="0.4" text-anchor="middle">headroom</text>
-    ${frameBase('TH — Talking Head')}
   `)
 }
 
@@ -383,10 +397,10 @@ export const SHOT_TYPES = [
 
 const GENERATORS = { ecu, cu, mcu, ms, mws, ws, ews, ots, two, low, high, dutch, pov, th }
 
-export function getShotSVG(shotId, gender = 'male') {
+export function getShotSVG(shotId, gender = 'male', instanceId = '') {
   const gen = GENERATORS[shotId]
   if (!gen) return null
-  return gen(gender)
+  return gen(gender, instanceId || `${shotId}-${gender}`)
 }
 
 export function getAllShots(gender = 'male') {
