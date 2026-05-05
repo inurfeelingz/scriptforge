@@ -454,6 +454,7 @@ export default function AppLayout() {
             mood={chatOpen ? 'active' : 'idle'}
             onClick={() => setChatOpen(!chatOpen)}
             isOpen={chatOpen}
+            offsetBottom={chatOpen ? 'calc(72vh + 16px)' : '32px'}
           />
         )}
       </main>

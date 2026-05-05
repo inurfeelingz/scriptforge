@@ -73,7 +73,7 @@ function drawOrb(ctx, s, cm, cx, cy) {
   }
 }
 
-export default function KBOrb({ mood = 'idle', onClick, isOpen }) {
+export default function KBOrb({ mood = 'idle', onClick, isOpen, offsetBottom = '32px' }) {
   const size      = 64
   const canvasRef = useRef(null)
   const stateRef  = useRef({ t: 0, energy: 0, currentMood: { ...getMoods().idle }, targetMood: { ...getMoods().idle } })
@@ -123,7 +123,7 @@ export default function KBOrb({ mood = 'idle', onClick, isOpen }) {
       title={isOpen ? 'Close KB' : 'Open KB'}
       style={{
         position:        'fixed',
-        bottom:          32,
+        bottom:          offsetBottom,
         right:           32,
         width:           size + 16,
         height:          size + 16,
@@ -138,7 +138,7 @@ export default function KBOrb({ mood = 'idle', onClick, isOpen }) {
         alignItems:      'center',
         justifyContent:  'center',
         zIndex:          100,
-        transition:      'transform 0.3s cubic-bezier(0.34,1.56,0.64,1), box-shadow 0.3s ease, border-color 0.3s ease',
+        transition:      'transform 0.3s cubic-bezier(0.34,1.56,0.64,1), box-shadow 0.3s ease, border-color 0.3s ease, bottom 0.4s cubic-bezier(0.32,0.72,0,1)',
         transform:       isOpen ? 'scale(1.08)' : 'scale(1)',
         boxShadow:       isOpen
           ? '0 0 40px rgba(200,184,154,0.25), 0 0 80px rgba(200,184,154,0.08), 0 8px 32px rgba(0,0,0,0.6)'
