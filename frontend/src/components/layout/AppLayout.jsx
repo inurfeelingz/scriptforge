@@ -127,7 +127,7 @@ export default function AppLayout() {
   const {
     categories, activeCategoryId, setActiveCategory, loadCategories,
     sidebarCollapsed, setSidebarCollapsed, chatOpen, setChatOpen,
-    profile, setCurrentMode, notify,
+    profile, setCurrentMode, notify, categoryLoading,
   } = useStore()
 
   const location     = useLocation()
@@ -403,7 +403,12 @@ export default function AppLayout() {
         {/* Content — full width always */}
         <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
           <div style={{ flex: 1, overflowY: 'auto', padding: isMobile ? '20px 16px' : '28px 32px' }}>
-            <Outlet/>
+            {categoryLoading
+              ? <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '60vh' }}>
+                  <div style={{ width: 20, height: 20, border: '2px solid var(--border)', borderTopColor: 'var(--accent)', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }}/>
+                </div>
+              : <Outlet/>
+            }
           </div>
         </div>
 

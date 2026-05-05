@@ -140,14 +140,26 @@ export const useStore = create((set, get) => ({
     supabase.auth.onAuthStateChange(async (event, session) => {
       set({ session, user: session?.user || null })
       if (session) {
-        try {
-          const { profile } = await usersApi.profile()
-          set({ profile })
-          await get().loadCategories()
-        } catch {}
+        // TOKEN_REFRESHED fires constantly — only reload data on actual sign-in
+        if (event === 'SIGNED_IN' || event === 'USER_UPDATED') {
+          try {
+            const { profile } = await usersApi.profile()
+            set({ profile })
+            if (!get().categories?.length) await get().loadCategories()
+          } catch {}
+        }
       } else {
         set({ profile: null, categories: [], activeCategoryId: null })
       }
     })
+  },
+
+  // Lightweight token-only refresh — used on tab visibility change
+  // Does NOT reload categories or trigger re-renders of data
+  refreshSession: async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (session) set({ session, user: session.user })
+    } catch {}
   },
 }))

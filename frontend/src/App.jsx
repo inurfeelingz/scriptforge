@@ -60,24 +60,22 @@ function SplashScreen() {
 }
 
 export default function App() {
-  const init        = useStore(s => s.init)
-  const initialized = useStore(s => s.initialized)
-  const reauth      = useStore(s => s.reauth || s.init)  // re-init session on visibility
+  const init           = useStore(s => s.init)
+  const initialized    = useStore(s => s.initialized)
+  const refreshSession = useStore(s => s.refreshSession)
 
   useEffect(() => { init() }, [init])
   useKeepAlive()
 
-  // Re-check auth when tab becomes visible after being hidden
-  // Prevents stale token / "logged out" feeling after leaving tab open
+  // On tab focus: just refresh the token, don't reload all data
+  // Full init() on visibility was causing stale flashes on every tab switch
   useEffect(() => {
     const handler = () => {
-      if (document.visibilityState === 'visible') {
-        reauth()
-      }
+      if (document.visibilityState === 'visible') refreshSession()
     }
     document.addEventListener('visibilitychange', handler)
     return () => document.removeEventListener('visibilitychange', handler)
-  }, [reauth])
+  }, [refreshSession])
 
   if (!initialized) return <SplashScreen />
 
