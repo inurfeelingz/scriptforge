@@ -218,19 +218,19 @@ ${rof()}`)
 function cu(gender, instanceId) {
   const v = hashVariant(instanceId)
   return wrap(`
-${envRoom(118)}
-${figureHead(W/2, 122, 1.0, v)}
-${eyeLine(60)}
+${envRoom(122)}
+${figureHead(W/2, 126, 1.18, v)}
+${eyeLine(52)}
 ${chrome('CU — Close-Up')}`)
 }
 
 function mcu(gender, instanceId) {
   const v = hashVariant(instanceId)
   return wrap(`
-${envRoom(122)}
-${envScreen(192, 12, 100, 68)}
-${figureBody(W/2, 190, 0.55, v)}
-${eyeLine(52)}
+${envRoom(128)}
+${envScreen(222, 18, 82, 54)}
+${figureBody(W/2, 220, 1.32, v)}
+${eyeLine(46)}
 ${chrome('MCU — Medium Close-Up')}
 ${rof()}`)
 }
@@ -238,18 +238,18 @@ ${rof()}`)
 function ms(gender, instanceId) {
   const v = hashVariant(instanceId)
   return wrap(`
-${envRoom(128)}
-${envWindow(210, 8, 80, 90)}
-${figureBody(W/2, 168, 0.42, v)}
-${eyeLine(62)}
+${envRoom(130)}
+${envWindow(216, 10, 72, 82)}
+${figureBody(W/2, 185, 0.82, v)}
+${eyeLine(56)}
 ${chrome('MS — Medium Shot')}`)
 }
 
 function mws(gender, instanceId) {
   const v = hashVariant(instanceId)
   return wrap(`
-${envRoom(132)}
-${figureBody(W/2, 158, 0.34, v)}
+${envRoom(134)}
+${figureBody(W/2, 162, 0.62, v)}
 ${chrome('MWS — Medium Wide')}`)
 }
 
@@ -257,8 +257,8 @@ function ws(gender, instanceId) {
   const v = hashVariant(instanceId)
   return wrap(`
 ${envRoom(138)}
-${envScreen(192, 18, 96, 62)}
-${figureBody(W/2, 148, 0.25, v)}
+${envScreen(198, 16, 84, 56)}
+${figureBody(W/2, 150, 0.44, v)}
 ${chrome('WS — Wide Shot')}`)
 }
 
@@ -276,7 +276,7 @@ function ews(gender, instanceId) {
 <rect x="80" y="60" width="18" height="35" fill="#0f1220" opacity="0.5"/>
 <rect x="220" y="65" width="14" height="30" fill="#0f1220" opacity="0.6"/>
 <rect x="242" y="55" width="10" height="40" fill="#0f1220" opacity="0.5"/>
-${figureBody(W/2, 130, 0.14, v)}
+${figureBody(W/2, 126, 0.18, v)}
 ${chrome('EWS — Extreme Wide')}`)
 }
 
@@ -284,13 +284,10 @@ function ots(gender, instanceId) {
   const v  = hashVariant(instanceId)
   const v2 = hashVariant((instanceId||'')+'opp')
   return wrap(`
-${envRoom(120)}
-<!-- Subject (facing camera) right of centre, MS crop -->
-${figureBody(W*0.62, 155, 0.35, v2)}
-<!-- Back of head (foreground) — left, large, silhouetted -->
-${backOfHead(W*0.22, H-18, 0.72)}
-<!-- Focus line -->
-<line x1="${W*0.33}" y1="62" x2="${W*0.52}" y2="58" stroke="#c8b89a" stroke-width="0.5" stroke-dasharray="3 2" opacity="0.35"/>
+${envRoom(122)}
+${figureBody(W*0.64, 185, 0.78, v2)}
+${backOfHead(W*0.18, H-18, 0.88)}
+<line x1="${W*0.35}" y1="56" x2="${W*0.54}" y2="52" stroke="#c8b89a" stroke-width="0.5" stroke-dasharray="3 2" opacity="0.35"/>
 ${chrome('OTS — Over The Shoulder')}`)
 }
 
@@ -298,9 +295,9 @@ function two(gender, instanceId) {
   const v  = hashVariant(instanceId)
   const v2 = hashVariant((instanceId||'')+'two')
   return wrap(`
-${envRoom(132)}
-${figureBody(W*0.3, 152, 0.3, v)}
-${figureBody(W*0.7, 152, 0.3, v2)}
+${envRoom(134)}
+${figureBody(W*0.28, 168, 0.56, v)}
+${figureBody(W*0.72, 168, 0.56, v2)}
 <line x1="${W/2}" y1="0" x2="${W/2}" y2="${H-18}" stroke="#c8b89a" stroke-width="0.4" opacity="0.18"/>
 ${chrome('TWO — Two Shot')}`)
 }
@@ -318,7 +315,7 @@ function low(gender, instanceId) {
 <line x1="${W}" y1="${H-18}" x2="${W/2}" y2="30" stroke="#c8b89a" stroke-width="0.4" opacity="0.15"/>
 <!-- Figure scaled wide, pushed down — low angle feel -->
 <g transform="scale(1.12,0.96) translate(${-(W*0.06)},8)">
-${figureBody(W/2, 162, 0.36, v)}
+${figureBody(W/2, 168, 0.58, v)}
 </g>
 <text x="${W-10}" y="22" font-family="monospace" font-size="7" fill="#c8b89a" opacity="0.55" text-anchor="end">↑ cam</text>
 ${chrome('LOW — Low Angle')}`)
@@ -334,7 +331,7 @@ ${envRoom(108)}
 <line x1="${W*0.85}" y1="108" x2="${W*0.65}" y2="${H-18}" stroke="#c8b89a" stroke-width="0.3" opacity="0.1"/>
 <!-- Figure squashed — high angle foreshortening -->
 <g transform="scale(1,0.82) translate(0,18)">
-${figureBody(W/2, 152, 0.3, v)}
+${figureBody(W/2, 156, 0.46, v)}
 </g>
 <text x="${W-10}" y="14" font-family="monospace" font-size="7" fill="#c8b89a" opacity="0.55" text-anchor="end">↓ cam</text>
 ${chrome('HIGH — High Angle')}`)
@@ -347,7 +344,7 @@ function dutch(gender, instanceId) {
 <rect width="${W}" height="${H}" fill="#08090e"/>
 <g transform="rotate(-14,${cx},${cy})">
 ${envRoom(128)}
-${figureBody(W/2, 148, 0.32, v)}
+${figureBody(W/2, 155, 0.50, v)}
 </g>
 <line x1="0" y1="${H*0.22}" x2="${W}" y2="${H*0.44}" stroke="#c8b89a" stroke-width="0.4" opacity="0.15"/>
 <text x="${W-10}" y="14" font-family="monospace" font-size="7" fill="#c8b89a" opacity="0.55" text-anchor="end">⟳ dutch</text>
@@ -379,11 +376,10 @@ ${chrome('POV — Point of View')}`)
 function th(gender, instanceId) {
   const v = hashVariant(instanceId)
   return wrap(`
-${envRoom(130)}
-${envScreen(176, 12, 116, 72)}
-<!-- Figure: left third, TH offset -->
-${figureBody(W*0.36, 150, 0.33, v)}
-${eyeLine(46)}
+${envRoom(128)}
+${envScreen(192, 14, 100, 64)}
+${figureBody(W*0.34, 218, 1.25, v)}
+${eyeLine(44)}
 ${rof()}
 ${chrome('TH — Talking Head')}`)
 }
