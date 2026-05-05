@@ -17,6 +17,7 @@ router.post('/generate', async (req, res) => {
   if (!episodeId) return res.status(400).json({ error: 'episodeId required' })
 
   try {
+    console.log('[storyboard/generate] userId:', req.user.id, 'episodeId:', episodeId)
     // Load the episode
     const { data: episode, error: epErr } = await supabase
       .from('episodes')
