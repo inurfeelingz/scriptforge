@@ -1,247 +1,507 @@
-// frontend/src/lib/api.js
-// Centralised API client. All calls go through here.
-// Token is injected automatically from Supabase session.
+// backend/src/routes/chat.js
+// KB chat — streaming, persistent history, episode planning + commit
 
-import { getSession } from './supabase'
+const express   = require('express');
+const Anthropic  = require('@anthropic-ai/sdk');
+const { assembleContext } = require('../services/contextAssembler');
+const { supabase }        = require('../utils/supabase');
 
-const BASE = import.meta.env.VITE_API_URL || '/api'
+const router = express.Router();
+const client = new Anthropic.Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
-async function getHeaders() {
-  const session = await getSession()
-  return {
-    'Content-Type': 'application/json',
-    ...(session?.access_token && { Authorization: `Bearer ${session.access_token}` }),
+// ── Context cache (90s per user+category+mode) ────────────────────────────────
+const ctxCache = new Map()
+const CTX_TTL  = 90 * 1000
+
+function getCachedCtx(key) {
+  const entry = ctxCache.get(key)
+  if (!entry) return null
+  if (Date.now() - entry.ts > CTX_TTL) { ctxCache.delete(key); return null }
+  return entry.value
+}
+function setCachedCtx(key, value) {
+  ctxCache.set(key, { value, ts: Date.now() })
+  if (ctxCache.size > 50) {
+    const oldest = [...ctxCache.entries()].sort((a, b) => a[1].ts - b[1].ts)[0]
+    ctxCache.delete(oldest[0])
   }
 }
 
-async function req(method, path, body) {
-  const headers = await getHeaders()
-  const res = await fetch(`${BASE}${path}`, {
-    method,
-    headers,
-    ...(body && { body: JSON.stringify(body) }),
-  })
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: res.statusText }))
-    throw new Error(err.error || `Request failed: ${res.status}`)
-  }
-  return res.json()
+// ── Load + save history helpers ───────────────────────────────────────────────
+async function saveHistory(userId, categoryId, mode, messages) {
+  // Use a zero UUID as placeholder when no category selected
+  // — Postgres NULL != NULL in unique constraints so we need a real value
+  const catId = categoryId || '00000000-0000-0000-0000-000000000000'
+  await supabase
+    .from('chat_history')
+    .upsert({
+      user_id:     userId,
+      category_id: catId,
+      mode,
+      messages,
+      updated_at:  new Date().toISOString(),
+    }, { onConflict: 'user_id,mode,category_id' })
 }
 
-async function reqForm(path, formData) {
-  const session = await getSession()
-  const res = await fetch(`${BASE}${path}`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${session?.access_token}` },
-    body: formData,
-  })
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: res.statusText }))
-    throw new Error(err.error || `Upload failed: ${res.status}`)
-  }
-  return res.json()
+async function loadHistory(userId, categoryId, mode) {
+  const catId = categoryId || '00000000-0000-0000-0000-000000000000'
+  const { data } = await supabase
+    .from('chat_history')
+    .select('messages, updated_at')
+    .eq('user_id', userId)
+    .eq('category_id', catId)
+    .eq('mode', mode)
+    .maybeSingle()
+  return { messages: data?.messages || [], updatedAt: data?.updated_at }
 }
 
-// ── SSE streaming helper ──────────────────────────────────────────────────────
-// Returns an EventSource-like object that handles auth via fetch + ReadableStream
+// ── POST /api/chat/message ─────────────────────────────────────────────────────
+router.post('/message', async (req, res) => {
+  const { categoryId, mode = 'generate', message, episodeCtx, messages = [] } = req.body
 
-export async function streamRequest(path, body, handlers = {}) {
-  const session = await getSession()
-  const response = await fetch(`${BASE}${path}`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${session?.access_token}`,
-    },
-    body: JSON.stringify(body),
-  })
+  if (!message?.trim()) return res.status(400).json({ error: 'Message is required' })
 
-  if (!response.ok) throw new Error(`Stream failed: ${response.status}`)
+  // SSE
+  res.setHeader('Content-Type', 'text/event-stream')
+  res.setHeader('Cache-Control', 'no-cache')
+  res.setHeader('Connection', 'keep-alive')
+  res.setHeader('X-Accel-Buffering', 'no')
+  res.flushHeaders()
 
-  const reader  = response.body.getReader()
-  const decoder = new TextDecoder()
-  let buffer = ''
+  const send = (event, data) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
 
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
+  // Keepalive ping every 15s to prevent Railway/proxy timeout
+  const keepalive = setInterval(() => {
+    res.write(': ping\n\n')
+  }, 15000)
 
-    buffer += decoder.decode(value, { stream: true })
-    const parts = buffer.split('\n\n')
-    buffer = parts.pop()  // keep the incomplete trailing chunk
+  try {
+    // Load full history from DB for current mode
+    const { messages: dbHistory } = await loadHistory(req.user.id, categoryId, mode)
 
-    for (const part of parts) {
-      if (!part.trim() || part.startsWith(':')) continue  // skip empty and comments (keepalive)
-      let event = null
-      let data  = null
-      for (const line of part.split('\n')) {
-        if (line.startsWith('event: ')) event = line.slice(7).trim()
-        if (line.startsWith('data: '))  data  = line.slice(6).trim()
-      }
-      if (event && data) {
-        try { handlers[event]?.(JSON.parse(data)) } catch {}
+    // Also pull recent messages from other modes for cross-context awareness
+    const { data: otherHistory } = await supabase
+      .from('chat_history')
+      .select('mode, messages')
+      .eq('user_id', req.user.id)
+      .neq('mode', mode)
+      .order('updated_at', { ascending: false })
+      .limit(5)
+
+    const crossContext = (otherHistory || [])
+      .flatMap(h => (h.messages || []).slice(-3).map(m => ({
+        ...m,
+        content: `[from ${h.mode} mode] ${m.content}`
+      })))
+      .slice(-6)
+
+    // Assemble system context
+    const ctxKey = episodeCtx ? null : `${req.user.id}:${categoryId}:${mode}`
+    let systemContext = ctxKey ? getCachedCtx(ctxKey) : null
+    if (!systemContext) {
+      systemContext = await assembleContext(req.user.id, categoryId, { mode, episodeCtx })
+      if (ctxKey) setCachedCtx(ctxKey, systemContext)
+    }
+
+    // Append any planned episodes KB is aware of
+    const { data: planned } = await supabase
+      .from('kb_planned_episodes')
+      .select('episode_number, track_name, summary, themes, status')
+      .eq('user_id', req.user.id)
+      .eq('category_id', categoryId)
+      .order('episode_number', { ascending: true })
+      .limit(20)
+
+    if (planned?.length) {
+      systemContext += `\n\n## KB PLANNED EPISODES (you helped plan these)\n` +
+        planned.map(e =>
+          `Ep ${e.episode_number}: "${e.track_name}" [${e.status}]${e.summary ? ` — ${e.summary}` : ''}`
+        ).join('\n')
+    }
+
+    // Build message list — current mode history + cross-mode context
+    const historyForClaude = [
+      ...crossContext,
+      ...dbHistory.slice(-30),
+    ].map(m => ({ role: m.role, content: m.content }))
+
+    const claudeMessages = [
+      ...historyForClaude,
+      { role: 'user', content: message },
+    ]
+
+    // Stream response
+    let fullResponse = ''
+    const stream = await client.messages.stream({
+      model:      process.env.CLAUDE_MODEL || 'claude-sonnet-4-5',
+      max_tokens: 2000,
+      system:     systemContext,
+      messages:   claudeMessages,
+    })
+
+    for await (const chunk of stream) {
+      if (chunk.type === 'content_block_delta' && chunk.delta.type === 'text_delta') {
+        fullResponse += chunk.delta.text
+        send('chunk', { text: chunk.delta.text })
       }
     }
+
+    // Persist full history
+    if (categoryId) {
+      const updatedHistory = [
+        ...dbHistory,
+        { role: 'user',      content: message,      timestamp: new Date().toISOString() },
+        { role: 'assistant', content: fullResponse,  timestamp: new Date().toISOString() },
+      ]
+      await saveHistory(req.user.id, categoryId, mode, updatedHistory)
+    }
+
+    send('done', { response: fullResponse })
+    clearInterval(keepalive)
+    res.end()
+
+  } catch (err) {
+    console.error('[chat] Error:', err.message)
+    clearInterval(keepalive)
+    send('error', { message: err.message })
+    res.end()
   }
-}
+})
 
-// ── Categories ────────────────────────────────────────────────────────────────
-export const categories = {
-  list:    ()         => req('GET', '/categories'),
-  get:     (id)       => req('GET', `/categories/${id}`),
-  create:  (body)     => req('POST', '/categories', body),
-  update:  (id, body) => req('PATCH', `/categories/${id}`, body),
-  delete:  (id)       => req('DELETE', `/categories/${id}`),
-  switch:  (id)       => req('POST', `/categories/${id}/switch`),
-  refresh: (id)       => req('POST', `/categories/${id}/refresh`),
-}
+// ── POST /api/chat/commit-episode ──────────────────────────────────────────────
+// KB extracts an episode plan from the conversation and commits it to series memory
+// so the Generate page, Companion, and all context knows about it
+router.post('/commit-episode', async (req, res) => {
+  const { categoryId, mode, episodeNumber, conversationSummary } = req.body
+  if (!categoryId) return res.status(400).json({ error: 'categoryId required' })
 
-// ── Episodes ──────────────────────────────────────────────────────────────────
-export const episodes = {
-  list:        (params)   => req('GET', `/episodes?${new URLSearchParams(params)}`),
-  get:         (id)       => req('GET', `/episodes/${id}`),
-  updateStatus:(id, body) => req('PATCH', `/episodes/${id}/status`, body),
-  logPerf:     (id, body) => req('PATCH', `/episodes/${id}/performance`, body),
-  generate:    (body, handlers) => streamRequest('/episodes/generate', body, handlers),
-  duplicate:   (id)       => req('POST', `/episodes/${id}/duplicate`),
-  usage:       ()          => req('GET',  '/episodes/usage'),
-  hookVariants:(body)      => req('POST', '/episodes/hook-variants', body),
-  regenerateSection: (id, section, handlers) => streamRequest(`/episodes/${id}/regenerate-section`, { section }, handlers),
-}
+  try {
+    // Load the recent chat history for this mode
+    const { messages: history } = await loadHistory(req.user.id, categoryId, mode || 'generate')
+    const recentMessages = history.slice(-20)
 
-// ── Vault ─────────────────────────────────────────────────────────────────────
-export const dashboard = {
-  brief:         (categoryId)      => req('GET', `/dashboard/brief?categoryId=${categoryId}`),
-  pipeline:      (categoryId)      => req('GET', `/dashboard/pipeline?categoryId=${categoryId}`),
-  advanceStatus: (id, status)      => req('PATCH', `/dashboard/pipeline/${id}/status`, { status }),
-}
+    if (!recentMessages.length && !conversationSummary) {
+      return res.status(400).json({ error: 'No conversation to commit' })
+    }
 
-export const vault = {
-  list:          (params) => req('GET', `/vault?${new URLSearchParams(params)}`),
-  stats:         (params) => req('GET', `/vault/stats?${new URLSearchParams(params)}`),
-  recommendations:(params)=> req('GET', `/vault/recommendations?${new URLSearchParams(params)}`),
-  create:        (body)   => req('POST', '/vault', body),
-  update:        (id, body)=> req('PATCH', `/vault/${id}`, body),
-  favourite:     (id)     => req('POST', `/vault/${id}/favourite`),
-  delete:        (id)     => req('DELETE', `/vault/${id}`),
-}
+    // Ask Claude to extract the episode plan from the conversation
+    const extractionPrompt = conversationSummary
+      ? `Extract a structured episode plan from this summary: ${conversationSummary}`
+      : `Extract a structured episode plan from this conversation:\n${recentMessages.map(m => `${m.role}: ${m.content}`).join('\n\n')}`
 
-// ── Analytics ─────────────────────────────────────────────────────────────────
-export const billing = {
-  plans:     ()            => req('GET',  '/billing/plans'),
-  status:    ()            => req('GET',  '/billing/status'),
-  subscribe: (planKey)     => req('POST', '/billing/subscribe', { planKey }),
-  cancel:    ()            => req('POST', '/billing/cancel', {}),
-}
-
-export const analytics = {
-  list:      (params) => req('GET', `/analytics?${new URLSearchParams(params)}`),
-  hookStats: (params) => req('GET', `/analytics/hook-stats?${new URLSearchParams(params)}`),
-  upload: async (file, categoryId, platform, skipInsights = false) => {
-    const session = await getSession()
-    const formData = new FormData()
-    formData.append('file', file)
-    formData.append('categoryId', categoryId)
-    formData.append('platform', platform)
-    if (skipInsights) formData.append('skip_insights', 'true')
-    const res = await fetch(`${BASE}/analytics/upload`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${session?.access_token}` },
-      body: formData,
+    const extraction = await client.messages.create({
+      model:      process.env.CLAUDE_MODEL || 'claude-sonnet-4-5',
+      max_tokens: 800,
+      system:     'Extract episode planning data as JSON only. No preamble. Return: { "track_name": string, "episode_number": number|null, "mood": string, "summary": string, "themes": string[], "callback_seeds": string[], "targetDurationMinutes": number }',
+      messages:   [{ role: 'user', content: extractionPrompt }],
     })
-    if (!res.ok) throw new Error(`Upload failed: ${res.status}`)
-    return res.json()
-  },
-  // YouTube OAuth
-  youtubeStatus:     (categoryId) => req('GET',  `/analytics/youtube/status?categoryId=${categoryId}`),
-  youtubeConnectUrl: async (categoryId) => {
-    const session = await getSession()
-    const token = session?.access_token || ''
-    return `${BASE}/analytics/youtube/connect?categoryId=${categoryId}&token=${token}`
-  },
-  youtubePull:       (categoryId) => req('POST', '/analytics/youtube/pull', { categoryId }),
-  youtubeDisconnect: (categoryId) => req('DELETE', `/analytics/youtube/disconnect?categoryId=${categoryId}`),
-  // Episode retention
-  episodeRetention:  (episodeId)  => req('GET',  `/analytics/episode/${episodeId}/retention`),
-  saveRetentionCurve:(id, data)   => req('POST', `/analytics/episode/${id}/retention-curve`, { curveData: data }),
-}
 
-// ── Series ────────────────────────────────────────────────────────────────────
-export const series = {
-  list:   (params) => req('GET', `/series?${new URLSearchParams(params)}`),
-  update: (id, body)=> req('PATCH', `/series/${id}`, body),
-}
+    let plan = {}
+    try {
+      const text = extraction.content[0]?.text || '{}'
+      plan = JSON.parse(text.replace(/```json|```/g, '').trim())
+    } catch {
+      return res.status(422).json({ error: 'Could not extract episode plan from conversation — try being more specific about the episode name, mood, and themes' })
+    }
 
-export const shorts = {
-  generate:        (episodeId, categoryId) => req('POST', '/shorts/generate',   { episodeId, categoryId }),
-  thumbnails:      (episodeId, categoryId) => req('POST', '/shorts/thumbnails', { episodeId, categoryId }),
-  get:             (episodeId)             => req('GET',  `/shorts/${episodeId}`),
-  bible:           (categoryId, force)     => req('GET',  `/shorts/bible/${categoryId}${force ? '?force=true' : ''}`),
-}
+    const epNumber = episodeNumber || plan.episode_number
 
-// ── Chat ──────────────────────────────────────────────────────────────────────
-export const chat = {
-  send:             (body, handlers) => streamRequest('/chat/message', body, handlers),
-  getHistory:       (params) => req('GET', `/chat/history?${new URLSearchParams(params)}`),
-  clearHistory:     (body)   => req('DELETE', '/chat/history', body),
-  commitEpisode:    (body)   => req('POST', '/chat/commit-episode', body),
-  getSessions:      (params) => req('GET', `/chat/sessions?${new URLSearchParams(params)}`),
-  getSession:       (id)     => req('GET', `/chat/sessions/${id}`),
-  saveSession:      (body)   => req('POST', '/chat/sessions', body),
-  deleteSession:    (id)     => req('DELETE', `/chat/sessions/${id}`),
-  generateEpisode:  (body, handlers) => streamRequest('/chat/generate-episode', body, handlers),
-}
+    // Write to kb_planned_episodes
+    const { data: planned, error: pe } = await supabase
+      .from('kb_planned_episodes')
+      .upsert({
+        user_id:      req.user.id,
+        category_id:  categoryId,
+        episode_number: epNumber,
+        track_name:   plan.track_name,
+        track_context: {
+          mood:                   plan.mood || '',
+          targetDurationMinutes:  plan.targetDurationMinutes || 8,
+        },
+        summary:       plan.summary,
+        themes:        plan.themes || [],
+        callback_seeds: plan.callback_seeds || [],
+        status:        'planned',
+        chat_session:  mode || 'generate',
+        updated_at:    new Date().toISOString(),
+      }, { onConflict: epNumber ? 'user_id,category_id,episode_number' : undefined })
+      .select()
+      .single()
 
-// ── Refresh ───────────────────────────────────────────────────────────────────
-export const refresh = {
-  status: (categoryId) => req('GET', `/refresh/status?categoryId=${categoryId}`),
-}
+    if (pe) throw pe
 
-// ── Users ─────────────────────────────────────────────────────────────────────
-export const users = {
-  profile:     ()     => req('GET', '/users/profile'),
-  updateProfile:(body) => req('PATCH', '/users/profile', body),
-  checkInvite: (code) => req('GET', `/users/invite/${code}`),
-  list:        ()     => req('GET', '/admin/users'),
-  setTier:     (id, tier) => req('PATCH', `/admin/users/${id}/tier`, { tier }),
-  resetUsage:  (id)   => req('POST', `/admin/reset-usage/${id}`),
-}
+    // Also write to series_memory so it shows up in the Series page
+    if (epNumber) {
+      await supabase
+        .from('series_memory')
+        .upsert({
+          user_id:       req.user.id,
+          category_id:   categoryId,
+          episode_number: epNumber,
+          track_name:    plan.track_name,
+          track_context: { mood: plan.mood || '', targetDurationMinutes: plan.targetDurationMinutes || 8 },
+          summary:       plan.summary,
+          themes:        plan.themes || [],
+          callback_seeds: plan.callback_seeds || [],
+        }, { onConflict: 'user_id,category_id,episode_number' })
+    }
 
-// ── Sound library ────────────────────────────────────────────────────────────
-export const sound = {
-  getLibrary:      (categoryId)          => req('GET',    `/sound/library?categoryId=${categoryId}`),
-  listAssets:      (params = {})         => req('GET',    `/sound/assets?${new URLSearchParams(params)}`),
-  uploadAsset:     (formData)            => reqForm('/sound/assets', formData),
-  getAssetUrl:     (id)                  => req('GET',    `/sound/assets/${id}/url`),
-  updateAsset:     (id, body)            => req('PATCH',  `/sound/assets/${id}`, body),
-  deleteAsset:     (id, force)           => req('DELETE', `/sound/assets/${id}${force ? '?force=true' : ''}`),
-  designEpisode:   (episodeId, body)     => req('POST',   `/sound/episodes/${episodeId}/design`, body),
-  getPlacements:   (episodeId)           => req('GET',    `/sound/episodes/${episodeId}/placements`),
-  exportEDL:       (episodeId)           => `${BASE}/sound/episodes/${episodeId}/export-edl`,
-  lockPlacement:   (epId, pId, locked)  => req('PATCH', `/sound/episodes/${epId}/placements/${pId}/lock`, { locked }),
-}
+    // Bust context cache so next KB message sees the new plan
+    const ctxKey = `${req.user.id}:${categoryId}:${mode || 'generate'}`
+    ctxCache.delete(ctxKey)
 
-// ── Sessions (companion app) ──────────────────────────────────────────────────
-export const sessions = {
-  create:  (body)     => req('POST',  '/session', body),
-  list:    (params)   => req('GET',   `/session?${new URLSearchParams(params)}`),
-  get:     (id)       => req('GET',   `/session/${id}`),
-  addEntry:(id, body) => req('POST',  `/session/${id}/entry`, body),
-  batch:   (id, body) => req('POST',  `/session/${id}/entries/batch`, body),
-  process: (id)       => req('POST',  `/session/${id}/process`),
-  link:    (id, body) => req('PATCH', `/session/${id}/link`, body),
-  delete:  (id)       => req('DELETE',`/session/${id}`),
-}
+    res.json({
+      committed: true,
+      plan: {
+        track_name:    plan.track_name,
+        episode_number: epNumber,
+        mood:          plan.mood,
+        summary:       plan.summary,
+        themes:        plan.themes,
+      }
+    })
 
-export const testWebhook = () => req('POST', '/test-webhook')
+  } catch (err) {
+    console.error('[commit-episode]', err.message)
+    res.status(500).json({ error: err.message })
+  }
+})
 
-// ── Generic REST helper (used by editor + vision engine) ──────────────────────
-// Provides api.get(), api.post(), api.patch(), api.delete()
-// for components that don't need named resource clients
+// ── GET /api/chat/history ──────────────────────────────────────────────────────
+router.get('/history', async (req, res) => {
+  const { categoryId, mode = 'generate' } = req.query
+  const result = await loadHistory(req.user.id, categoryId, mode)
+  res.json(result)
+})
 
-export const api = {
-  get:    (path)        => req('GET',    path),
-  post:   (path, body)  => req('POST',   path, body),
-  patch:  (path, body)  => req('PATCH',  path, body),
-  delete: (path, body)  => req('DELETE', path, body),
-}
+// ── DELETE /api/chat/history ───────────────────────────────────────────────────
+router.delete('/history', async (req, res) => {
+  const { categoryId, mode } = req.body
+  await supabase
+    .from('chat_history')
+    .delete()
+    .eq('user_id', req.user.id)
+    .eq('category_id', categoryId)
+    .eq('mode', mode)
+  res.json({ cleared: true })
+})
+
+// ── GET /api/chat/sessions ─────────────────────────────────────────────────────
+router.get('/sessions', async (req, res) => {
+  const { data } = await supabase
+    .from('chat_sessions')
+    .select('id, title, mode, category_id, created_at, updated_at')
+    .eq('user_id', req.user.id)
+    .order('updated_at', { ascending: false })
+    .limit(50)
+  res.json({ sessions: data || [] })
+})
+
+// ── GET /api/chat/sessions/:id ─────────────────────────────────────────────────
+router.get('/sessions/:id', async (req, res) => {
+  const { data } = await supabase
+    .from('chat_sessions')
+    .select('*')
+    .eq('id', req.params.id)
+    .eq('user_id', req.user.id)
+    .single()
+  if (!data) return res.status(404).json({ error: 'Session not found' })
+  res.json({ session: data })
+})
+
+// ── POST /api/chat/sessions ────────────────────────────────────────────────────
+router.post('/sessions', async (req, res) => {
+  const { categoryId, mode, messages, title } = req.body
+  if (!categoryId || !messages?.length) return res.status(400).json({ error: 'categoryId and messages required' })
+
+  const autoTitle = title ||
+    messages.find(m => m.role === 'user')?.content?.slice(0, 60) ||
+    'Untitled conversation'
+
+  const { data, error } = await supabase
+    .from('chat_sessions')
+    .insert({
+      user_id:     req.user.id,
+      category_id: categoryId,
+      mode:        mode || 'generate',
+      title:       autoTitle,
+      messages,
+    })
+    .select()
+    .single()
+
+  if (error) return res.status(500).json({ error: error.message })
+  res.json({ session: data })
+})
+
+// ── DELETE /api/chat/sessions/:id ──────────────────────────────────────────────
+router.delete('/sessions/:id', async (req, res) => {
+  await supabase
+    .from('chat_sessions')
+    .delete()
+    .eq('id', req.params.id)
+    .eq('user_id', req.user.id)
+  res.json({ deleted: true })
+})
+
+module.exports = router;
+
+// ── GET /api/chat/sessions ─────────────────────────────────────────────────────
+// List past sessions for a mode/category
+router.get('/sessions', async (req, res) => {
+  const { categoryId, mode = 'generate' } = req.query
+  const { data } = await supabase
+    .from('chat_sessions')
+    .select('id, title, mode, created_at, updated_at')
+    .eq('user_id', req.user.id)
+    .eq('category_id', categoryId)
+    .eq('mode', mode)
+    .order('updated_at', { ascending: false })
+    .limit(30)
+  res.json({ sessions: data || [] })
+})
+
+// ── GET /api/chat/sessions/:id ─────────────────────────────────────────────────
+router.get('/sessions/:id', async (req, res) => {
+  const { data } = await supabase
+    .from('chat_sessions')
+    .select('*')
+    .eq('id', req.params.id)
+    .eq('user_id', req.user.id)
+    .single()
+  if (!data) return res.status(404).json({ error: 'Session not found' })
+  res.json({ session: data })
+})
+
+// ── POST /api/chat/sessions ────────────────────────────────────────────────────
+// Save current conversation as a named session
+router.post('/sessions', async (req, res) => {
+  const { categoryId, mode, messages, title } = req.body
+  if (!categoryId || !messages?.length) return res.status(400).json({ error: 'categoryId and messages required' })
+
+  // Auto-title from first user message if not provided
+  const autoTitle = title ||
+    messages.find(m => m.role === 'user')?.content?.slice(0, 60) ||
+    'Untitled conversation'
+
+  const { data, error } = await supabase
+    .from('chat_sessions')
+    .insert({
+      user_id:     req.user.id,
+      category_id: categoryId,
+      mode:        mode || 'generate',
+      title:       autoTitle,
+      messages,
+    })
+    .select()
+    .single()
+
+  if (error) return res.status(500).json({ error: error.message })
+  res.json({ session: data })
+})
+
+// ── DELETE /api/chat/sessions/:id ──────────────────────────────────────────────
+router.delete('/sessions/:id', async (req, res) => {
+  await supabase
+    .from('chat_sessions')
+    .delete()
+    .eq('id', req.params.id)
+    .eq('user_id', req.user.id)
+  res.json({ deleted: true })
+})
+
+// ── POST /api/chat/generate-episode ───────────────────────────────────────────
+// KB extracts a plan from conversation then triggers full episode generation
+// Returns SSE stream — same format as /episodes/generate
+router.post('/generate-episode', async (req, res) => {
+  const { categoryId, mode } = req.body
+  if (!categoryId) return res.status(400).json({ error: 'categoryId required' })
+
+  res.setHeader('Content-Type', 'text/event-stream')
+  res.setHeader('Cache-Control', 'no-cache')
+  res.setHeader('Connection', 'keep-alive')
+  res.setHeader('X-Accel-Buffering', 'no')
+  res.flushHeaders()
+
+  const send = (event, data) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
+  const keepalive = setInterval(() => res.write(': ping\n\n'), 15000)
+
+  try {
+    send('progress', { step: 'extracting', message: 'KB is extracting the episode plan...', pct: 5 })
+
+    // Load conversation history
+    const { messages: history } = await loadHistory(req.user.id, categoryId, mode || 'series')
+    const recentMessages = history.slice(-20)
+
+    if (!recentMessages.length) {
+      send('error', { message: 'No conversation to generate from — discuss an episode with KB first' })
+      clearInterval(keepalive)
+      return res.end()
+    }
+
+    // Extract structured plan from conversation
+    const extraction = await client.messages.create({
+      model:      process.env.CLAUDE_MODEL || 'claude-sonnet-4-5',
+      max_tokens: 600,
+      system:     'Extract episode plan as JSON only. No preamble. Return: { "track_name": string, "episode_number": number|null, "mood": string, "targetDurationMinutes": number, "summary": string, "themes": string[], "voiceMemoText": string }. voiceMemoText should be 2-3 sentences summarising what the creator wants to say in this episode.',
+      messages:   [{ role: 'user', content: `Extract episode plan from:\n${recentMessages.map(m => `${m.role}: ${m.content}`).join('\n\n')}` }],
+    })
+
+    let plan = {}
+    try {
+      plan = JSON.parse(extraction.content[0]?.text?.replace(/```json|```/g, '').trim() || '{}')
+    } catch {
+      send('error', { message: 'Could not extract episode plan — be more specific about the episode name, mood, and what you want to say' })
+      clearInterval(keepalive)
+      return res.end()
+    }
+
+    if (!plan.track_name) {
+      send('error', { message: 'KB needs an episode name — tell KB what this episode is called' })
+      clearInterval(keepalive)
+      return res.end()
+    }
+
+    send('progress', { step: 'generating', message: `Generating "${plan.track_name}"...`, pct: 15 })
+
+    // Forward to the generate endpoint via internal fetch
+    const generateRes = await fetch(`http://localhost:${process.env.PORT || 3001}/api/episodes/generate`, {
+      method:  'POST',
+      headers: {
+        'Content-Type':  'application/json',
+        'Authorization': req.headers.authorization,
+      },
+      body: JSON.stringify({
+        categoryId,
+        episodeNumber: plan.episode_number || null,
+        trackContext: {
+          name:                  plan.track_name,
+          mood:                  plan.mood || 'conversational',
+          targetDurationMinutes: plan.targetDurationMinutes || 8,
+          summary:               plan.summary || '',
+          themes:                plan.themes || [],
+        },
+        voiceMemoText: plan.voiceMemoText || plan.summary || '',
+      }),
+    })
+
+    // Pipe the SSE stream through
+    const reader = generateRes.body.getReader()
+    const decoder = new TextDecoder()
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      const chunk = decoder.decode(value, { stream: true })
+      res.write(chunk)
+    }
+
+    clearInterval(keepalive)
+    res.end()
+
+  } catch (err) {
+    console.error('[chat/generate-episode]', err.message)
+    clearInterval(keepalive)
+    send('error', { message: err.message })
+    res.end()
+  }
+})
