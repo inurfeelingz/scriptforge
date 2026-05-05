@@ -4,6 +4,35 @@
    OR import alongside index.css (it is scoped to .companion-root).
 */
 
+/* ─── RECORD SCREEN GLOW — mirrors Brainstorm green glow but red ─────────── */
+
+.record-screen-glow {
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent 0%, rgba(224,48,48,0) 10%, rgba(224,48,48,0.7) 35%, rgba(224,48,48,1) 50%, rgba(224,48,48,0.7) 65%, rgba(224,48,48,0) 90%, transparent 100%);
+  z-index: 2;
+  pointer-events: none;
+}
+
+.record-screen-glow-bloom {
+  position: absolute;
+  top: 0; left: 10%; right: 10%;
+  height: 40px;
+  background: radial-gradient(ellipse at 50% 0%, rgba(224,48,48,0.10) 0%, transparent 70%);
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* When recording — intensify the glow */
+.record-screen-glow.active {
+  background: linear-gradient(90deg, transparent 0%, rgba(224,48,48,0) 10%, rgba(224,48,48,0.9) 35%, rgba(224,48,48,1) 50%, rgba(224,48,48,0.9) 65%, rgba(224,48,48,0) 90%, transparent 100%);
+}
+
+.record-screen-glow-bloom.active {
+  background: radial-gradient(ellipse at 50% 0%, rgba(224,48,48,0.18) 0%, transparent 70%);
+}
+
 /* ─── RESET FOR MOBILE ───────────────────────────────────────────────────── */
 
 .companion-root {
@@ -40,29 +69,33 @@
   display:         flex;
   align-items:     center;
   justify-content: space-between;
-  padding:         10px 20px;
-  border-bottom:   1px solid #111;
+  padding:         0 16px;
+  border-bottom:   1px solid rgba(255,255,255,0.06);
   flex-shrink:     0;
-  height:          48px;
+  height:          64px;
 }
 
 .companion-brand {
   display:     flex;
   align-items: center;
-  gap:         8px;
+  gap:         10px;
 }
 
 .brand-word {
   font-family:    'Syne', system-ui, sans-serif;
   font-weight:    800;
-  font-size:      16px;
+  font-size:      15px;
   letter-spacing: -0.3px;
   color:          #e8eaed;
 }
 
 .brand-cat {
-  font-size: 11px;
-  color:     rgba(255,255,255,0.35);
+  font-size:      10px;
+  font-weight:    500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color:          rgba(255,255,255,0.35);
+  margin-top:     2px;
 }
 
 .header-right {

@@ -298,8 +298,11 @@ export default function Companion() {
       {/* ── HEADER ── */}
       <header className="companion-header">
         <div className="companion-brand">
-          <img src="/icon-mark.svg" alt="WhispaCuts" style={{width:28,height:28}}/>
-          {cat&&<span style={{fontSize:11,color:'rgba(255,255,255,0.35)',marginLeft:6,letterSpacing:'0.05em',textTransform:'uppercase'}}>{cat.name}</span>}
+          <img src="/icon-mark.svg" alt="WhispaCuts" style={{width:30,height:30,flexShrink:0}}/>
+          <div style={{display:'flex',flexDirection:'column',lineHeight:1.2}}>
+            <span className="brand-word">WhispaCuts</span>
+            {cat && <span className="brand-cat">{cat.name}</span>}
+          </div>
         </div>
         <div className="header-right">
           {state.micLabel&&(
@@ -327,6 +330,9 @@ export default function Companion() {
 
         {/* RECORD */}
         <div style={{position:'absolute',inset:0,display:'flex',flexDirection:'column',padding:'16px 20px',gap:16,overflowY:'auto',opacity:state.screen==='record'?1:0,pointerEvents:state.screen==='record'?'auto':'none',transition:'opacity 0.2s ease'}}>
+          {/* Red glow separator — mirrors Brainstorm green glow */}
+          <div className={`record-screen-glow ${state.recording ? 'active' : ''}`}/>
+          <div className={`record-screen-glow-bloom ${state.recording ? 'active' : ''}`}/>
 
           {state.error&&<div className="error-banner"><MicOff size={14}/><span>{state.error}</span></div>}
 

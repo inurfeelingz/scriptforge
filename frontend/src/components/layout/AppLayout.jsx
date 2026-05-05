@@ -136,6 +136,7 @@ export default function AppLayout() {
   const [showNewCat,   setShowNewCat]   = useState(false)
   const [mobileOpen,   setMobileOpen]   = useState(false)
   const [isMobile,     setIsMobile]     = useState(false)
+  const [bottomOpen,   setBottomOpen]   = useState(false)
   const navigate = useNavigate()
   const activeCategory = categories.find(c => c.id === activeCategoryId)
 
@@ -255,38 +256,62 @@ export default function AppLayout() {
         {/* Bottom */}
         <div style={{ padding: '8px', borderTop: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: 2, flexShrink: 0 }}>
 
-          <NavLink
-            to="/billing"
-            onClick={() => setMobileOpen(false)}
-            style={({ isActive }) => ({
-              ...(isActive ? NAV_ACTIVE : NAV_INACTIVE),
+          {/* Collapsible group toggle */}
+          <button
+            onClick={() => setBottomOpen(o => !o)}
+            style={{
+              ...NAV_INACTIVE,
               justifyContent: (!showLabels && !isMobile) ? 'center' : 'flex-start',
               padding: (!showLabels && !isMobile) ? '10px' : '8px 14px',
-            })}
-          >
-            <CreditCard size={18} style={{ flexShrink: 0 }}/>
-            {showLabels && <span>Billing</span>}
-          </NavLink>
-          <a
-            href="/companion" target="_blank" rel="noopener noreferrer"
-            style={{ ...NAV_INACTIVE, justifyContent: (!showLabels && !isMobile) ? 'center' : 'flex-start', padding: (!showLabels && !isMobile) ? '10px' : '8px 14px' }}
-            title={(!showLabels && !isMobile) ? 'Companion' : undefined}
-          >
-            <Smartphone size={18} style={{ flexShrink: 0 }}/>
-            {showLabels && <span>Companion</span>}
-          </a>
-          <NavLink
-            to="/settings"
-            onClick={() => setMobileOpen(false)}
-            style={({ isActive }) => ({
-              ...(isActive ? NAV_ACTIVE : NAV_INACTIVE),
-              justifyContent: (!showLabels && !isMobile) ? 'center' : 'flex-start',
-              padding: (!showLabels && !isMobile) ? '10px' : '8px 14px',
-            })}
+              width: '100%', textAlign: 'left',
+            }}
           >
             <Settings size={18} style={{ flexShrink: 0 }}/>
-            {showLabels && <span>Settings</span>}
-          </NavLink>
+            {showLabels && (
+              <>
+                <span style={{ flex: 1 }}>More</span>
+                <span style={{ fontSize: 10, opacity: 0.4, marginLeft: 'auto' }}>{bottomOpen ? '▲' : '▼'}</span>
+              </>
+            )}
+          </button>
+
+          {/* Collapsible items */}
+          {bottomOpen && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 2, overflow: 'hidden', animation: 'fadeIn 0.15s ease' }}>
+              <NavLink
+                to="/billing"
+                onClick={() => setMobileOpen(false)}
+                style={({ isActive }) => ({
+                  ...(isActive ? NAV_ACTIVE : NAV_INACTIVE),
+                  justifyContent: (!showLabels && !isMobile) ? 'center' : 'flex-start',
+                  padding: (!showLabels && !isMobile) ? '10px' : '8px 14px',
+                })}
+              >
+                <CreditCard size={18} style={{ flexShrink: 0 }}/>
+                {showLabels && <span>Billing</span>}
+              </NavLink>
+              <a
+                href="/companion" target="_blank" rel="noopener noreferrer"
+                style={{ ...NAV_INACTIVE, justifyContent: (!showLabels && !isMobile) ? 'center' : 'flex-start', padding: (!showLabels && !isMobile) ? '10px' : '8px 14px' }}
+                title={(!showLabels && !isMobile) ? 'Companion' : undefined}
+              >
+                <Smartphone size={18} style={{ flexShrink: 0 }}/>
+                {showLabels && <span>Companion</span>}
+              </a>
+              <NavLink
+                to="/settings"
+                onClick={() => setMobileOpen(false)}
+                style={({ isActive }) => ({
+                  ...(isActive ? NAV_ACTIVE : NAV_INACTIVE),
+                  justifyContent: (!showLabels && !isMobile) ? 'center' : 'flex-start',
+                  padding: (!showLabels && !isMobile) ? '10px' : '8px 14px',
+                })}
+              >
+                <Settings size={18} style={{ flexShrink: 0 }}/>
+                {showLabels && <span>Settings</span>}
+              </NavLink>
+            </div>
+          )}
 
           {/* Profile strip — name + tier only, no avatar */}
           {showLabels && (
