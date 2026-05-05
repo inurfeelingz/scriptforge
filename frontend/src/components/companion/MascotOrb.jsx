@@ -44,6 +44,7 @@ function getMoods() {
   const isDark = document.documentElement.getAttribute('data-theme') !== 'light'
   return {
     idle:       { r: 54,  speed: 0.0008, rgb: isDark ? [100, 115, 155] : [130, 140, 180], bloom: 0.20, wobble: 0.06, pulse: 0.010 },
+    active:     { r: 58,  speed: 0.012,  rgb: [74,  222, 128],                             bloom: 0.65, wobble: 0.30, pulse: 0.090 },
     listening:  { r: 60,  speed: 0.022, rgb: isDark ? [140, 170, 220] : [100, 130, 210], bloom: 0.55, wobble: 0.70, pulse: 0.16  },
     discovery:  { r: 68,  speed: 0.034, rgb: [212, 168,  83],                             bloom: 1.00, wobble: 1.30, pulse: 0.28  },
     marking:    { r: 64,  speed: 0.026, rgb: [212, 168,  83],                             bloom: 0.90, wobble: 0.55, pulse: 0.30  },
