@@ -17,20 +17,23 @@ router.post('/generate', async (req, res) => {
   if (!episodeId) return res.status(400).json({ error: 'episodeId required' })
 
   try {
-    console.log('[storyboard/generate] userId:', req.user.id, 'episodeId:', episodeId)
     // Load the episode
     const { data: episode, error: epErr } = await supabase
       .from('episodes')
-      .select('title, track_name, parsed_content, generation_decisions, track_context')
+      .select('track_name, vo_script, episode_concept, generation_decisions, voice_memo_text, edl_clip_map')
       .eq('id', episodeId)
       .eq('user_id', req.user.id)
       .single()
 
     if (epErr || !episode) return res.status(404).json({ error: 'Episode not found' })
 
-    const scriptContent = episode.parsed_content
-      ? JSON.stringify(episode.parsed_content)
-      : 'No script content available'
+    // Build script content from available fields
+    const scriptContent = [
+      episode.episode_concept ? `CONCEPT: ${episode.episode_concept}` : '',
+      episode.voice_memo_text ? `VOICE MEMO: ${episode.voice_memo_text}` : '',
+      episode.vo_script       ? `SCRIPT:\n${episode.vo_script}` : '',
+      episode.generation_decisions ? `DECISIONS: ${JSON.stringify(episode.generation_decisions).slice(0, 500)}` : '',
+    ].filter(Boolean).join('\n\n') || 'No script content available'
 
     // Ask Claude to extract shot list
     const extraction = await client.messages.create({
