@@ -145,15 +145,19 @@
 /* ─── SCREENS CONTAINER ──────────────────────────────────────────────────── */
 
 .screens-container {
-  display:   flex;
-  flex:      1;
-  overflow:  hidden;
-  width:     100%;
+  display:        flex;
+  flex:           1;
+  /* overflow clipped by companion-root which is position:fixed overflow:hidden */
+  width:          100vw;
+  will-change:    transform;
 }
 
-/* Single-screen companion — record fills everything */
+/* Each screen is exactly one viewport width */
 .companion-root .screen {
   justify-content: space-between;
+  width:          100vw !important;
+  min-width:      100vw !important;
+  flex-shrink:    0 !important;
 }
 
 .screen {

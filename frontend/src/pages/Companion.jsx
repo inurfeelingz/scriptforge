@@ -573,7 +573,7 @@ export default function Companion() {
       <div
         className="screens-container"
         style={{
-          transform:  `translateX(calc(${-state.screen * 100}% + ${dragX}px))`,
+          transform:  `translateX(calc(${-state.screen * 100}vw + ${dragX}px))`,
           transition: isDragging.current ? 'none' : 'transform 0.35s cubic-bezier(0.4,0,0.2,1)',
         }}
       >
