@@ -2,7 +2,7 @@
 // Visual shot list — vector storyboard frames with clip matching
 
 import { useState, useEffect, useCallback } from 'react'
-import { Film, Wand2, Download, RefreshCw, ChevronDown, ChevronUp, Edit2, Check, X } from 'lucide-react'
+import { Film, Wand2, Download, Edit2, Check, X, Trash2 } from 'lucide-react'
 import { useStore } from '../store'
 import { api } from '../lib/api'
 import { getShotSVG, SHOT_TYPES } from '../lib/storyboardSVG'
@@ -20,7 +20,6 @@ export default function StoryboardPage() {
   const [generating,  setGenerating]  = useState(false)
   const [selectedEp,  setSelectedEp]  = useState('')
   const [gender,      setGender]      = useState('male')
-  const [matching,    setMatching]    = useState(false)
 
   useEffect(() => {
     if (!activeCategoryId) return
@@ -55,20 +54,20 @@ export default function StoryboardPage() {
   }
 
   async function loadStoryboard(id) {
-    const result = await api.get(`/storyboard/${id}`)
-    setActive(result)
+    try {
+      const result = await api.get(`/storyboard/${id}`)
+      setActive(result)
+    } catch (err) { notify(err.message || 'Could not load storyboard', 'error') }
   }
 
-  async function matchClips() {
-    if (!active || matching) return
-    setMatching(true)
+  async function deleteStoryboard(id, e) {
+    e.stopPropagation()
+    if (!confirm('Delete this storyboard?')) return
     try {
-      const { matched } = await api.post(`/storyboard/${active.storyboard.id}/match-clips`, {})
-      notify(`Matched ${matched} clips to frames`, 'success')
-      const result = await api.get(`/storyboard/${active.storyboard.id}`)
-      setActive(result)
-    } catch { notify('Matching failed', 'error') }
-    finally { setMatching(false) }
+      await api.delete(`/storyboard/${id}`)
+      setStoryboards(prev => prev.filter(s => s.id !== id))
+      notify('Storyboard deleted', 'success')
+    } catch { notify('Could not delete', 'error') }
   }
 
   async function updateFrame(frameId, updates) {
@@ -128,20 +127,12 @@ export default function StoryboardPage() {
           <p className="text-sm text-[#555] mt-1">Shot list with framing reference — use as a shoot guide</p>
         </div>
         {active && (
-          <div className="flex items-center gap-2">
-            <button onClick={matchClips} disabled={matching}
-              className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded border transition-all"
-              style={{ borderColor: '#1a1a2e', color: '#6a9a6a', background: '#0a140a' }}>
-              <RefreshCw size={11} className={matching ? 'animate-spin' : ''}/>
-              Match clips
-            </button>
-            <button onClick={downloadSVG}
+          <button onClick={downloadSVG}
               className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded border transition-all"
               style={{ borderColor: '#c8b89a30', color: '#c8b89a', background: '#c8b89a08' }}>
               <Download size={11}/>
               Export SVG
             </button>
-          </div>
         )}
       </div>
 
@@ -189,16 +180,24 @@ export default function StoryboardPage() {
         <div className="space-y-2">
           <div className="text-[10px] uppercase tracking-widest text-[#444]">Past storyboards</div>
           {storyboards.map(sb => (
-            <button key={sb.id} onClick={() => loadStoryboard(sb.id)}
-              className="w-full text-left px-4 py-3 border border-[#1a1a1a] rounded-lg bg-[#080808] hover:border-[#c8b89a30] transition-all flex items-center gap-3">
+            <div key={sb.id}
+              className="w-full px-4 py-3 border border-[#1a1a1a] rounded-lg bg-[#080808] hover:border-[#c8b89a30] transition-all flex items-center gap-3 cursor-pointer"
+              onClick={() => loadStoryboard(sb.id)}>
               <Film size={13} className="text-[#444] shrink-0"/>
-              <div>
-                <div className="text-sm text-[#ccc]">{sb.title}</div>
+              <div className="flex-1 min-w-0">
+                <div className="text-sm text-[#ccc] truncate">{sb.title}</div>
                 <div className="text-[10px] text-[#444] mt-0.5">
                   {new Date(sb.created_at).toLocaleDateString('en', { month: 'short', day: 'numeric' })}
                 </div>
               </div>
-            </button>
+              <button
+                onClick={e => deleteStoryboard(sb.id, e)}
+                className="text-[#333] hover:text-red-400 transition-colors p-1 flex-shrink-0"
+                title="Delete storyboard"
+              >
+                <Trash2 size={13}/>
+              </button>
+            </div>
           ))}
         </div>
       )}

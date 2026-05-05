@@ -706,7 +706,7 @@ function BrainstormScreen({ categoryId, active }) {
         )}
         {messages.map((m,i)=>(
           <div key={i} style={{display:'flex',justifyContent:m.role==='user'?'flex-end':'flex-start'}}>
-            <div style={{maxWidth:'82%',padding:'10px 14px',borderRadius:12,fontFamily:"'Figtree',sans-serif",fontSize:14,lineHeight:1.65,fontWeight:400,...(m.role==='user'?{borderBottomRightRadius:3,background:'rgba(255,255,255,0.05)',border:'1px solid rgba(255,255,255,0.08)',color:'#e8eaed'}:{borderBottomLeftRadius:3,background:'rgba(255,255,255,0.02)',border:'1px solid rgba(255,255,255,0.04)',color:'#b0b5c0'})}}>
+            <div style={{maxWidth:'82%',padding:'10px 14px',borderRadius:12,fontFamily:"'Figtree',sans-serif",fontSize:14,lineHeight:1.65,fontWeight:400,whiteSpace:'pre-wrap',wordBreak:'break-word',...(m.role==='user'?{borderBottomRightRadius:3,background:'rgba(255,255,255,0.05)',border:'1px solid rgba(255,255,255,0.08)',color:'#e8eaed'}:{borderBottomLeftRadius:3,background:'rgba(255,255,255,0.02)',border:'1px solid rgba(255,255,255,0.04)',color:'#b0b5c0'})}}>
               <KBMsg content={m.content}/>
               {m.isGenerating&&<span style={{color:'rgba(74,222,128,0.6)',marginLeft:6}}>✦</span>}
             </div>
@@ -714,7 +714,7 @@ function BrainstormScreen({ categoryId, active }) {
         ))}
         {streaming&&streamText&&(
           <div style={{display:'flex',justifyContent:'flex-start'}}>
-            <div style={{maxWidth:'82%',padding:'10px 14px',borderRadius:12,borderBottomLeftRadius:3,fontFamily:"'Figtree',sans-serif",fontSize:14,lineHeight:1.65,background:'rgba(255,255,255,0.02)',border:'1px solid rgba(255,255,255,0.04)',color:'#b0b5c0'}}>
+            <div style={{maxWidth:'82%',padding:'10px 14px',borderRadius:12,borderBottomLeftRadius:3,fontFamily:"'Figtree',sans-serif",fontSize:14,lineHeight:1.65,whiteSpace:'pre-wrap',wordBreak:'break-word',background:'rgba(255,255,255,0.02)',border:'1px solid rgba(255,255,255,0.04)',color:'#b0b5c0'}}>
               <KBMsg content={streamText}/>
               <span style={{display:'inline-block',width:2,height:12,borderRadius:1,marginLeft:2,verticalAlign:'middle',background:'rgba(74,222,128,0.8)',animation:'kb-blink 1s infinite'}}/>
             </div>
