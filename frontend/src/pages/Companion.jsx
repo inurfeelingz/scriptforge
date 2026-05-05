@@ -142,11 +142,11 @@ export default function Companion() {
 
   // Named so it can be called from processSession too
   function loadPastSessions() {
-    setLoadingSessions(true)
+    set({ loadingSessions: true })
     api.get('/session?limit=20' + (activeCategoryId ? '&categoryId=' + activeCategoryId : ''))
       .then(({ sessions }) => setPastSessions(sessions || []))
       .catch(() => {})
-      .finally(() => setLoadingSessions(false))
+      .finally(() => set({ loadingSessions: false }))
   }
 
   // Load past sessions when Journal tab is viewed
@@ -717,6 +717,36 @@ export default function Companion() {
 
 
 
+      {/* Tab navigation — top, below header */}
+      <div style={{
+        display: 'flex', justifyContent: 'center', gap: 8,
+        padding: '8px 16px',
+        borderBottom: '1px solid rgba(255,255,255,0.05)',
+        flexShrink: 0,
+      }}>
+        {[{ label: 'Record', icon: '⏺' }, { label: 'Brainstorm', icon: '✦' }].map((tab, i) => (
+          <button
+            key={i}
+            onClick={() => set({ screen: i })}
+            style={{
+              fontFamily: "'Figtree', sans-serif",
+              fontSize: 11,
+              fontWeight: state.screen === i ? 600 : 400,
+              padding: '5px 16px',
+              borderRadius: 20,
+              border: `1px solid ${state.screen === i ? 'rgba(74,222,128,0.4)' : 'rgba(255,255,255,0.08)'}`,
+              background: state.screen === i ? 'rgba(74,222,128,0.08)' : 'transparent',
+              color: state.screen === i ? 'rgba(74,222,128,0.9)' : 'rgba(255,255,255,0.3)',
+              cursor: 'pointer',
+              transition: 'all 0.2s',
+              display: 'flex', alignItems: 'center', gap: 5,
+            }}
+          >
+            <span style={{ fontSize: 9 }}>{tab.icon}</span> {tab.label}
+          </button>
+        ))}
+      </div>
+
       {/* ── SLIDING SCREENS ─────────────────────────────────────────────────── */}
       <div
         className="screens-container"
@@ -946,35 +976,6 @@ export default function Companion() {
         <BrainstormScreen categoryId={activeCategoryId}/>
 
       </div>{/* end screens */}
-
-      {/* Tab navigation — tappable, not just swipeable */}
-      <div style={{
-        position: 'fixed', bottom: 'calc(env(safe-area-inset-bottom) + 8px)',
-        left: 0, right: 0,
-        display: 'flex', justifyContent: 'center', gap: 8, zIndex: 10,
-      }}>
-        {[{ label: 'Record', icon: '⏺' }, { label: 'Brainstorm', icon: '✦' }].map((tab, i) => (
-          <button
-            key={i}
-            onClick={() => set({ screen: i })}
-            style={{
-              fontFamily: "'Figtree', sans-serif",
-              fontSize: 11,
-              fontWeight: state.screen === i ? 600 : 400,
-              padding: '5px 14px',
-              borderRadius: 20,
-              border: `1px solid ${state.screen === i ? 'rgba(74,222,128,0.4)' : 'rgba(255,255,255,0.1)'}`,
-              background: state.screen === i ? 'rgba(74,222,128,0.1)' : 'rgba(255,255,255,0.04)',
-              color: state.screen === i ? 'rgba(74,222,128,0.9)' : 'rgba(255,255,255,0.35)',
-              cursor: 'pointer',
-              transition: 'all 0.2s',
-              display: 'flex', alignItems: 'center', gap: 5,
-            }}
-          >
-            <span style={{ fontSize: 9 }}>{tab.icon}</span> {tab.label}
-          </button>
-        ))}
-      </div>
 
     </div>
   )

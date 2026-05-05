@@ -3,7 +3,7 @@
 // Desktop: collapsible sidebar (icon-only or full)
 // Fonts: all nav labels at 1rem, top bar at 0.9375rem
 
-import { Outlet, NavLink, useNavigate } from 'react-router-dom'
+import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom'
 import { useState, useEffect, useRef } from 'react'
 import {
   LayoutDashboard, Sparkles, Film, BookMarked,
@@ -129,6 +129,9 @@ export default function AppLayout() {
     sidebarCollapsed, setSidebarCollapsed, chatOpen, setChatOpen,
     profile, setCurrentMode, notify,
   } = useStore()
+
+  const location     = useLocation()
+  const isCompanion  = location.pathname === '/companion'
 
   const [showNewCat,   setShowNewCat]   = useState(false)
   const [mobileOpen,   setMobileOpen]   = useState(false)
@@ -404,29 +407,33 @@ export default function AppLayout() {
           </div>
         </div>
 
-        {/* KB sheet — slides up between sidebar and right edge */}
-        <div style={{
-          position:   'fixed',
-          left:       isMobile ? 0 : (sidebarCollapsed ? 64 : 240),
-          right:      0,
-          bottom:     0,
-          height:     chatOpen ? '72vh' : '0',
-          overflow:   'hidden',
-          transition: 'height 0.4s cubic-bezier(0.32, 0.72, 0, 1), left 0.25s cubic-bezier(0.4,0,0.2,1)',
-          zIndex:     40,
-          background: 'rgba(10,12,18,0.97)',
-          boxShadow:  chatOpen ? '0 -2px 0 rgba(74,222,128,0.6), 0 -20px 60px rgba(74,222,128,0.04), 0 -40px 120px rgba(0,0,0,0.8)' : 'none',
-          backdropFilter: 'blur(16px)',
-        }}>
-          {chatOpen && <ChatPanel/>}
-        </div>
+        {/* KB sheet — hidden on companion route */}
+        {!isCompanion && (
+          <div style={{
+            position:   'fixed',
+            left:       isMobile ? 0 : (sidebarCollapsed ? 64 : 240),
+            right:      0,
+            bottom:     0,
+            height:     chatOpen ? '72vh' : '0',
+            overflow:   'hidden',
+            transition: 'height 0.4s cubic-bezier(0.32, 0.72, 0, 1), left 0.25s cubic-bezier(0.4,0,0.2,1)',
+            zIndex:     40,
+            background: 'rgba(10,12,18,0.97)',
+            boxShadow:  chatOpen ? '0 -2px 0 rgba(74,222,128,0.6), 0 -20px 60px rgba(74,222,128,0.04), 0 -40px 120px rgba(0,0,0,0.8)' : 'none',
+            backdropFilter: 'blur(16px)',
+          }}>
+            {chatOpen && <ChatPanel/>}
+          </div>
+        )}
 
-        {/* Floating KB orb — bottom right, circular */}
-        <KBOrb
-          mood={chatOpen ? 'active' : 'idle'}
-          onClick={() => setChatOpen(!chatOpen)}
-          isOpen={chatOpen}
-        />
+        {/* Floating KB orb — hidden on companion route */}
+        {!isCompanion && (
+          <KBOrb
+            mood={chatOpen ? 'active' : 'idle'}
+            onClick={() => setChatOpen(!chatOpen)}
+            isOpen={chatOpen}
+          />
+        )}
       </main>
 
       <Notifications/>
