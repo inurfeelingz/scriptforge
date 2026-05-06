@@ -45,7 +45,7 @@ const NAV_GROUPS = [
     items: [
       { to: '/journals', icon: Mic,      label: 'Journals' },
       { to: '/scripts',     icon: FileText, label: 'Scripts'    },
-      { to: '/storyboard',  icon: Film,     label: 'Storyboard' },
+      { to: '/storyboard',  icon: Film,     label: 'Shot List' },
     ]
   },
   {
