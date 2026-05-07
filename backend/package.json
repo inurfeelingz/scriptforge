@@ -1,6 +1,9 @@
 {
   "name": "scriptforge-backend",
   "version": "1.0.0",
+  "engines": {
+    "node": ">=20.0.0"
+  },
   "private": true,
   "main": "src/server.js",
   "scripts": {
