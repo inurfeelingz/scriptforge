@@ -96,7 +96,7 @@ export default function BillingPage() {
 
       {/* Header */}
       <div style={{ textAlign: 'center', padding: '24px 0 32px' }}>
-        <h1 style={{ fontFamily: 'Syne, sans-serif', fontWeight: 800, fontSize: '2rem', color: '#f0ede8', marginBottom: 10 }}>
+        <h1 style={{ fontFamily: "'Syne', sans-serif", fontWeight: 800, fontSize: '2rem', color: '#f0ede8', marginBottom: 10 }}>
           One plan. Everything included.
         </h1>
         <p style={{ color: '#666', fontSize: '1rem', maxWidth: 440, margin: '0 auto' }}>
@@ -167,7 +167,7 @@ export default function BillingPage() {
           {/* Balance bar */}
           <div style={{ marginBottom: 12 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-              <span style={{ fontSize: 28, fontWeight: 800, color: '#f0ede8', fontFamily: 'Syne, sans-serif', lineHeight: 1 }}>
+              <span style={{ fontSize: 28, fontWeight: 800, color: '#f0ede8', fontFamily: "'Syne', sans-serif", lineHeight: 1 }}>
                 {creditData.balance ?? 0}
               </span>
               <span style={{ fontSize: 12, color: '#444', alignSelf: 'flex-end', marginBottom: 3 }}>
@@ -224,7 +224,7 @@ export default function BillingPage() {
                     onMouseEnter={e => { e.currentTarget.style.borderColor = 'rgba(212,168,83,0.4)'; e.currentTarget.style.background = 'rgba(212,168,83,0.1)' }}
                     onMouseLeave={e => { e.currentTarget.style.borderColor = 'rgba(212,168,83,0.2)'; e.currentTarget.style.background = 'rgba(212,168,83,0.06)' }}
                   >
-                    <div style={{ fontSize: 20, fontWeight: 800, color: '#d4a853', fontFamily: 'Syne, sans-serif' }}>
+                    <div style={{ fontSize: 20, fontWeight: 800, color: '#d4a853', fontFamily: "'Syne', sans-serif" }}>
                       {pack.credits}
                     </div>
                     <div style={{ fontSize: 10, color: '#888', marginBottom: 6 }}>credits</div>
@@ -274,11 +274,11 @@ export default function BillingPage() {
           </div>
 
           {/* Price */}
-          <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6, marginBottom: 4 }}>
-            <span style={{ fontSize: '3rem', fontWeight: 800, color: '#f0ede8', fontFamily: 'Syne, sans-serif', lineHeight: 1 }}>
+          <div style={{ display: 'flex', alignItems: 'flex-end', gap: 4, marginBottom: 4 }}>
+            <span style={{ fontSize: '2.5rem', fontWeight: 800, color: '#f0ede8', fontFamily: "'Syne', sans-serif", lineHeight: 1, letterSpacing: '-0.03em' }}>
               ${yearly ? '40' : '49'}
             </span>
-            <span style={{ fontSize: 14, color: '#555', marginBottom: 8 }}>/month</span>
+            <span style={{ fontSize: 13, color: '#555', marginBottom: 7, fontFamily: "'Figtree', sans-serif" }}>/month</span>
           </div>
           {yearly && (
             <div style={{ fontSize: 12, color: '#666' }}>
@@ -305,7 +305,7 @@ export default function BillingPage() {
               disabled={subbing}
               style={{
                 width: '100%', padding: '14px 0', borderRadius: 12, border: 'none',
-                cursor: subbing ? 'not-allowed' : 'pointer', fontFamily: 'Syne, sans-serif',
+                cursor: subbing ? 'not-allowed' : 'pointer', fontFamily: "'Syne', sans-serif",
                 fontSize: '1rem', fontWeight: 700,
                 background: 'linear-gradient(135deg, #d4a853 0%, #e8c46a 100%)',
                 color: '#0a0c14', transition: 'all 0.15s',
