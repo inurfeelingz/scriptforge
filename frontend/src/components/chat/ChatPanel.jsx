@@ -432,6 +432,8 @@ export default function ChatPanel() {
   const [saved,       setSaved]       = useState(false)
   const [generating,  setGenerating]  = useState(false)
   const [generated,   setGenerated]   = useState(null)
+  const [genPct,      setGenPct]      = useState(0)
+  const genTimerRef = useRef(null)
   const bottomRef   = useRef(null)
   const inputRef    = useRef(null)
   const abortRef    = useRef(null)   // AbortController for the active stream
@@ -552,6 +554,14 @@ export default function ChatPanel() {
     if (!activeCategoryId || generating) return
     setGenerating(true)
     setGenerated(null)
+    setGenPct(0)
+
+    // Animate progress bar
+    let pct = 0
+    genTimerRef.current = setInterval(() => {
+      pct = pct < 60 ? pct + 1.5 : pct < 80 ? pct + 0.5 : pct < 92 ? pct + 0.15 : pct
+      setGenPct(Math.min(pct, 92))
+    }, 300)
 
     abortRef.current?.abort()
     const controller = new AbortController()
@@ -569,12 +579,15 @@ export default function ChatPanel() {
             })
           },
           done: ({ parsed }) => {
+            clearInterval(genTimerRef.current); setGenPct(100)
+            setTimeout(() => setGenPct(0), 600)
             setMessages(prev => prev.filter(m => !m.isGenerating))
-            setGenerated(parsed?.metadata?.trackName)
-            notify(`"${parsed?.metadata?.trackName}" generated!`, 'success')
+            setGenerated(parsed?.metadata?.trackName || 'Your episode')
+            notify(`Episode generated!`, 'success')
             setGenerating(false)
           },
           error: ({ message: e }) => {
+            clearInterval(genTimerRef.current); setGenPct(0)
             setMessages(prev => prev.filter(m => !m.isGenerating))
             notify(e, 'error')
             setGenerating(false)
@@ -583,6 +596,7 @@ export default function ChatPanel() {
         controller.signal,
       )
     } catch (err) {
+      clearInterval(genTimerRef.current); setGenPct(0)
       if (err.name !== 'AbortError') notify(err.message, 'error')
       setGenerating(false)
     }
@@ -746,14 +760,35 @@ export default function ChatPanel() {
             <span className="kb-generate-text">Ready to generate from this conversation</span>
             <button className="kb-generate-btn" onClick={generateEpisodeFromChat} disabled={generating}>
               {generating ? <Loader2 size={9}/> : <Sparkles size={9}/>}
-              {generating ? 'Generating...' : 'Generate episode'}
+              {generating ? 'KP is working...' : 'Generate episode'}
             </button>
           </div>
         )}
 
+        {/* Generation progress bar */}
+        {generating && genPct > 0 && (
+          <div style={{padding:'0 4px'}}>
+            <div style={{display:'flex',justifyContent:'space-between',marginBottom:4}}>
+              <span style={{fontSize:10,color:'rgba(255,255,255,0.3)',letterSpacing:'0.06em',textTransform:'uppercase'}}>
+                {genPct < 25 ? 'KP is reading the conversation...' : genPct < 50 ? 'KP is structuring the episode...' : genPct < 75 ? 'KP is writing your VO script...' : 'KP is compiling the package...'}
+              </span>
+              <span style={{fontSize:10,color:'rgba(255,255,255,0.3)'}}>{Math.round(genPct)}%</span>
+            </div>
+            <div style={{height:2,background:'rgba(255,255,255,0.06)',borderRadius:2,overflow:'hidden'}}>
+              <div style={{height:'100%',width:`${genPct}%`,background:'linear-gradient(90deg,#c8b89a,#e8c46a)',borderRadius:2,transition:'width 0.3s ease'}}/>
+            </div>
+          </div>
+        )}
+
         {generated && (
-          <div className="kb-committed-bar">
-            <Check size={10}/> "{generated}" is ready in your episodes
+          <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'10px 14px',borderRadius:8,background:'rgba(212,168,83,0.07)',border:'1px solid rgba(212,168,83,0.2)'}}>
+            <div style={{display:'flex',alignItems:'center',gap:8}}>
+              <Check size={12} style={{color:'#d4a853',flexShrink:0}}/>
+              <div>
+                <div style={{fontSize:12,fontWeight:600,color:'#d4a853'}}>Episode ready</div>
+                <div style={{fontSize:10,color:'rgba(212,168,83,0.5)',marginTop:1}}>"{generated}" — check your episodes</div>
+              </div>
+            </div>
           </div>
         )}
 
