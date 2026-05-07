@@ -262,3 +262,11 @@ export const api = {
   patch:  (path, body)  => req('PATCH',  path, body),
   delete: (path, body)  => req('DELETE', path, body),
 }
+
+export const credits = {
+  balance:  ()              => req('GET',  '/credits/balance'),
+  history:  ()              => req('GET',  '/credits/history'),
+  purchase: (packId)        => req('POST', '/credits/purchase', { packId }),
+  capture:  (orderId, packId) => req('POST', '/credits/capture', { orderId, packId }),
+  adminTopup: (userId, amount, reason) => req('POST', '/credits/admin-topup', { userId, amount, reason }),
+}

@@ -4,6 +4,8 @@ const Anthropic  = require('@anthropic-ai/sdk');
 const { supabase }         = require('../utils/supabase');
 const { assembleContext }  = require('../services/contextAssembler');
 const tierGate             = require('../middleware/tier');
+const creditGate           = require('../middleware/credits');
+const { deduct, refund }   = require('../utils/creditManager');
 
 const router = express.Router();
 const client = new Anthropic.Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
@@ -15,11 +17,17 @@ const client = new Anthropic.Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY }
  * Body: { categoryId, episodeNumber, trackContext, voiceMemoText, clipInventory }
  * Returns: SSE stream — progress → reasoning → chunks → done
  */
-router.post('/generate', tierGate('generate_episode'), async (req, res) => {
+router.post('/generate', tierGate('generate_episode'), creditGate('generate_episode'), async (req, res) => {
   const {
-    categoryId, episodeNumber, trackContext,
+    categoryId, episodeNumber: rawEpisodeNumber, trackContext,
     voiceMemoText, clipInventory = [],
   } = req.body;
+
+  // Parse episodeNumber safely — empty string or missing becomes null,
+  // then we auto-assign the next available number below
+  const episodeNumber = rawEpisodeNumber !== '' && rawEpisodeNumber != null
+    ? parseInt(rawEpisodeNumber, 10) || null
+    : null;
 
   if (!categoryId || !trackContext?.name) {
     return res.status(400).json({ error: 'categoryId and trackContext.name are required' });
@@ -37,9 +45,23 @@ router.post('/generate', tierGate('generate_episode'), async (req, res) => {
 
   if (inProgress) {
     return res.status(409).json({
-      error: `Episode ${episodeNumber} is already generating — wait for it to complete.`,
+      error: `Episode ${episodeNumber ?? 'unknown'} is already generating — wait for it to complete.`,
       episodeId: inProgress.id,
     });
+  }
+
+  // Auto-assign next episode number if not provided
+  let resolvedEpisodeNumber = episodeNumber
+  if (!resolvedEpisodeNumber) {
+    const { data: latest } = await supabase
+      .from('episodes')
+      .select('episode_number')
+      .eq('user_id', req.user.id)
+      .eq('category_id', categoryId)
+      .order('episode_number', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+    resolvedEpisodeNumber = (latest?.episode_number ?? 0) + 1
   }
 
   // SSE setup
@@ -61,7 +83,7 @@ router.post('/generate', tierGate('generate_episode'), async (req, res) => {
     // Assemble full context
     const systemContext = await assembleContext(req.user.id, categoryId, {
       mode: 'generate',
-      episodeCtx: { ...trackContext, episodeNumber, voiceMemoText },
+      episodeCtx: { ...trackContext, episodeNumber: resolvedEpisodeNumber, voiceMemoText },
     });
 
     send('progress', { step: 'context', message: 'Context loaded', pct: 15 });
@@ -79,7 +101,7 @@ router.post('/generate', tierGate('generate_episode'), async (req, res) => {
 
     const userPrompt = `Generate a complete episode package.
 
-EPISODE: ${episodeNumber}
+EPISODE: ${resolvedEpisodeNumber}
 TRACK: "${trackContext.name}"
 MOOD: ${trackContext.mood || ''}
 GENRE: ${trackContext.genre || ''}
@@ -217,7 +239,7 @@ PLATFORM_CTA:`;
       .upsert({
         user_id:         req.user.id,
         category_id:     categoryId,
-        episode_number:  episodeNumber,
+        episode_number:  resolvedEpisodeNumber,
         slug,
         status:          'ready',
         track_name:      trackContext.name,
@@ -270,7 +292,7 @@ PLATFORM_CTA:`;
       category_id:  categoryId,
       episode_id:   episode.id,
       episode_slug: slug,
-      episode_number: episodeNumber,
+      episode_number: resolvedEpisodeNumber,
       track_context: trackContext,
       decisions: {
         reasoning:    parsed.reasoning,
@@ -284,7 +306,7 @@ PLATFORM_CTA:`;
       user_id:       req.user.id,
       category_id:   categoryId,
       episode_id:    episode.id,
-      episode_number: episodeNumber,
+      episode_number: resolvedEpisodeNumber,
       episode_slug:  slug,
       track_name:    trackContext.name,
       track_context: trackContext,
@@ -296,13 +318,22 @@ PLATFORM_CTA:`;
     send('progress', { step: 'complete', message: 'Episode package ready', pct: 100 });
     clearTimeout(generationTimeout)
     clearInterval(keepalive)
-    send('done', { episodeId: episode.id, slug, parsed });
+
+    // Deduct credits on successful generation
+    if (req.creditAction) {
+      const result = await deduct(req.user.id, req.creditAction)
+      send('done', { episodeId: episode.id, slug, parsed, credits: { remaining: result.balance, used: result.cost } });
+    } else {
+      send('done', { episodeId: episode.id, slug, parsed });
+    }
     res.end();
 
   } catch (err) {
     clearTimeout(generationTimeout)
     clearInterval(keepalive)
     console.error('[episodes/generate]', err.message);
+    // Refund credits if generation failed after being gated
+    if (req.creditAction) refund(req.user.id, req.creditAction).catch(() => {})
     send('error', { message: err.message });
     res.end();
   }

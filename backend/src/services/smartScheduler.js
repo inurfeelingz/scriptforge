@@ -161,11 +161,17 @@ function startSmartScheduler() {
     backgroundSweep().catch(err => console.error('[smartScheduler] Sweep error:', err.message));
   });
 
-  // Monthly usage reset — runs at midnight on the 1st of each month
+  // Monthly usage + credit reset — runs at midnight on the 1st of each month
   cron.schedule('0 0 1 * *', () => {
     supabase.rpc('reset_monthly_usage')
       .then(() => console.log('[smartScheduler] Monthly usage counters reset'))
       .catch(err => console.error('[smartScheduler] Usage reset failed:', err.message))
+
+    // Reset monthly credits via creditManager
+    const { resetMonthlyCredits } = require('./creditManager').default || require('../utils/creditManager')
+    resetMonthlyCredits()
+      .then(() => console.log('[smartScheduler] Monthly credits reset'))
+      .catch(err => console.error('[smartScheduler] Credit reset failed:', err.message))
   })
 
   // Generation log analysis every day at 3am

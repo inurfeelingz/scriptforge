@@ -2,20 +2,24 @@
 // Single unified plan — WhispaCuts Studio
 
 import { useState, useEffect } from 'react'
-import { Check, Sparkles, RefreshCw, Zap, AlertTriangle } from 'lucide-react'
+import { Check, Sparkles, RefreshCw, Zap, AlertTriangle, Coins, Plus, ChevronDown } from 'lucide-react'
 import { useStore } from '../store'
-import { api } from '../lib/api'
+import { api, credits as creditsApi } from '../lib/api'
 
 export default function BillingPage() {
   const { profile, notify } = useStore()
   const [status,     setStatus]     = useState(null)
+  const [creditData, setCreditData] = useState(null)
   const [yearly,     setYearly]     = useState(false)
   const [loading,    setLoading]    = useState(true)
   const [subbing,    setSubbing]    = useState(false)
   const [cancelling, setCancelling] = useState(false)
+  const [buying,     setBuying]     = useState(null)
+  const [showPacks,  setShowPacks]  = useState(false)
 
   useEffect(() => {
     api.get('/billing/status').then(s => setStatus(s)).catch(() => {}).finally(() => setLoading(false))
+    creditsApi.balance().then(d => setCreditData(d)).catch(() => {})
 
     const params = new URLSearchParams(window.location.search)
     if (params.get('billing') === 'success') {
@@ -53,6 +57,17 @@ export default function BillingPage() {
     setCancelling(false)
   }
 
+  async function handleBuyCredits(packId) {
+    setBuying(packId)
+    try {
+      const { approvalUrl } = await creditsApi.purchase(packId)
+      window.location.href = approvalUrl
+    } catch (err) {
+      notify(err.message, 'error')
+      setBuying(null)
+    }
+  }
+
   const isStudio = status?.tier === 'studio' || status?.tier === 'pro'
   const isActive = status?.status === 'active'
 
@@ -66,7 +81,7 @@ export default function BillingPage() {
     'Series bible & voice profile training',
     'Shot list generator',
     'Sound library placement',
-    'Knowledge base chat (KP)',
+    'Knowledge Base (KB) — chat with your AI assistant',
     'Schedule & publish planning',
   ]
 
@@ -119,6 +134,106 @@ export default function BillingPage() {
             >
               {cancelling ? 'Cancelling...' : 'Cancel subscription'}
             </button>
+          )}
+        </div>
+      )}
+
+      {/* Credit balance panel */}
+      {creditData && (
+        <div style={{
+          borderRadius: 14, padding: '20px 24px', marginBottom: 24,
+          background: '#0c0e18', border: '1px solid rgba(255,255,255,0.07)',
+          boxShadow: '0 4px 20px rgba(0,0,0,0.3)',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Zap size={15} style={{ color: '#d4a853' }}/>
+              <span style={{ fontSize: 13, fontWeight: 600, color: '#c8b89a' }}>Your credits</span>
+            </div>
+            <button
+              onClick={() => setShowPacks(s => !s)}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 5,
+                fontSize: 12, color: '#d4a853', background: 'rgba(212,168,83,0.1)',
+                border: '1px solid rgba(212,168,83,0.2)', borderRadius: 7,
+                padding: '5px 11px', cursor: 'pointer',
+              }}
+            >
+              <Plus size={11}/> Buy more
+              <ChevronDown size={11} style={{ transform: showPacks ? 'rotate(180deg)' : 'none', transition: '0.15s' }}/>
+            </button>
+          </div>
+
+          {/* Balance bar */}
+          <div style={{ marginBottom: 12 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+              <span style={{ fontSize: 28, fontWeight: 800, color: '#f0ede8', fontFamily: 'Syne, sans-serif', lineHeight: 1 }}>
+                {creditData.balance ?? 0}
+              </span>
+              <span style={{ fontSize: 12, color: '#444', alignSelf: 'flex-end', marginBottom: 3 }}>
+                of {creditData.monthly ?? 0} monthly credits
+              </span>
+            </div>
+            <div style={{ height: 5, background: 'rgba(255,255,255,0.06)', borderRadius: 3 }}>
+              <div style={{
+                height: '100%', borderRadius: 3, transition: 'width 0.4s',
+                width: `${Math.min(100, ((creditData.balance ?? 0) / (creditData.monthly ?? 1)) * 100)}%`,
+                background: (creditData.balance ?? 0) < 20
+                  ? 'linear-gradient(90deg,#e05550,#e07840)'
+                  : 'linear-gradient(90deg,#d4a853,#6ab87a)',
+              }}/>
+            </div>
+            {(creditData.balance ?? 0) < 20 && (
+              <p style={{ fontSize: 11, color: '#e05550', marginTop: 6 }}>
+                ⚠ Running low — top up to keep generating
+              </p>
+            )}
+          </div>
+
+          {/* Cost reference */}
+          <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+            {[
+              { label: 'Episode', cost: 10 },
+              { label: 'Chat msg', cost: 1 },
+              { label: 'Hook variants', cost: 2 },
+              { label: 'Vault recs', cost: 2 },
+            ].map(item => (
+              <div key={item.label} style={{ fontSize: 11, color: '#555' }}>
+                <span style={{ color: '#d4a853', fontWeight: 600 }}>{item.cost}cr</span> {item.label}
+              </div>
+            ))}
+          </div>
+
+          {/* Credit packs */}
+          {showPacks && creditData.packs && (
+            <div style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+              <p style={{ fontSize: 11, color: '#555', marginBottom: 12 }}>
+                Packs are one-time purchases — credits don't expire.
+              </p>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 10 }}>
+                {creditData.packs.map(pack => (
+                  <button
+                    key={pack.id}
+                    onClick={() => handleBuyCredits(pack.id)}
+                    disabled={buying === pack.id}
+                    style={{
+                      padding: '14px 12px', borderRadius: 10, border: '1px solid rgba(212,168,83,0.2)',
+                      background: 'rgba(212,168,83,0.06)', cursor: buying ? 'not-allowed' : 'pointer',
+                      textAlign: 'center', transition: 'all 0.15s', opacity: buying === pack.id ? 0.6 : 1,
+                    }}
+                    onMouseEnter={e => { e.currentTarget.style.borderColor = 'rgba(212,168,83,0.4)'; e.currentTarget.style.background = 'rgba(212,168,83,0.1)' }}
+                    onMouseLeave={e => { e.currentTarget.style.borderColor = 'rgba(212,168,83,0.2)'; e.currentTarget.style.background = 'rgba(212,168,83,0.06)' }}
+                  >
+                    <div style={{ fontSize: 20, fontWeight: 800, color: '#d4a853', fontFamily: 'Syne, sans-serif' }}>
+                      {pack.credits}
+                    </div>
+                    <div style={{ fontSize: 10, color: '#888', marginBottom: 6 }}>credits</div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: '#f0ede8' }}>${pack.price}</div>
+                    <div style={{ fontSize: 10, color: '#555', marginTop: 2 }}>{pack.episodes}</div>
+                  </button>
+                ))}
+              </div>
+            </div>
           )}
         </div>
       )}
