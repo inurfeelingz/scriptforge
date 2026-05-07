@@ -710,4 +710,26 @@ function detectHookType(voScript) {
   return 'in-media-res';
 }
 
+
+// ─── PATCH /episodes/:id — general field update (pipeline_stage, etc.) ────────
+router.patch('/:id', async (req, res) => {
+  const ALLOWED = ['pipeline_stage', 'status', 'title', 'track_name']
+  const updates = {}
+  ALLOWED.forEach(k => { if (req.body[k] !== undefined) updates[k] = req.body[k] })
+  if (!Object.keys(updates).length) return res.status(400).json({ error: 'No valid fields to update' })
+
+  updates.updated_at = new Date().toISOString()
+
+  const { data, error } = await supabase
+    .from('episodes')
+    .update(updates)
+    .eq('id', req.params.id)
+    .eq('user_id', req.user.id)
+    .select()
+    .single()
+
+  if (error) return res.status(500).json({ error: error.message })
+  res.json({ episode: data })
+})
+
 module.exports = router;

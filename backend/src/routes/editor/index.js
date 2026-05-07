@@ -128,6 +128,17 @@ const fs         = require('fs')
 
 ffmpeg.setFfmpegPath(ffmpegPath)
 
+function detectClipType(filename) {
+  const lower = filename.toLowerCase()
+  if (lower.startsWith('daw') || lower.includes('screen') || lower.includes('capture')) return 'daw'
+  if (lower.includes('broll') || lower.includes('b-roll') || lower.includes('b_roll'))  return 'broll'
+  return 'cam'
+}
+
+const sharp  = require('sharp')
+const { OpenAI } = require('openai')
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+
 // ── TRANSCRIPTION HELPERS ─────────────────────────────────────────────────────
 
 // Accept large video files — FFmpeg extracts + chunks audio before Whisper
@@ -292,6 +303,259 @@ router.delete('/clips/all', async (req, res) => {
     res.status(500).json({ error: err.message })
   }
 })
+
+// ─── SERVER-SIDE CLIP UPLOAD + INDEX ─────────────────────────────────────────
+// Replaces client-side CLIP worker for cross-browser / mobile compatibility.
+// Pipeline: upload → ffmpeg metadata + thumbnail + audio → Whisper → OpenAI embed → clip_index
+
+const THUMB_SIZE  = 224  // px — matches CLIP input size
+const EMBED_MODEL = 'text-embedding-3-small'  // 1536 dims — we truncate to 512 visual / 384 text
+
+// Multer instance for clip uploads — large files, disk storage
+const clipUploadMulter = multer({
+  storage: multer.diskStorage({
+    destination: os.tmpdir(),
+    filename: (req, file, cb) => cb(null, `upload-${Date.now()}-${file.originalname.replace(/[^a-z0-9._-]/gi,'_')}`)
+  }),
+  limits: { fileSize: 5 * 1024 * 1024 * 1024 }  // 5GB
+})
+
+/**
+ * POST /api/editor/clips/upload
+ * Upload a video/audio clip — server extracts metadata, transcribes, embeds, and indexes.
+ * Returns the indexed clip record.
+ */
+router.post('/clips/upload', (req, res, next) => {
+  clipUploadMulter.single('clip')(req, res, (err) => {
+    if (err) return res.status(400).json({ error: err.message })
+    next()
+  })
+}, async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'clip file required' })
+
+  const { categoryId, clipType: forcedType } = req.body
+  const inputPath  = req.file.path
+  const sessionId  = Date.now()
+  const tmpFiles   = [inputPath]
+
+  // SSE-style keepalive to prevent Railway 30s timeout on large files
+  res.setHeader('Content-Type', 'application/json')
+  res.setHeader('X-Accel-Buffering', 'no')
+  const keepalive = setInterval(() => { try { res.write(' ') } catch {} }, 10000)
+
+  try {
+    const filename = req.file.originalname
+    const clipType = forcedType || detectClipType(filename)
+
+    console.log(`[clips/upload] Starting: ${filename} (${Math.round(req.file.size / 1024 / 1024)}MB)`)
+
+    // ── 1. VIDEO METADATA via ffprobe ──────────────────────────────────────
+    const meta = await new Promise((resolve) => {
+      ffmpeg.ffprobe(inputPath, (err, data) => {
+        if (err) { resolve({ width: null, height: null, fps: null, codec: null, durationMs: 0 }); return }
+        const vs = data.streams?.find(s => s.codec_type === 'video')
+        resolve({
+          width:      vs?.width        || null,
+          height:     vs?.height       || null,
+          fps:        vs ? Math.round(eval(vs.r_frame_rate || '0')) : null,
+          codec:      vs?.codec_name   || null,
+          durationMs: Math.round((parseFloat(data.format?.duration) || 0) * 1000),
+        })
+      })
+    })
+
+    console.log(`[clips/upload] Meta: ${meta.width}x${meta.height} ${meta.durationMs}ms`)
+
+    // ── 2. THUMBNAIL via ffmpeg ─────────────────────────────────────────────
+    let thumbnailB64 = null
+    const thumbPath  = path.join(os.tmpdir(), `thumb-${sessionId}.jpg`)
+    tmpFiles.push(thumbPath)
+
+    try {
+      await new Promise((resolve, reject) => {
+        ffmpeg(inputPath)
+          .seekInput(Math.min(2, (meta.durationMs / 1000) * 0.1))  // 10% in, max 2s
+          .frames(1)
+          .size(`${THUMB_SIZE}x${THUMB_SIZE}`)
+          .aspect('1:1')
+          .outputOptions(['-vf', `scale=${THUMB_SIZE}:${THUMB_SIZE}:force_original_aspect_ratio=decrease,pad=${THUMB_SIZE}:${THUMB_SIZE}:(ow-iw)/2:(oh-ih)/2`])
+          .output(thumbPath)
+          .on('end', resolve)
+          .on('error', reject)
+          .run()
+      })
+      const thumbBuf = fs.readFileSync(thumbPath)
+      // Resize to 224x224 and compress
+      const compressed = await sharp(thumbBuf).resize(THUMB_SIZE, THUMB_SIZE).jpeg({ quality: 60 }).toBuffer()
+      thumbnailB64 = compressed.toString('base64')
+      console.log(`[clips/upload] Thumbnail: ${Math.round(compressed.length / 1024)}KB`)
+    } catch (thumbErr) {
+      console.warn('[clips/upload] Thumbnail failed:', thumbErr.message)
+    }
+
+    // ── 3. AUDIO EXTRACTION + WHISPER TRANSCRIPT ───────────────────────────
+    let transcript = ''
+    const audioPath = path.join(os.tmpdir(), `audio-${sessionId}.mp3`)
+    tmpFiles.push(audioPath)
+
+    try {
+      const totalSecs = (meta.durationMs || 0) / 1000
+      await extractChunk(inputPath, audioPath, 0, Math.max(totalSecs, 3600))
+      const audioSize = fs.statSync(audioPath).size
+
+      if (audioSize > 1024 && audioSize <= MAX_CHUNK_BYTES && process.env.OPENAI_API_KEY) {
+        const formData = new FormData()
+        formData.append('file', fs.createReadStream(audioPath), { filename: 'audio.mp3', contentType: 'audio/mpeg' })
+        formData.append('model', 'whisper-1')
+        formData.append('response_format', 'text')
+
+        const whisperRes = await openai.audio.transcriptions.create({
+          file:  fs.createReadStream(audioPath),
+          model: 'whisper-1',
+          response_format: 'text',
+        })
+        transcript = (typeof whisperRes === 'string' ? whisperRes : whisperRes?.text || '').trim()
+        console.log(`[clips/upload] Transcript: "${transcript.slice(0, 80)}"`)
+      } else if (audioSize > MAX_CHUNK_BYTES) {
+        // Long video — chunk it
+        const chunks = []
+        const numChunks = Math.ceil(totalSecs / CHUNK_SECONDS)
+        for (let i = 0; i < Math.min(numChunks, 6); i++) {  // max 6 chunks = 1hr
+          const cp = path.join(os.tmpdir(), `chunk-${sessionId}-${i}.mp3`)
+          tmpFiles.push(cp)
+          await extractChunk(inputPath, cp, i * CHUNK_SECONDS, CHUNK_SECONDS)
+          const sz = fs.statSync(cp).size
+          if (sz < 1024 || sz > MAX_CHUNK_BYTES) continue
+          const t = await openai.audio.transcriptions.create({
+            file:  fs.createReadStream(cp),
+            model: 'whisper-1',
+            response_format: 'text',
+          })
+          chunks.push(typeof t === 'string' ? t : t?.text || '')
+        }
+        transcript = chunks.join(' ').trim()
+      }
+    } catch (transcribeErr) {
+      console.warn('[clips/upload] Transcript failed:', transcribeErr.message)
+    }
+
+    // ── 4. OPENAI EMBEDDINGS ───────────────────────────────────────────────
+    // Visual tags from clip type + transcript + filename
+    const visualTags = clipType === 'daw'
+      ? ['DAW software', 'music production', 'screen capture']
+      : clipType === 'broll'
+        ? ['b-roll', 'cutaway', 'visual']
+        : ['talking to camera', 'presenter', 'speaking']
+
+    const textContent   = [transcript, ...visualTags, clipType, filename].filter(Boolean).join('. ')
+    const visualContent = [filename, clipType, ...visualTags].join('. ')
+
+    let textVector   = new Array(384).fill(0)
+    let visualVector = new Array(512).fill(0)
+
+    if (process.env.OPENAI_API_KEY) {
+      try {
+        const [textEmbed, visualEmbed] = await Promise.all([
+          openai.embeddings.create({ model: EMBED_MODEL, input: textContent.slice(0, 8000) }),
+          openai.embeddings.create({ model: EMBED_MODEL, input: visualContent.slice(0, 8000) }),
+        ])
+        // text-embedding-3-small returns 1536 dims — truncate to match expected dims
+        textVector   = textEmbed.data[0].embedding.slice(0, 384)
+        visualVector = visualEmbed.data[0].embedding.slice(0, 512)
+      } catch (embedErr) {
+        console.warn('[clips/upload] Embed failed:', embedErr.message)
+      }
+    }
+
+    // ── 5. STORE IN clip_index ─────────────────────────────────────────────
+    const clipData = {
+      filename,
+      filepath:        filename,
+      fileSizeBytes:   req.file.size,
+      fileModifiedAt:  null,
+      durationMs:      meta.durationMs,
+      width:           meta.width,
+      height:          meta.height,
+      fps:             meta.fps,
+      codec:           meta.codec,
+      clipType,
+      transcript:      transcript || null,
+      visualTags,
+      dominantEmotion: null,
+      audioEnergy:     0.5,
+      sceneType:       clipType === 'daw' ? 'daw-screen' : 'talking-head',
+      thumbnailB64,
+      visualVector,
+      textVector,
+    }
+
+    const indexed = await clipIndexer.indexClip(req.user.id, categoryId || null, clipData)
+
+    console.log(`[clips/upload] Indexed: ${indexed.id} — ${filename}`)
+
+    clearInterval(keepalive)
+    res.end(JSON.stringify({
+      clip: { ...indexed, thumbnail_b64: thumbnailB64, transcript, duration_ms: meta.durationMs, clip_type: clipType },
+      transcript,
+      durationMs: meta.durationMs,
+    }))
+
+  } catch (err) {
+    console.error('[clips/upload]', err.message)
+    clearInterval(keepalive)
+    res.end(JSON.stringify({ error: err.message }))
+  } finally {
+    tmpFiles.forEach(p => { try { if (fs.existsSync(p)) fs.unlinkSync(p) } catch {} })
+  }
+})
+
+/**
+ * DELETE /api/editor/clips/:id
+ * Delete a single clip from the index
+ */
+router.delete('/clips/:id', async (req, res) => {
+  try {
+    const { error } = await supabase
+      .from('clip_index')
+      .delete()
+      .eq('id', req.params.id)
+      .eq('user_id', req.user.id)
+    if (error) throw error
+    res.json({ deleted: true })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+/**
+ * GET /api/editor/clips/storage
+ * Get storage usage stats for the current user
+ */
+router.get('/clips/storage', async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('clip_index')
+      .select('id, filename, file_size, duration_ms, clip_type, indexed_at, thumbnail_b64')
+      .eq('user_id', req.user.id)
+      .order('indexed_at', { ascending: false })
+    if (error) throw error
+
+    const clips = data || []
+    const totalBytes = clips.reduce((s, c) => s + (c.file_size || 0), 0)
+    const totalMs    = clips.reduce((s, c) => s + (c.duration_ms || 0), 0)
+
+    res.json({
+      clips:           clips.map(c => ({ id: c.id, filename: c.filename, fileSize: c.file_size, durationMs: c.duration_ms, clipType: c.clip_type, indexedAt: c.indexed_at })),
+      totalBytes,
+      totalMb:         Math.round(totalBytes / 1024 / 1024),
+      totalDurationMs: totalMs,
+      count:           clips.length,
+    })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
 
 router.get('/clips', async (req, res) => {
   const { categoryId, limit = 100, offset = 0 } = req.query
