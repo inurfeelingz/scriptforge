@@ -124,6 +124,7 @@ export default function SettingsPage() {
   // Load user list + token usage + balance if admin
   useEffect(() => {
     if (!profile?.is_admin) return
+    ;(async () => {
     setAdminLoading(true)
     usersApi.list()
       .then(data => {
@@ -138,15 +139,22 @@ export default function SettingsPage() {
 
     // Token usage
     setTokenLoading(true)
-    fetch(`${import.meta.env.VITE_API_URL || ''}/api/admin/token-usage`, {
-      headers: { Authorization: `Bearer ${localStorage.getItem('sb_access_token') || ''}` }
+    // Token usage + balance — use supabase session for auth
+    const { getSession } = await import('../lib/supabase')
+    const sess = await getSession().catch(() => null)
+    const token = sess?.access_token || ''
+    const BASE = (import.meta.env.VITE_API_URL || '/api').replace(/\/api$/, '')
+
+    setTokenLoading(true)
+    fetch(`${BASE}/api/admin/token-usage`, {
+      headers: { Authorization: `Bearer ${token}` }
     }).then(r => r.json()).then(d => { setTokenUsage(d); setTokenLoading(false) }).catch(() => setTokenLoading(false))
 
-    // Anthropic balance
     setBalanceLoading(true)
-    fetch(`${import.meta.env.VITE_API_URL || ''}/api/admin/anthropic-balance`, {
-      headers: { Authorization: `Bearer ${localStorage.getItem('sb_access_token') || ''}` }
+    fetch(`${BASE}/api/admin/anthropic-balance`, {
+      headers: { Authorization: `Bearer ${token}` }
     }).then(r => r.json()).then(d => { setBalance(d); setBalanceLoading(false) }).catch(() => setBalanceLoading(false))
+    })()
   }, [profile?.is_admin])
 
   const vp = cat?.voice_profile || {}
