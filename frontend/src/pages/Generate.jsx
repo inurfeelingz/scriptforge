@@ -12,6 +12,7 @@ import {
   Download, Check, RefreshCw, Zap, AlertTriangle, X,
 } from 'lucide-react'
 import { useStore } from '../store'
+import NextStepBanner from '../components/layout/NextStepBanner'
 import SessionJournal from '../components/companion/SessionJournal'
 import { episodes as episodesApi } from '../lib/api'
 import { requestNotificationPermission, notifyGeneration } from '../lib/notifications'
@@ -515,6 +516,8 @@ export default function Generate() {
             setGenerating(false)
             setPhase('Complete')
             setPct(100)
+            // Advance episode to generated stage
+            if (eid) episodesApi.patch(eid, { pipeline_stage: 'generated' }).catch(() => {})
             setSelectedHook(null)
             setShowVariants(false)
             notify('Episode package ready', 'success')
@@ -709,7 +712,7 @@ export default function Generate() {
             )}
             {hookVariants && (
               <>
-                <div className="text-xs text-[#555] mb-2">Choose an opening strategy — or skip to let KP decide</div>
+                <div className="text-xs text-[#555] mb-2">Choose an opening strategy — or skip to let KB decide</div>
                 {hookVariants.map((v, i) => (
                   <HookCard
                     key={i}
@@ -722,7 +725,7 @@ export default function Generate() {
                   onClick={() => { setSelectedHook(null); setShowVariants(false) }}
                   className="text-xs text-[#444] hover:text-[#888] transition-colors w-full text-center py-1"
                 >
-                  Skip — let KP choose the hook
+                  Skip — let KB choose the hook
                 </button>
               </>
             )}
@@ -777,7 +780,7 @@ export default function Generate() {
           >
             <span className="flex items-center gap-2">
               <span className="w-1.5 h-1.5 rounded-full bg-[#c8b89a]/60 animate-pulse"/>
-              KP's reasoning
+              KB's reasoning
             </span>
             {showReasoning ? <ChevronUp size={12}/> : <ChevronDown size={12}/>}
           </button>

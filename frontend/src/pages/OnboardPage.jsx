@@ -43,7 +43,7 @@ export default function OnboardPage() {
     },
     {
       title:       'What niche or topic does it cover?',
-      description: 'This shapes how KP searches for trends and competitor content.',
+      description: 'This shapes how KB searches for trends and competitor content.',
       fields: [
         { key: 'niche',       label: 'Niche',       placeholder: 'music production, lo-fi soul' },
         { key: 'description', label: 'Description', placeholder: 'A documentary series about making music...' },

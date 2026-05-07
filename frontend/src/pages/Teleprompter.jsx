@@ -10,6 +10,7 @@ import {
   RefreshCw, Check, AlertCircle, BookOpen,
 } from 'lucide-react'
 import { useStore } from '../store'
+import NextStepBanner from '../components/layout/NextStepBanner'
 import { episodes as episodesApi, api } from '../lib/api'
 import { getSession } from '../lib/supabase'
 
@@ -43,6 +44,7 @@ export default function Teleprompter() {
   const [recError,       setRecError]       = useState('')
   const [alignResult,    setAlignResult]    = useState(null)
   // alignResult: { aligned: N, wordCount: N, projectId: string | null }
+  const [externalVoFile, setExternalVoFile] = useState(null)
 
   // Refs
   const textRef      = useRef(null)
@@ -242,6 +244,12 @@ export default function Teleprompter() {
         projectId,
       })
 
+      // Advance episode pipeline stage
+      if (selectedEpId) {
+        const { episodes: episodesApi } = await import('../lib/api')
+        episodesApi.patch(selectedEpId, { pipeline_stage: 'vo_recorded' }).catch(() => {})
+      }
+
       setRecState('done')
       notify(
         aligned > 0
@@ -254,6 +262,68 @@ export default function Teleprompter() {
       setRecError(err.message)
       setRecState('error')
       notify('Alignment failed: ' + err.message, 'error')
+    }
+  }
+
+
+  // ── UPLOAD EXTERNAL VO ────────────────────────────────────────────────────
+  async function uploadExternalVO(file) {
+    if (!file) return
+    setExternalVoFile(file)
+    setRecState('uploading')
+    try {
+      const session  = await getSession()
+      const formData = new FormData()
+      formData.append('audio', file, file.name)
+
+      const transcribeRes = await fetch(
+        `${import.meta.env.VITE_API_URL || '/api'}/session/standalone/transcribe`,
+        {
+          method:  'POST',
+          headers: { Authorization: `Bearer ${session?.access_token}` },
+          body:    formData,
+        }
+      )
+      if (!transcribeRes.ok) {
+        const err = await transcribeRes.json().catch(() => ({}))
+        throw new Error(err.error || `Whisper failed (${transcribeRes.status})`)
+      }
+
+      const whisperOutput = await transcribeRes.json()
+      notify(`Transcribed ${whisperOutput.wordCount} words — aligning timeline…`, 'info', 4000)
+      setRecState('aligning')
+
+      let aligned   = 0
+      let projectId = null
+
+      if (selectedEpId) {
+        try {
+          const projectsRes = await api.get(`/editor/projects?episodeId=${selectedEpId}&limit=1`)
+          const project     = projectsRes?.projects?.[0]
+          if (project?.id && project?.timeline?.length) {
+            const alignRes = await api.post(`/editor/projects/${project.id}/align`, {
+              whisperOutput, fps: 25,
+            })
+            aligned   = alignRes.aligned   || 0
+            projectId = project.id
+          }
+        } catch {}
+      }
+
+      setAlignResult({ wordCount: whisperOutput.wordCount, durationMs: whisperOutput.durationMs, aligned, projectId })
+      setRecState('done')
+      setExternalVoFile(null)
+      notify(
+        aligned > 0
+          ? `VO aligned — ${aligned} timeline clips repositioned`
+          : `VO transcribed (${whisperOutput.wordCount} words)`,
+        'success'
+      )
+    } catch (err) {
+      setExternalVoFile(null)
+      setRecError(err.message)
+      setRecState('error')
+      notify('VO upload failed: ' + err.message, 'error')
     }
   }
 
@@ -529,6 +599,25 @@ export default function Teleprompter() {
                 : <RefreshCw size={10} className="animate-spin"/>
             }
           </button>
+
+          {/* Upload external VO */}
+          <label
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded border text-xs transition-all cursor-pointer ${
+              recState === 'uploading' || recState === 'aligning'
+                ? 'opacity-40 pointer-events-none border-[#333] text-[#555]'
+                : 'border-[#333] text-[#555] hover:border-[#c8b89a]/30 hover:text-[#c8b89a]'
+            }`}
+            title="Upload externally recorded VO file"
+          >
+            <Upload size={11}/>
+            <span>Upload VO</span>
+            <input
+              type="file"
+              accept="audio/*,video/mp4,video/quicktime"
+              className="hidden"
+              onChange={e => { const f = e.target.files?.[0]; if (f) uploadExternalVO(f); e.target.value = '' }}
+            />
+          </label>
 
           {/* Fullscreen */}
           <button

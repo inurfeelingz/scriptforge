@@ -10,6 +10,7 @@ import ClipLibrary   from '../components/editor/ClipLibrary'
 import HybridTimeline from '../components/editor/HybridTimeline'
 import EditorExport  from '../components/editor/EditorExport'
 import IndexingPanel from '../components/editor/IndexingPanel'
+import NextStepBanner from '../components/layout/NextStepBanner'
 import { api }       from '../lib/api'
 
 const TABS = [
@@ -23,7 +24,8 @@ export default function EditorPage() {
   const [tab,       setTab]       = useState('library')
   const [project,   setProject]   = useState(null)
   const [projects,  setProjects]  = useState([])
-  const [showIndex, setShowIndex] = useState(false)
+  const [showIndex,  setShowIndex]  = useState(false)
+  const [exportReady, setExportReady] = useState(false)
 
   const cat      = activeCategory?.()
   const indexer  = useClipIndexer()
@@ -93,8 +95,9 @@ export default function EditorPage() {
       {/* Indexing panel */}
       {showIndex && (
         <IndexingPanel
-          indexer={indexer}
+          categoryId={activeCategoryId}
           onClose={() => setShowIndex(false)}
+          onIndexed={() => { setShowIndex(false) }}
         />
       )}
 
@@ -146,10 +149,32 @@ export default function EditorPage() {
           </div>
 
           {tab === 'library'  && <ClipLibrary    project={project} computeSearchVectors={indexer.computeSearchVectors} />}
-          {tab === 'timeline' && <HybridTimeline  project={project} onProjectUpdate={setProject} />}
+          {tab === 'timeline' && <HybridTimeline  project={project} onProjectUpdate={(updated) => {
+            setProject(updated)
+            // Advance pipeline stage when clips are approved
+            if (updated?.timeline?.filter(cl => cl.approved).length > 0) {
+              setExportReady(true)
+              if (updated?.episode_id) {
+                import('../lib/api').then(({ episodes: ep }) =>
+                  ep.patch(updated.episode_id, { pipeline_stage: 'edited' }).catch(() => {})
+                )
+              }
+            }
+          }} />}
           {tab === 'export'   && <EditorExport    project={project} />}
         </>
       )}
+
+    {/* Next step: export is ready */}
+    {exportReady && project && (
+      <NextStepBanner
+        title="Edit approved — download your package"
+        subtitle="Export your EDL/FCPXML then head to Schedule to plan your publish date"
+        ctaLabel="Go to Export"
+        onCta={() => setTab('export')}
+      />
+    )}
+
     </div>
   )
 }

@@ -29,7 +29,7 @@ const CATEGORIES = [
     key:   'competitor',
     label: 'Competitor',
     icon:  Users,
-    desc:  'Scripts from creators you admire — KP will study what works',
+    desc:  'Scripts from creators you admire — KB will study what works',
     tags:  ['uploaded-script', 'competitor'],
     color: '#bf8abf',
     hint:  'Drop competitor scripts here — add creator name to filename',
@@ -130,7 +130,7 @@ export default function ScriptLibraryPage() {
       <div>
         <h1 className="text-2xl font-serif text-[#f0ede8]">Script library</h1>
         <p className="text-sm text-[#555] mt-1">
-          Upload scripts by category — KP reads all of them when generating and analysing your content
+          Upload scripts by category — KB reads all of them when generating and analysing your content
         </p>
       </div>
 
@@ -258,7 +258,7 @@ export default function ScriptLibraryPage() {
                   </div>
                 )
               })}
-              <span className="text-[10px] text-[#333] ml-auto">All visible to KP</span>
+              <span className="text-[10px] text-[#333] ml-auto">All visible to KB</span>
             </div>
           )}
         </>

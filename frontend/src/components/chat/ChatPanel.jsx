@@ -760,7 +760,7 @@ export default function ChatPanel() {
             <span className="kb-generate-text">Ready to generate from this conversation</span>
             <button className="kb-generate-btn" onClick={generateEpisodeFromChat} disabled={generating}>
               {generating ? <Loader2 size={9}/> : <Sparkles size={9}/>}
-              {generating ? 'KP is working...' : 'Generate episode'}
+              {generating ? 'KB is working...' : 'Generate episode'}
             </button>
           </div>
         )}
@@ -770,7 +770,7 @@ export default function ChatPanel() {
           <div style={{padding:'0 4px'}}>
             <div style={{display:'flex',justifyContent:'space-between',marginBottom:4}}>
               <span style={{fontSize:10,color:'rgba(255,255,255,0.3)',letterSpacing:'0.06em',textTransform:'uppercase'}}>
-                {genPct < 25 ? 'KP is reading the conversation...' : genPct < 50 ? 'KP is structuring the episode...' : genPct < 75 ? 'KP is writing your VO script...' : 'KP is compiling the package...'}
+                {genPct < 25 ? 'KB is reading the conversation...' : genPct < 50 ? 'KB is structuring the episode...' : genPct < 75 ? 'KB is writing your VO script...' : 'KB is compiling the package...'}
               </span>
               <span style={{fontSize:10,color:'rgba(255,255,255,0.3)'}}>{Math.round(genPct)}%</span>
             </div>

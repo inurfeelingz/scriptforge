@@ -82,6 +82,32 @@ export default function EditorExport({ project }) {
   return (
     <div className="space-y-6 max-w-2xl">
 
+      {/* What WhispaCuts does — and doesn't do */}
+      <div style={{
+        background: 'rgba(200,184,154,0.04)',
+        border: '1px solid rgba(200,184,154,0.12)',
+        borderRadius: 10,
+        padding: '16px 18px',
+      }}>
+        <div className="text-sm text-[#c8b89a] font-medium mb-2">What you're downloading</div>
+        <div className="text-xs text-[#666] leading-relaxed space-y-2">
+          <p>WhispaCuts has AI-assembled your clips into a <strong className="text-[#888]">timeline file</strong> — it tells a video editor which clip to play, when, and for how long. It is <strong className="text-[#888]">not a finished video file</strong>.</p>
+          <p>To get your finished video you need to import this file into <strong className="text-[#888]">DaVinci Resolve</strong> (free, Mac/Windows/Linux) or <strong className="text-[#888]">Final Cut Pro</strong> (Mac). DaVinci will relink your footage and render the final video.</p>
+          <p className="text-[#555]">Your footage files need to be on your computer — WhispaCuts doesn't store your video files, only the edit decisions.</p>
+        </div>
+        <div className="mt-3 flex items-center gap-3">
+          <a
+            href="https://www.blackmagicdesign.com/products/davinciresolve"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-xs text-[#c8b89a] border border-[#c8b89a]/20 rounded px-3 py-1.5 hover:bg-[#c8b89a]/10 transition-all"
+          >
+            Download DaVinci Resolve (free) →
+          </a>
+          <span className="text-[10px] text-[#444]">Takes ~5 min to install</span>
+        </div>
+      </div>
+
       {/* Timeline summary */}
       <div className="border border-[#1a1a1a] rounded p-4 space-y-2">
         <h3 className="text-sm text-[#888]">Timeline summary</h3>
