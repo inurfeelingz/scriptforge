@@ -510,7 +510,7 @@ export default function SettingsPage() {
       {activeCategoryId && (
         <Section
           title={`Voice profile — ${cat?.name || ''}`}
-          subtitle="The more specific you are, the more Claude writes in your actual voice rather than generic documentary style."
+          subtitle="The more specific you are, the more KP writes in your actual voice rather than generic documentary style."
         >
           <div style={{ marginBottom: '1rem' }}>
             <div style={{
@@ -555,7 +555,7 @@ export default function SettingsPage() {
               <Field label="Signature phrases"       wide value={voice.signaturePhrases}  onChange={setV('signaturePhrases')}  placeholder="and that's when it clicked, I wasn't expecting that" hint="Phrases that sound unmistakably like you" />
               <Field label="Characteristic openers"  wide value={voice.sentenceOpeners}   onChange={setV('sentenceOpeners')}   placeholder="So, The thing is, Which meant that, And then" hint="How you tend to start sentences" />
               <Field label="Rhetorical devices"      wide value={voice.rhetoricalDevices} onChange={setV('rhetoricalDevices')} placeholder="rhetorical questions, callbacks, rule of three" />
-              <Field label="Phrases to AVOID"        wide value={voice.avoidPhrases}      onChange={setV('avoidPhrases')}      placeholder="dive deep, let's unpack, game-changer, journey" hint="Claude will actively avoid these clichés" />
+              <Field label="Phrases to AVOID"        wide value={voice.avoidPhrases}      onChange={setV('avoidPhrases')}      placeholder="dive deep, let's unpack, game-changer, journey" hint="KP will actively avoid these clichés" />
               <Field label="Humour style"                 value={voice.humourStyle}        onChange={setV('humourStyle')}        placeholder="dry, self-deprecating, timing-based" />
               <Field label="Storytelling style"           value={voice.storytellingStyle}  onChange={setV('storytellingStyle')}  placeholder="personal, first-person, present tense" />
             </div>

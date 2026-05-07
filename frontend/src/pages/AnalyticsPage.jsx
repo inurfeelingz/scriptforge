@@ -351,7 +351,7 @@ export default function AnalyticsPage() {
         }`}>
           {uploading ? (
             <div className="space-y-1 text-center">
-              <div className="text-sm text-[#c8b89a]">Processing with Claude…</div>
+              <div className="text-sm text-[#c8b89a]">KP is thinking…</div>
               {uploadProgress.total > 1 && <div className="text-xs text-[#555]">{uploadProgress.done} / {uploadProgress.total}</div>}
             </div>
           ) : (

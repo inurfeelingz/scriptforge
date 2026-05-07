@@ -456,8 +456,17 @@ export default function ChatPanel() {
       .catch(() => {})
   }, [view])
 
+  // Smart scroll — only follow if user is already near the bottom
+  // This lets the user scroll up to read while streaming is happening
+  const messagesRef = useRef(null)
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+    const el = messagesRef.current
+    if (!el) return
+    const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
+    // Only auto-scroll if within 120px of bottom
+    if (distFromBottom < 120) {
+      bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+    }
   }, [messages, streamText])
 
   const sendMessage = useCallback(async () => {
@@ -694,7 +703,7 @@ export default function ChatPanel() {
       <div className="kb-main">
 
         {/* Messages */}
-        <div className="kb-messages">
+        <div className="kb-messages" ref={messagesRef}>
           {messages.length === 0 && !streaming && (
             <div className="kb-empty">
               <div className="kb-empty-glyph" style={{ color: meta.color + '40' }}>{meta.glyph}</div>
@@ -776,17 +785,17 @@ export default function ChatPanel() {
 }
 
 function MessageContent({ content }) {
-  const parts = content.split(/(\*\*[^*]+\*\*|`[^`]+`|\n)/g)
+  // Render markdown-lite: **bold**, `code`, newlines — with pre-wrap for smooth streaming
+  const html = (content || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/`([^`]+)`/g, '<code style="font-family:monospace;font-size:0.88em;background:rgba(255,255,255,0.07);padding:1px 5px;border-radius:3px">$1</code>')
   return (
-    <span>
-      {parts.map((part, i) => {
-        if (part.startsWith('**') && part.endsWith('**'))
-          return <strong key={i}>{part.slice(2,-2)}</strong>
-        if (part.startsWith('`') && part.endsWith('`'))
-          return <code key={i}>{part.slice(1,-1)}</code>
-        if (part === '\n') return <br key={i}/>
-        return part
-      })}
-    </span>
+    <span
+      style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}
+      dangerouslySetInnerHTML={{ __html: html }}
+    />
   )
 }

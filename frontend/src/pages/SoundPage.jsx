@@ -220,7 +220,7 @@ export default function SoundPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-serif text-[#f0ede8]">Sound library</h1>
-          <p className="text-xs text-[#444] mt-1">Upload once — Claude places your sounds in every episode</p>
+          <p className="text-xs text-[#444] mt-1">Upload once — KP places your sounds in every episode</p>
         </div>
         <label className="flex items-center gap-2 px-4 py-2 bg-[#c8b89a] text-[#080808] rounded text-sm font-medium cursor-pointer hover:bg-[#e8c87a] transition-all">
           <Upload size={14}/>Add sound
@@ -319,7 +319,7 @@ export default function SoundPage() {
           <Music size={28} className="mx-auto text-[#2a2a2a]"/>
           <div className="text-sm text-[#444]">No sounds yet</div>
           <div className="text-xs text-[#333] max-w-xs mx-auto leading-relaxed">
-            Upload your music beds, stings, transitions, and atmospheres. Claude will select specific files and place them at timecodes in every episode.
+            Upload your music beds, stings, transitions, and atmospheres. KP will select specific files and place them at timecodes in every episode.
           </div>
         </div>
       ) : (
@@ -376,7 +376,7 @@ export default function SoundPage() {
         <div className="border border-[#1a1a1a] rounded-lg p-5 space-y-4">
           <div>
             <div className="text-sm text-[#888]">Design episode sound</div>
-            <div className="text-xs text-[#444] mt-1">Claude selects from your library and places files at exact timecodes. Export as audio EDL for DaVinci.</div>
+            <div className="text-xs text-[#444] mt-1">KP selects from your library and places files at exact timecodes. Export as audio EDL for DaVinci.</div>
           </div>
           <div className="flex gap-3">
             <select className="flex-1 bg-[#111] border border-[#1a1a1a] rounded px-3 py-2 text-sm text-[#ccc]"
