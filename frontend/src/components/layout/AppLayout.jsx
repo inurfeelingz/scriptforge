@@ -66,57 +66,94 @@ const NAV_GROUPS = [
 ]
 const NAV = NAV_GROUPS.flatMap(g => g.items)
 
-// Shared styles
-const NAV_ITEM_BASE = {
-  display: 'flex', alignItems: 'center', gap: 12,
-  padding: '10px 14px', borderRadius: 8,
-  fontSize: '1rem', fontWeight: 400,
+// ─── NAV STYLES ───────────────────────────────────────────────────────────────
+const NAV_BASE = {
+  display: 'flex', alignItems: 'center', gap: 10,
+  padding: '8px 12px', borderRadius: 8,
+  fontSize: '0.875rem', fontWeight: 400,
   textDecoration: 'none', transition: 'all 0.15s',
   cursor: 'pointer', border: 'none', background: 'none',
-  width: '100%', textAlign: 'left',
+  width: '100%', textAlign: 'left', fontFamily: 'inherit',
 }
-const NAV_ACTIVE   = { ...NAV_ITEM_BASE, background: 'rgba(255,255,255,0.08)', color: '#ffffff', fontWeight: 500 }
-const NAV_INACTIVE = { ...NAV_ITEM_BASE, color: 'var(--text3)' }
+// Primary actions — Dashboard & Generate — get a tinted background to stand out
+const NAV_PRIMARY_ACTIVE   = { ...NAV_BASE, background: 'rgba(212,168,83,0.14)', color: '#d4a853', fontWeight: 600, border: '1px solid rgba(212,168,83,0.2)' }
+const NAV_PRIMARY_INACTIVE = { ...NAV_BASE, color: 'rgba(255,255,255,0.55)', border: '1px solid transparent' }
+// Regular nav items
+const NAV_ACTIVE   = { ...NAV_BASE, background: 'rgba(255,255,255,0.07)', color: '#e8eaed', fontWeight: 500 }
+const NAV_INACTIVE = { ...NAV_BASE, color: 'rgba(255,255,255,0.4)', border: '1px solid transparent' }
 
 // ─── NAV GROUP ────────────────────────────────────────────────────────────────
-function NavGroup({ group, showLabels, isMobile, setCurrentMode, setMobileOpen, NAV_ACTIVE, NAV_INACTIVE }) {
+function NavGroup({ group, showLabels, isMobile, setCurrentMode, setMobileOpen }) {
   const [open, setOpen] = useState(false)
   const hasLabel = group.label && showLabels
+  const isPrimary = !group.label && !group.isRefresh  // top group — Dashboard + Generate
 
   return (
-    <div>
+    <div style={{ marginBottom: hasLabel ? 2 : 0 }}>
+      {/* Section label — clickable to expand/collapse */}
       {hasLabel && (
         <button
           onClick={() => setOpen(o => !o)}
-          style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', padding: '6px 10px 4px', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text3)', fontSize: '0.6875rem', letterSpacing: '0.08em', textTransform: 'uppercase', fontFamily: 'inherit' }}
+          style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            width: '100%', padding: '8px 12px 4px', background: 'none', border: 'none',
+            cursor: 'pointer', color: 'rgba(255,255,255,0.25)',
+            fontSize: '0.625rem', letterSpacing: '0.1em', textTransform: 'uppercase',
+            fontFamily: 'inherit', marginTop: 6,
+          }}
         >
           {group.label}
-          <ChevronRight size={11} style={{ transform: open ? 'rotate(90deg)' : 'none', transition: '0.15s' }}/>
+          <ChevronRight size={10} style={{ transform: open ? 'rotate(90deg)' : 'none', transition: '0.15s', opacity: 0.5 }}/>
         </button>
       )}
+
+      {/* Refresh trends button */}
       {group.isRefresh && showLabels && (
         <button
-          onClick={() => { /* handled via store */ document.dispatchEvent(new CustomEvent('wc:refresh-trends')) }}
-          style={{ ...NAV_INACTIVE, justifyContent: 'flex-start', padding: '8px 14px', width: '100%', cursor: 'pointer', fontSize: 'inherit', fontFamily: 'inherit' }}
+          onClick={() => document.dispatchEvent(new CustomEvent('wc:refresh-trends'))}
+          style={{ ...NAV_INACTIVE, justifyContent: 'flex-start' }}
+          onMouseEnter={e => { e.currentTarget.style.color = 'rgba(255,255,255,0.65)'; e.currentTarget.style.background = 'rgba(255,255,255,0.04)' }}
+          onMouseLeave={e => { e.currentTarget.style.color = 'rgba(255,255,255,0.4)'; e.currentTarget.style.background = 'none' }}
         >
-          <RefreshCw size={18} style={{ flexShrink: 0 }}/> <span style={{ marginLeft: 8 }}>Refresh trends</span>
+          <RefreshCw size={16} style={{ flexShrink: 0 }}/>
+          {showLabels && <span>Refresh trends</span>}
         </button>
       )}
+
+      {/* Nav items */}
       {!group.isRefresh && (open || !hasLabel) && group.items.map(({ to, icon: Icon, label }) => (
         <NavLink
           key={to}
           to={to}
           end={to === '/'}
           onClick={() => { setCurrentMode(label.toLowerCase()); setMobileOpen(false) }}
-          style={({ isActive }) => ({
-            ...( isActive ? NAV_ACTIVE : NAV_INACTIVE ),
-            justifyContent: (!showLabels && !isMobile) ? 'center' : 'flex-start',
-            padding: (!showLabels && !isMobile) ? '10px' : '8px 14px',
-          })}
+          style={({ isActive }) => {
+            const iconOnly = !showLabels && !isMobile
+            const base = isPrimary
+              ? (isActive ? NAV_PRIMARY_ACTIVE : NAV_PRIMARY_INACTIVE)
+              : (isActive ? NAV_ACTIVE : NAV_INACTIVE)
+            return {
+              ...base,
+              justifyContent: iconOnly ? 'center' : 'flex-start',
+              padding: iconOnly ? '9px' : '8px 12px',
+            }
+          }}
           title={(!showLabels && !isMobile) ? label : undefined}
+          onMouseEnter={e => {
+            if (!e.currentTarget.dataset.active) {
+              e.currentTarget.style.color = isPrimary ? '#d4a853' : 'rgba(255,255,255,0.75)'
+              e.currentTarget.style.background = isPrimary ? 'rgba(212,168,83,0.08)' : 'rgba(255,255,255,0.04)'
+            }
+          }}
+          onMouseLeave={e => {
+            if (!e.currentTarget.dataset.active) {
+              e.currentTarget.style.color = ''
+              e.currentTarget.style.background = ''
+            }
+          }}
         >
-          <Icon size={18} style={{ flexShrink: 0 }}/>
-          {showLabels && <span>{label}</span>}
+          <Icon size={16} style={{ flexShrink: 0 }}/>
+          {showLabels && <span style={{ letterSpacing: isPrimary ? '-0.01em' : 'normal' }}>{label}</span>}
         </NavLink>
       ))}
     </div>
@@ -248,8 +285,7 @@ export default function AppLayout() {
         <nav style={{ flex: 1, padding: '8px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 2 }}>
           {NAV_GROUPS.map((group, gi) => (
             <NavGroup key={gi} group={group} showLabels={showLabels} isMobile={isMobile}
-              setCurrentMode={setCurrentMode} setMobileOpen={setMobileOpen}
-              NAV_ACTIVE={NAV_ACTIVE} NAV_INACTIVE={NAV_INACTIVE}/>
+              setCurrentMode={setCurrentMode} setMobileOpen={setMobileOpen}/>
           ))}
         </nav>
 
