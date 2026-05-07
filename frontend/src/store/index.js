@@ -125,6 +125,7 @@ export const useStore = create((set, get) => ({
   initialized: false,
 
   init: async () => {
+    // Wait for Supabase to restore session from storage before fetching profile
     const { data: { session } } = await supabase.auth.getSession()
     if (session) {
       set({ session, user: session.user })
@@ -141,11 +142,23 @@ export const useStore = create((set, get) => ({
       set({ session, user: session?.user || null })
       if (session) {
         // TOKEN_REFRESHED fires constantly — only reload data on actual sign-in
-        if (event === 'SIGNED_IN' || event === 'USER_UPDATED') {
+        // INITIAL_SESSION fires on page load — skip it, init() handles that
+        if (event === 'SIGNED_IN') {
+          // Wait for token to be available in headers before fetching
+          await new Promise(r => setTimeout(r, 200))
           try {
             const { profile } = await usersApi.profile()
             set({ profile })
             if (!get().categories?.length) await get().loadCategories()
+          } catch (err) {
+            // Don't retry — if this fails, init() already loaded the profile
+            console.warn('[store] onAuthStateChange profile fetch failed:', err.message)
+          }
+        }
+        if (event === 'USER_UPDATED') {
+          try {
+            const { profile } = await usersApi.profile()
+            set({ profile })
           } catch {}
         }
       } else {
