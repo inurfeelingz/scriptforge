@@ -669,12 +669,11 @@ function BrainstormScreen({ categoryId, active }) {
           </button>
         </div>
       </div>
-      <style>{`@keyframes kb-bounce{0%,80%,100%{transform:translateY(0);opacity:.25}40%{transform:translateY(-4px);opacity:.9}}@keyframes kb-blink{0%,100%{opacity:0}50%{opacity:1}}`}</style>
 
-      {/* KB generation progress overlay */}
+      {/* KB generation progress overlay — inside relative container */}
       {generating && (
-        <div style={{position:'absolute',inset:0,zIndex:10,background:'rgba(8,12,16,0.92)',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:16,backdropFilter:'blur(6px)'}}>
-          <div style={{fontFamily:"'Syne',sans-serif",fontWeight:700,fontSize:16,color:'rgba(74,222,128,1)'}}>
+        <div style={{position:'fixed',inset:0,zIndex:50,background:'rgba(8,12,16,0.92)',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:16,backdropFilter:'blur(6px)'}}>
+          <div style={{fontFamily:"'Syne',sans-serif",fontWeight:700,fontSize:16,color:'rgba(74,222,128,1)',textAlign:'center',padding:'0 32px'}}>
             {genPct < 25 ? 'KB is reading your conversation...' : genPct < 50 ? 'KB is structuring the episode...' : genPct < 75 ? 'KB is writing your VO script...' : 'KB is compiling your package...'}
           </div>
           <div style={{width:240}}>
@@ -688,6 +687,8 @@ function BrainstormScreen({ categoryId, active }) {
           </div>
         </div>
       )}
+
+      <style>{`@keyframes kb-bounce{0%,80%,100%{transform:translateY(0);opacity:.25}40%{transform:translateY(-4px);opacity:.9}}@keyframes kb-blink{0%,100%{opacity:0}50%{opacity:1}}`}</style>
     </div>
   )
 }
