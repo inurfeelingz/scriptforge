@@ -95,7 +95,6 @@ export default function ShotListPage() {
     const title = active.storyboard.title || 'Shot List'
     const frames = active.frames
 
-    // Build HTML for the PDF
     const sectioned = []
     let cur = null
     for (const f of frames) {
@@ -104,44 +103,73 @@ export default function ShotListPage() {
       cur.items.push(f)
     }
 
-    const shotRows = sectioned.map(g => `
-      <tr class="section-row"><td colspan="5">${g.s}</td></tr>
-      ${g.items.map((f,i) => {
-        const m = SHOT_META[f.shot_type] || SHOT_META.ms
-        return `<tr>
-          <td class="num">${String(f.position+1).padStart(2,'0')}</td>
-          <td><span class="badge" style="background:${m.color}22;color:${m.color};border:1px solid ${m.color}44">${m.abbr}</span></td>
-          <td class="crop">${m.crop}</td>
-          <td>${f.description||''}</td>
-          <td class="notes">${f.notes||''}</td>
-        </tr>`
-      }).join('')}
+    const cardHTML = sectioned.map(g => `
+      <div class="section">
+        <div class="section-header">
+          <span class="section-label">${g.s}</span>
+          <div class="section-line"></div>
+          <span class="section-count">${g.items.length} shot${g.items.length !== 1 ? 's' : ''}</span>
+        </div>
+        <div class="cards">
+          ${g.items.map(f => {
+            const m = SHOT_META[f.shot_type] || SHOT_META.ms
+            return `
+            <div class="card" style="border-color:${m.color}30;box-shadow:0 2px 12px rgba(0,0,0,0.5),inset 0 1px 0 rgba(255,255,255,0.04)">
+              <div class="card-top" style="background:linear-gradient(90deg,${m.color}18 0%,transparent 100%);border-bottom:1px solid ${m.color}20">
+                <div class="card-left">
+                  <span class="shot-num">${String(f.position+1).padStart(2,'0')}</span>
+                  <span class="shot-label" style="color:${m.color}">${m.label}</span>
+                </div>
+                <span class="shot-badge" style="color:${m.color};background:${m.color}20;border:1px solid ${m.color}35">${m.abbr}</span>
+              </div>
+              <div class="card-body">
+                <div class="crop-line" style="color:${m.color}80">⬡ ${m.crop}</div>
+                <div class="desc">${f.description || ''}</div>
+                ${f.notes ? `<div class="notes">${f.notes}</div>` : ''}
+              </div>
+            </div>`
+          }).join('')}
+        </div>
+      </div>
     `).join('')
 
     const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/>
 <title>${title} — Shot List</title>
 <style>
   *{box-sizing:border-box;margin:0;padding:0}
-  body{font-family:'Helvetica Neue',Arial,sans-serif;font-size:11px;color:#1a1a2a;padding:32px;background:#fff}
-  h1{font-size:22px;font-weight:700;margin-bottom:4px;color:#0e0f1a}
-  .sub{font-size:12px;color:#666;margin-bottom:24px}
-  table{width:100%;border-collapse:collapse}
-  th{font-size:9px;text-transform:uppercase;letter-spacing:.1em;color:#888;padding:6px 10px;border-bottom:2px solid #e8e8ee;text-align:left}
-  td{padding:8px 10px;border-bottom:1px solid #f0f0f5;vertical-align:top;line-height:1.5}
-  tr:hover td{background:#fafafe}
-  .section-row td{background:#f4f4f8;font-weight:700;font-size:9px;text-transform:uppercase;letter-spacing:.12em;color:#666;padding:6px 10px;border-bottom:none;border-top:1px solid #e0e0ea}
-  .num{font-family:monospace;color:#aaa;font-size:10px;width:32px}
-  .badge{display:inline-block;padding:2px 7px;border-radius:4px;font-weight:700;font-family:monospace;font-size:10px;white-space:nowrap}
-  .crop{color:#888;font-size:10px;width:130px}
-  .notes{color:#888;font-style:italic;font-size:10px}
-  @media print{body{padding:16px}}
+  body{font-family:'Helvetica Neue',Arial,sans-serif;font-size:11px;color:#e8eaed;padding:32px 28px;background:#0a0c14;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  .header{margin-bottom:28px;padding-bottom:16px;border-bottom:1px solid rgba(255,255,255,0.08)}
+  h1{font-size:22px;font-weight:800;color:#f0ede8;letter-spacing:-0.03em;margin-bottom:4px}
+  .sub{font-size:11px;color:#555}
+  .wc{font-size:10px;color:#333;margin-top:4px;letter-spacing:0.06em;text-transform:uppercase}
+  .section{margin-bottom:24px}
+  .section-header{display:flex;align-items:center;gap:10px;margin-bottom:12px}
+  .section-label{font-size:9px;color:#d4a853;text-transform:uppercase;letter-spacing:0.14em;font-family:monospace;opacity:0.8;white-space:nowrap}
+  .section-line{flex:1;height:1px;background:rgba(212,168,83,0.12)}
+  .section-count{font-size:9px;color:#444;font-family:monospace;white-space:nowrap}
+  .cards{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
+  .card{border-radius:10px;overflow:hidden;background:linear-gradient(180deg,#0e1020 0%,#0a0c16 100%);border:1px solid rgba(255,255,255,0.08)}
+  .card-top{display:flex;align-items:center;justify-content:space-between;padding:8px 12px}
+  .card-left{display:flex;align-items:center;gap:8px}
+  .shot-num{font-family:monospace;color:#333;font-size:10px;font-weight:700}
+  .shot-label{font-size:12px;font-weight:700;letter-spacing:-0.01em}
+  .shot-badge{font-size:9px;font-family:monospace;font-weight:700;padding:2px 6px;border-radius:4px}
+  .card-body{padding:10px 12px;display:flex;flex-direction:column;gap:6px}
+  .crop-line{font-size:9px;font-family:monospace;letter-spacing:0.06em}
+  .desc{font-size:11px;color:#b0b5c0;line-height:1.5}
+  .notes{font-size:10px;color:#555;font-style:italic;line-height:1.4}
+  @media print{
+    body{padding:16px 14px;background:#0a0c14}
+    .card{break-inside:avoid}
+    .section{break-inside:avoid}
+  }
 </style></head><body>
-<h1>${title}</h1>
-<p class="sub">${frames.length} shots · Generated by WhispaCuts</p>
-<table>
-  <thead><tr><th>#</th><th>Shot</th><th>Frame</th><th>Description</th><th>Notes</th></tr></thead>
-  <tbody>${shotRows}</tbody>
-</table>
+<div class="header">
+  <h1>${title}</h1>
+  <p class="sub">${frames.length} shots · ${sectioned.length} section${sectioned.length !== 1 ? 's' : ''}</p>
+  <p class="wc">WhispaCuts Shot List</p>
+</div>
+${cardHTML}
 </body></html>`
 
     const win = window.open('', '_blank')
