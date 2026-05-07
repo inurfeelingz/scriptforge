@@ -2,7 +2,7 @@
 // Modernized: readable fonts, admin tier panel, usage bar, better layout
 
 import { useState, useEffect } from 'react'
-import { Send, Check, AlertCircle, Shield, ChevronRight, LogOut } from 'lucide-react'
+import { Send, Check, AlertCircle, Shield, ChevronRight, LogOut, Zap, AlertTriangle, TrendingUp, DollarSign } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { signOut } from '../lib/supabase'
 import { useStore } from '../store'
@@ -112,12 +112,16 @@ export default function SettingsPage() {
   const [adminUsers,     setAdminUsers]    = useState(null)
   const [adminLoading,   setAdminLoading]  = useState(false)
   const [tierSaving,     setTierSaving]    = useState({})
+  const [tokenUsage,     setTokenUsage]    = useState(null)
+  const [tokenLoading,   setTokenLoading]  = useState(false)
+  const [balance,        setBalance]       = useState(null)
+  const [balanceLoading, setBalanceLoading]= useState(false)
 
   useEffect(() => {
     episodesApi.usage().then(setUsage).catch(() => {})
   }, [])
 
-  // Load user list if admin
+  // Load user list + token usage + balance if admin
   useEffect(() => {
     if (!profile?.is_admin) return
     setAdminLoading(true)
@@ -131,6 +135,18 @@ export default function SettingsPage() {
         setAdminUsers([])
         setAdminLoading(false)
       })
+
+    // Token usage
+    setTokenLoading(true)
+    fetch(`${import.meta.env.VITE_API_URL || ''}/api/admin/token-usage`, {
+      headers: { Authorization: `Bearer ${localStorage.getItem('sb_access_token') || ''}` }
+    }).then(r => r.json()).then(d => { setTokenUsage(d); setTokenLoading(false) }).catch(() => setTokenLoading(false))
+
+    // Anthropic balance
+    setBalanceLoading(true)
+    fetch(`${import.meta.env.VITE_API_URL || ''}/api/admin/anthropic-balance`, {
+      headers: { Authorization: `Bearer ${localStorage.getItem('sb_access_token') || ''}` }
+    }).then(r => r.json()).then(d => { setBalance(d); setBalanceLoading(false) }).catch(() => setBalanceLoading(false))
   }, [profile?.is_admin])
 
   const vp = cat?.voice_profile || {}
@@ -396,6 +412,137 @@ export default function SettingsPage() {
         )}
       </Section>
 
+      {profile?.is_admin && (
+        <Section
+          title="Admin — Cost & Credit Dashboard"
+          subtitle="Live token spend and Anthropic API credit balance."
+        >
+          {/* Anthropic balance */}
+          <div style={{ marginBottom: 20 }}>
+            <div style={{ fontSize: 11, color: '#555', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 10 }}>
+              Anthropic API Balance
+            </div>
+            {balanceLoading ? (
+              <div style={{ fontSize: 13, color: '#444' }}>Fetching balance...</div>
+            ) : balance?.balance != null ? (
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: 16, padding: '14px 18px', borderRadius: 10,
+                background: balance.lowCredit ? 'rgba(224,85,80,0.08)' : 'rgba(106,184,122,0.08)',
+                border: `1px solid ${balance.lowCredit ? 'rgba(224,85,80,0.25)' : 'rgba(106,184,122,0.22)'}`,
+              }}>
+                {balance.lowCredit
+                  ? <AlertTriangle size={18} style={{ color: '#e05550', flexShrink: 0 }}/>
+                  : <DollarSign size={18} style={{ color: '#6ab87a', flexShrink: 0 }}/>
+                }
+                <div>
+                  <div style={{ fontSize: 22, fontWeight: 700, color: balance.lowCredit ? '#e05550' : '#6ab87a', fontFamily: 'Syne, sans-serif' }}>
+                    ${parseFloat(balance.balance || 0).toFixed(2)}
+                    <span style={{ fontSize: 12, fontWeight: 400, color: '#555', marginLeft: 6 }}>{balance.currency || 'USD'} remaining</span>
+                  </div>
+                  {balance.lowCredit && (
+                    <div style={{ fontSize: 12, color: '#e05550', marginTop: 3 }}>
+                      ⚠ Balance below $10 — top up at console.anthropic.com before generating more episodes
+                    </div>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div style={{
+                padding: '12px 16px', borderRadius: 10, fontSize: 12, color: '#555',
+                background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)',
+              }}>
+                {balance?.error || 'Balance unavailable — check console.anthropic.com'}
+              </div>
+            )}
+          </div>
+
+          {/* Token usage breakdown */}
+          <div style={{ fontSize: 11, color: '#555', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 10 }}>
+            Token Usage (last 500 calls)
+          </div>
+
+          {tokenLoading ? (
+            <div style={{ fontSize: 13, color: '#444' }}>Loading usage data...</div>
+          ) : tokenUsage ? (
+            <>
+              {/* Totals row */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 10, marginBottom: 16 }}>
+                {[
+                  { label: 'Total cost', value: `$${parseFloat(tokenUsage.totals?.cost_usd || 0).toFixed(4)}`, color: '#d4a853' },
+                  { label: 'Total calls', value: (tokenUsage.totals?.calls || 0).toLocaleString(), color: '#c8b89a' },
+                  { label: 'Input tokens', value: (tokenUsage.totals?.input_tokens || 0).toLocaleString(), color: '#5ab0d4' },
+                  { label: 'Output tokens', value: (tokenUsage.totals?.output_tokens || 0).toLocaleString(), color: '#7878d8' },
+                ].map(stat => (
+                  <div key={stat.label} style={{
+                    padding: '12px 14px', borderRadius: 9,
+                    background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)',
+                  }}>
+                    <div style={{ fontSize: 17, fontWeight: 700, color: stat.color, fontFamily: 'Syne, sans-serif' }}>{stat.value}</div>
+                    <div style={{ fontSize: 10, color: '#444', marginTop: 2, textTransform: 'uppercase', letterSpacing: '0.08em' }}>{stat.label}</div>
+                  </div>
+                ))}
+              </div>
+
+              {/* By action breakdown */}
+              {tokenUsage.byAction && Object.keys(tokenUsage.byAction).length > 0 && (
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ fontSize: 11, color: '#444', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.08em' }}>By action</div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    {Object.entries(tokenUsage.byAction)
+                      .sort((a, b) => b[1].cost_usd - a[1].cost_usd)
+                      .map(([action, stats]) => {
+                        const pct = tokenUsage.totals?.cost_usd > 0
+                          ? (stats.cost_usd / tokenUsage.totals.cost_usd) * 100 : 0
+                        return (
+                          <div key={action} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                            <div style={{ fontSize: 11, fontFamily: 'monospace', color: '#666', width: 180, flexShrink: 0 }}>
+                              {action}
+                            </div>
+                            <div style={{ flex: 1, height: 4, background: 'rgba(255,255,255,0.06)', borderRadius: 2 }}>
+                              <div style={{ height: '100%', width: `${pct}%`, background: '#d4a853', borderRadius: 2, minWidth: 2 }}/>
+                            </div>
+                            <div style={{ fontSize: 11, fontFamily: 'monospace', color: '#c8b89a', width: 70, textAlign: 'right', flexShrink: 0 }}>
+                              ${parseFloat(stats.cost_usd).toFixed(4)}
+                            </div>
+                            <div style={{ fontSize: 10, color: '#444', width: 50, textAlign: 'right', flexShrink: 0 }}>
+                              {stats.calls}x
+                            </div>
+                          </div>
+                        )
+                      })}
+                  </div>
+                </div>
+              )}
+
+              {/* Recent calls */}
+              {tokenUsage.recent?.length > 0 && (
+                <details style={{ marginTop: 8 }}>
+                  <summary style={{ fontSize: 11, color: '#444', cursor: 'pointer', userSelect: 'none', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                    Recent calls ({tokenUsage.recent.length})
+                  </summary>
+                  <div style={{ marginTop: 8, maxHeight: 220, overflowY: 'auto' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 90px 80px 80px 70px', gap: '6px 10px', fontSize: 10, color: '#444', padding: '4px 0', textTransform: 'uppercase', letterSpacing: '0.08em', borderBottom: '1px solid rgba(255,255,255,0.04)', marginBottom: 4 }}>
+                      <span>Action</span><span>Model</span><span>Input</span><span>Output</span><span>Cost</span>
+                    </div>
+                    {tokenUsage.recent.map((row, i) => (
+                      <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 90px 80px 80px 70px', gap: '4px 10px', fontSize: 11, color: '#666', padding: '3px 0', borderBottom: '1px solid rgba(255,255,255,0.02)', fontFamily: 'monospace' }}>
+                        <span style={{ color: '#888', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.action}</span>
+                        <span style={{ color: '#555', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{(row.model || '').replace('claude-','')}</span>
+                        <span>{(row.input_tokens || 0).toLocaleString()}</span>
+                        <span>{(row.output_tokens || 0).toLocaleString()}</span>
+                        <span style={{ color: '#d4a853' }}>${parseFloat(row.cost_usd || 0).toFixed(4)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </details>
+              )}
+            </>
+          ) : (
+            <div style={{ fontSize: 13, color: '#444' }}>No token usage data yet — run the SQL migration first.</div>
+          )}
+        </Section>
+      )}
+
       {/* ── Admin: tier management ────────────────────────────────────────── */}
       {profile?.is_admin && (
         <Section
@@ -474,23 +621,29 @@ export default function SettingsPage() {
                   </div>
 
                   <div style={{ display: 'flex', gap: 4 }}>
-                    {['free', 'pro', 'studio'].map(t => (
+                    {['free', 'studio'].map(t => (
                       <button
                         key={t}
                         disabled={tierSaving[user.id]}
                         onClick={() => changeUserTier(user.id, t)}
                         style={{
-                          padding: '4px 10px',
+                          padding: '4px 12px',
                           borderRadius: 6,
                           border: '1px solid',
                           fontSize: '0.75rem',
                           fontWeight: 600,
                           fontFamily: 'Figtree, sans-serif',
-                          cursor: 'pointer',
+                          cursor: tierSaving[user.id] ? 'not-allowed' : 'pointer',
                           transition: 'all 0.15s',
-                          background: user.tier === t ? (t === 'studio' ? 'var(--accent)' : t === 'pro' ? 'var(--blue)' : 'var(--surface3)') : 'transparent',
-                          color: user.tier === t ? (t === 'free' ? 'var(--text)' : '#0a0a0f') : 'var(--text3)',
-                          borderColor: user.tier === t ? (t === 'studio' ? 'var(--accent)' : t === 'pro' ? 'var(--blue)' : 'var(--border2)') : 'var(--border)',
+                          background: (user.tier === t || (t === 'studio' && user.tier === 'pro'))
+                            ? (t === 'studio' ? 'var(--accent)' : 'var(--surface3)')
+                            : 'transparent',
+                          color: (user.tier === t || (t === 'studio' && user.tier === 'pro'))
+                            ? (t === 'free' ? 'var(--text)' : '#0a0a0f')
+                            : 'var(--text3)',
+                          borderColor: (user.tier === t || (t === 'studio' && user.tier === 'pro'))
+                            ? (t === 'studio' ? 'var(--accent)' : 'var(--border2)')
+                            : 'var(--border)',
                         }}
                       >
                         {t}

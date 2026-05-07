@@ -172,6 +172,16 @@ PLATFORM_CTA:`;
     const outputTokens = usage.output_tokens || 0
     const estimatedCostUsd = (inputTokens * 0.000003) + (outputTokens * 0.000015)
 
+    // Log to token_usage_log table for admin cost tracking
+    const { logTokens } = require('../utils/logTokens')
+    logTokens({
+      userId:       req.user.id,
+      action:       'generate_episode',
+      model:        process.env.CLAUDE_MODEL || 'claude-sonnet-4-5',
+      inputTokens,
+      outputTokens,
+    }).catch(() => {})
+
     send('progress', { step: 'saving', message: 'Saving episode package...', pct: 85, tokens: { inputTokens, outputTokens, estimatedCostUsd: parseFloat(estimatedCostUsd.toFixed(4)) } });
 
     // Parse output sections

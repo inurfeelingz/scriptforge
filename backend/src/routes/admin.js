@@ -102,3 +102,62 @@ router.get('/stats', async (req, res) => {
 })
 
 module.exports = router
+// ── GET /api/admin/token-usage — aggregated token usage across all AI calls ──
+router.get('/token-usage', async (req, res) => {
+  const { data, error } = await supabase
+    .from('token_usage_log')
+    .select('action, input_tokens, output_tokens, cost_usd, created_at, user_id')
+    .order('created_at', { ascending: false })
+    .limit(500)
+
+  if (error) return res.status(500).json({ error: error.message })
+
+  // Aggregate
+  const totals = (data || []).reduce((acc, row) => {
+    acc.input_tokens  += row.input_tokens  || 0
+    acc.output_tokens += row.output_tokens || 0
+    acc.cost_usd      += parseFloat(row.cost_usd || 0)
+    acc.calls         += 1
+    return acc
+  }, { input_tokens: 0, output_tokens: 0, cost_usd: 0, calls: 0 })
+
+  // Group by action
+  const byAction = {}
+  for (const row of (data || [])) {
+    const a = row.action || 'unknown'
+    if (!byAction[a]) byAction[a] = { input_tokens: 0, output_tokens: 0, cost_usd: 0, calls: 0 }
+    byAction[a].input_tokens  += row.input_tokens  || 0
+    byAction[a].output_tokens += row.output_tokens || 0
+    byAction[a].cost_usd      += parseFloat(row.cost_usd || 0)
+    byAction[a].calls         += 1
+  }
+
+  res.json({ totals, byAction, recent: (data || []).slice(0, 50) })
+})
+
+// ── GET /api/admin/anthropic-balance — fetch live balance from Anthropic API ─
+router.get('/anthropic-balance', async (req, res) => {
+  try {
+    const response = await fetch('https://api.anthropic.com/v1/organizations/billing', {
+      headers: {
+        'x-api-key': process.env.ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01',
+      },
+    })
+
+    if (!response.ok) {
+      // Billing endpoint may not be available on all plans — try usage endpoint
+      return res.json({ balance: null, error: 'Balance API not available — check console.anthropic.com', status: response.status })
+    }
+
+    const data = await response.json()
+    res.json({
+      balance:    data.credit_balance,
+      currency:   data.currency || 'USD',
+      lowCredit:  (data.credit_balance || 0) < 10,  // warn under $10
+      rawData:    data,
+    })
+  } catch (err) {
+    res.json({ balance: null, error: err.message })
+  }
+})
