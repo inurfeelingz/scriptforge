@@ -13,6 +13,7 @@ import {
 } from 'lucide-react'
 import KBOrb from '../chat/KBOrb'
 import { useStore } from '../../store'
+import { categories as catApi } from '../../lib/api'
 import { signOut } from '../../lib/supabase'
 import ChatPanel from '../chat/ChatPanel'
 import Notifications from './Notifications'
