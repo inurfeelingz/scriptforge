@@ -25,6 +25,7 @@ const pushRoutes      = require('./routes/push')
 const editorRoutes    = require('./routes/editor')
 const sessionRoutes   = require('./routes/session')
 const soundRoutes     = require('./routes/sound')
+const creditRoutes    = require('./routes/credits')
 
 const { startSmartScheduler } = require('./services/smartScheduler')
 
@@ -124,6 +125,7 @@ app.get('/health', (req, res) => res.json({ ok: true, ts: new Date().toISOString
 
 app.use('/api/users',      userRoutes)
 app.use('/api/admin',      authMiddleware, adminRoutes)
+app.use('/api/credits',    authMiddleware, creditRoutes)
 app.use('/api/dashboard',  authMiddleware, dashboardRoutes)
 app.use('/api/shorts',     authMiddleware, shortsRoutes)
 app.use('/api/push',       authMiddleware, pushRoutes)
@@ -212,6 +214,28 @@ const server = app.listen(PORT, () => {
 })
 
 // Graceful shutdown — drain SSE streams before Railway's 30s kill
+
+// ─── GLOBAL ERROR SAFETY NET ──────────────────────────────────────────────────
+// Prevents unhandled promise rejections (e.g. Anthropic low-credit errors)
+// from crashing the Railway process entirely
+process.on('unhandledRejection', (reason, promise) => {
+  const msg = reason?.message || String(reason)
+  console.error('[server] Unhandled rejection — keeping process alive:', msg)
+  // Log Anthropic-specific errors clearly
+  if (msg.includes('credit balance')) {
+    console.error('[server] ⚠️  Anthropic API credits exhausted — top up at console.anthropic.com')
+  }
+})
+
+process.on('uncaughtException', (err) => {
+  console.error('[server] Uncaught exception — keeping process alive:', err.message)
+  // Only exit on truly fatal errors, not API failures
+  if (err.code === 'EADDRINUSE' || err.code === 'EACCES') {
+    console.error('[server] Fatal port error — exiting')
+    process.exit(1)
+  }
+})
+
 process.on('SIGTERM', () => {
   console.log('[server] SIGTERM — draining connections...')
   server.close(() => { console.log('[server] Clean exit'); process.exit(0) })

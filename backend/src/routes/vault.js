@@ -122,13 +122,12 @@ router.delete('/:id', async (req, res) => {
   res.json({ deleted: true });
 });
 
-// ─── WEEKLY RECOMMENDATIONS (Claude-powered) ──────────────────────────────────
+// ─── WEEKLY RECOMMENDATIONS (KP-powered) ─────────────────────────────────────
 
 router.get('/recommendations', async (req, res) => {
   const { categoryId } = req.query;
   if (!categoryId) return res.status(400).json({ error: 'categoryId required' });
 
-  // Get unused favourites + high-potential entries
   const { data: candidates } = await supabase
     .from('vault_entries')
     .select('id, type, title, content, tags, performance')
@@ -142,30 +141,39 @@ router.get('/recommendations', async (req, res) => {
     return res.json({ recommendations: [], message: 'No unused vault entries yet' });
   }
 
-  const context = await assembleContext(req.user.id, categoryId, { mode: 'vault' });
-
-  const response = await client.messages.create({
-    model:      process.env.CLAUDE_MODEL || 'claude-sonnet-4-5',
-    max_tokens: 800,
-    system:     context,
-    messages: [{
-      role: 'user',
-      content: `From these ${candidates.length} unused vault entries, identify the 5 strongest ideas for this week based on current trends, the creator's niche, and past performance patterns.
+  try {
+    const context = await assembleContext(req.user.id, categoryId, { mode: 'vault' });
+    const response = await client.messages.create({
+      model:      process.env.CLAUDE_MODEL || 'claude-sonnet-4-5',
+      max_tokens: 800,
+      system:     context,
+      messages: [{
+        role: 'user',
+        content: `From these ${candidates.length} unused vault entries, identify the 5 strongest ideas for this week based on current trends, the creator's niche, and past performance patterns.
 
 VAULT ENTRIES:
 ${candidates.map((e, i) => `${i+1}. [${e.type}] "${e.title}": ${e.content.slice(0, 120)}`).join('\n')}
 
 Return JSON array of 5 objects: { id, title, reason, urgency: "high/medium/low" }
 Reason should be 1 sentence. Be specific — reference the trend or pattern driving the recommendation.`,
-    }],
-  });
-
-  try {
-    const text  = response.content[0].text.replace(/```json|```/g, '').trim();
-    const recs  = JSON.parse(text);
-    res.json({ recommendations: recs });
-  } catch {
-    res.json({ recommendations: [], raw: response.content[0].text });
+      }],
+    });
+    try {
+      const text = response.content[0].text.replace(/```json|```/g, '').trim();
+      const recs = JSON.parse(text);
+      res.json({ recommendations: recs });
+    } catch {
+      res.json({ recommendations: [], raw: response.content[0].text });
+    }
+  } catch (err) {
+    console.error('[vault/recommendations]', err.message);
+    const isLowCredit = err.message?.includes('credit balance');
+    res.status(isLowCredit ? 402 : 500).json({
+      recommendations: [],
+      error: isLowCredit
+        ? 'API credits low — top up at console.anthropic.com'
+        : err.message,
+    });
   }
 });
 
