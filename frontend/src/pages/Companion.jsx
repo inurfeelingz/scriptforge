@@ -581,6 +581,16 @@ function BrainstormScreen({ categoryId, active }) {
       <div style={{textAlign:'center',paddingBottom:10,flexShrink:0}}>
         <div style={{fontFamily:"'Figtree',sans-serif",fontSize:10,fontWeight:500,letterSpacing:'0.10em',textTransform:'uppercase',color:'rgba(255,255,255,0.3)',marginBottom:2}}>Knowledge Base</div>
         <div style={{fontFamily:"'Syne',sans-serif",fontSize:15,fontWeight:600,color:'rgba(74,222,128,1)',letterSpacing:'-0.01em'}}>Brainstorm</div>
+        {messages.length > 0 && (
+          <button
+            onClick={() => { abortRef.current?.abort(); setMessages([]); setStreamText(''); setStreaming(false); setGenerated(null); setGenerating(false); setOrbMood('idle') }}
+            style={{marginTop:8,fontSize:10,color:'rgba(255,255,255,0.2)',background:'none',border:'none',cursor:'pointer',fontFamily:"'Figtree',sans-serif",letterSpacing:'0.05em',padding:'4px 8px',borderRadius:6,transition:'color 0.15s'}}
+            onMouseEnter={e=>e.currentTarget.style.color='rgba(255,255,255,0.45)'}
+            onMouseLeave={e=>e.currentTarget.style.color='rgba(255,255,255,0.2)'}
+          >
+            ↺ New conversation
+          </button>
+        )}
       </div>
       <div style={{flex:1,minHeight:0,overflowY:'auto',overflowX:'hidden',padding:'8px 16px',display:'flex',flexDirection:'column',gap:10,scrollbarWidth:'thin',scrollbarColor:'rgba(255,255,255,0.05) transparent',WebkitOverflowScrolling:'touch'}}>
         {messages.length===0&&!streaming&&(
