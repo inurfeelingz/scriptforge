@@ -63,11 +63,16 @@ self.addEventListener('fetch', event => {
     return
   }
 
-  // JS/CSS: network-first so new deploys always load fresh code
-  // Images/fonts: stale-while-revalidate (safe to cache)
+  // JS/CSS/assets: NEVER serve from cache — always fetch fresh from network
+  // This ensures deploys are instant without any SW version dance
   if (url.pathname.match(/\.(js|css)$/) ||
       url.pathname.startsWith('/assets/')) {
-    event.respondWith(networkFirstAsset(request))
+    event.respondWith(
+      fetch(request).catch(async () => {
+        const cached = await caches.match(request)
+        return cached || new Response('Asset unavailable', { status: 503 })
+      })
+    )
     return
   }
   if (url.pathname.match(/\.(png|jpg|webp|svg|ico|woff2?|ttf)$/) ||
