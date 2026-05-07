@@ -339,8 +339,19 @@ export default function Companion() {
         ))}
       </div>
 
+<<<<<<< HEAD
+      {/* ── SLIDING SCREENS ── */}
+      <div
+        className="screens-container"
+        style={{
+          transform:  `translateX(calc(${-state.screen * 100}vw + ${dragX}px))`,
+          transition: isDragging.current ? 'none' : 'transform 0.35s cubic-bezier(0.4,0,0.2,1)',
+        }}
+      >
+=======
       {/* ── SCREENS — show/hide, no sliding ── */}
       <div style={{flex:1,minHeight:0,position:'relative',overflow:'hidden'}}>
+>>>>>>> d02d40397f384241622cb0e75424f14a44bc7621
 
         {/* RECORD */}
         <div style={{position:'absolute',inset:0,display:'flex',flexDirection:'column',padding:'16px 20px',gap:16,overflowY:'auto',opacity:state.screen==='record'?1:0,pointerEvents:state.screen==='record'?'auto':'none',transition:'opacity 0.2s ease'}}>
