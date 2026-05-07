@@ -747,6 +747,27 @@ export default function Generate() {
         </div>
       )}
 
+      {/* Completion banner */}
+      {!generating && result && (
+        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'12px 16px',borderRadius:10,background:'rgba(106,184,122,0.07)',border:'1px solid rgba(106,184,122,0.2)'}}>
+          <div style={{display:'flex',alignItems:'center',gap:10}}>
+            <div style={{width:22,height:22,borderRadius:'50%',background:'rgba(106,184,122,0.15)',border:'1px solid rgba(106,184,122,0.4)',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+              <span style={{color:'rgba(106,184,122,1)',fontSize:11}}>✓</span>
+            </div>
+            <div>
+              <div style={{fontSize:12,fontWeight:600,color:'rgba(106,184,122,1)'}}>Episode package ready</div>
+              <div style={{fontSize:10,color:'rgba(106,184,122,0.5)',marginTop:1}}>VO script · EDL clip map · Shorts · Metadata</div>
+            </div>
+          </div>
+          <button
+            onClick={() => document.getElementById('episode-result')?.scrollIntoView({ behavior: 'smooth' })}
+            style={{fontSize:11,fontWeight:600,padding:'5px 11px',borderRadius:7,border:'1px solid rgba(106,184,122,0.3)',background:'rgba(106,184,122,0.1)',color:'rgba(106,184,122,1)',cursor:'pointer',whiteSpace:'nowrap'}}
+          >
+            View ↓
+          </button>
+        </div>
+      )}
+
       {/* Reasoning stream */}
       {(reasoning || (generating && phase.includes('structur'))) && (
         <div className="border border-[#1a1a1a] rounded overflow-hidden">
@@ -822,7 +843,7 @@ export default function Generate() {
 
       {/* Result package */}
       {result && (
-        <div className="border border-[#c8b89a]/20 rounded overflow-hidden">
+        <div id="episode-result" className="border border-[#c8b89a]/20 rounded overflow-hidden">
           <div className="px-4 py-3 bg-[#c8b89a]/5 border-b border-[#c8b89a]/10 flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Check size={14} className="text-[#c8b89a]"/>
