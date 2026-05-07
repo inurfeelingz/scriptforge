@@ -529,10 +529,12 @@ function BrainstormScreen({ categoryId, active }) {
   const [streamText,setStreamText]=useState('')
   const [orbMood,setOrbMood]=useState('idle')
   const [generating,setGenerating]=useState(false)
+  const [genPct,setGenPct]=useState(0)
   const [generated,setGenerated]=useState(null)
   const bottomRef=useRef(null)
   const inputRef=useRef(null)
   const abortRef=useRef(null)
+  const genTimerRef=useRef(null)
 
   useEffect(()=>{return()=>{abortRef.current?.abort()}},[])
   useEffect(()=>{if(!categoryId)return;chatApi.getHistory({categoryId,mode:'generate'}).then(({messages:h})=>setMessages(h||[])).catch(()=>{})},[categoryId])
@@ -557,16 +559,26 @@ function BrainstormScreen({ categoryId, active }) {
 
   async function generateFromChat() {
     if(generating||!categoryId)return
-    setGenerating(true);setOrbMood('processing')
+    setGenerating(true);setOrbMood('processing');setGenPct(0)
+    // Animate progress bar while waiting for generation
+    let pct=0
+    genTimerRef.current=setInterval(()=>{
+      pct=pct<60?pct+1.5:pct<80?pct+0.5:pct<92?pct+0.15:pct
+      setGenPct(Math.min(pct,92))
+    },300)
     abortRef.current?.abort()
     const ctrl=new AbortController();abortRef.current=ctrl
     try {
       await chatApi.generateEpisode({categoryId,mode:'generate'},{
         progress:({message})=>setMessages(p=>{const l=p[p.length-1];return l?.isGenerating?[...p.slice(0,-1),{...l,content:message}]:[...p,{role:'assistant',content:message,isGenerating:true}]}),
-        done:({parsed})=>{setMessages(p=>p.filter(m=>!m.isGenerating));setGenerated(parsed?.metadata?.trackName);setGenerating(false);setOrbMood('discovery');setTimeout(()=>setOrbMood('idle'),4000)},
-        error:()=>{setMessages(p=>p.filter(m=>!m.isGenerating));setGenerating(false);setOrbMood('idle')},
+        done:({parsed})=>{
+          clearInterval(genTimerRef.current);setGenPct(100)
+          setTimeout(()=>setGenPct(0),600)
+          setMessages(p=>p.filter(m=>!m.isGenerating));setGenerated(parsed?.metadata?.trackName || 'Your episode');setGenerating(false);setOrbMood('discovery');setTimeout(()=>setOrbMood('idle'),4000)
+        },
+        error:()=>{clearInterval(genTimerRef.current);setGenPct(0);setMessages(p=>p.filter(m=>!m.isGenerating));setGenerating(false);setOrbMood('idle')},
       },ctrl.signal)
-    }catch(e){if(e.name!=='AbortError'){setGenerating(false);setOrbMood('idle')}}
+    }catch(e){if(e.name!=='AbortError'){clearInterval(genTimerRef.current);setGenPct(0);setGenerating(false);setOrbMood('idle')}}
   }
 
   const canGenerate=messages.length>=4&&!streaming&&!generating
@@ -623,8 +635,22 @@ function BrainstormScreen({ categoryId, active }) {
         <div ref={bottomRef}/>
       </div>
       {generated&&(
-        <div style={{padding:'8px 16px',fontSize:13,display:'flex',alignItems:'center',gap:7,borderTop:'1px solid rgba(74,222,128,0.08)',background:'rgba(74,222,128,0.04)',color:'rgba(74,222,128,0.7)',fontFamily:"'Figtree',sans-serif",flexShrink:0}}>
-          <Check size={10}/> "{generated}" is ready — open WhispaCuts to review
+        <div style={{padding:'14px 16px',display:'flex',alignItems:'center',justifyContent:'space-between',gap:12,borderTop:'1px solid rgba(74,222,128,0.2)',background:'rgba(74,222,128,0.07)',flexShrink:0}}>
+          <div style={{display:'flex',alignItems:'center',gap:8}}>
+            <div style={{width:20,height:20,borderRadius:'50%',background:'rgba(74,222,128,0.2)',border:'1px solid rgba(74,222,128,0.5)',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+              <Check size={11} style={{color:'rgba(74,222,128,1)'}}/>
+            </div>
+            <div>
+              <div style={{fontSize:12,fontWeight:600,color:'rgba(74,222,128,1)',fontFamily:"'Figtree',sans-serif"}}>KB is done</div>
+              <div style={{fontSize:10,color:'rgba(74,222,128,0.5)',fontFamily:"'Figtree',sans-serif",marginTop:1}}>"{generated}" is ready to review</div>
+            </div>
+          </div>
+          <button
+            onClick={()=>window.location.href='/'}
+            style={{fontSize:11,fontWeight:600,padding:'6px 12px',borderRadius:8,border:'1px solid rgba(74,222,128,0.4)',background:'rgba(74,222,128,0.12)',color:'rgba(74,222,128,1)',cursor:'pointer',fontFamily:"'Figtree',sans-serif",whiteSpace:'nowrap'}}
+          >
+            Open app →
+          </button>
         </div>
       )}
       {canGenerate&&(
@@ -644,6 +670,24 @@ function BrainstormScreen({ categoryId, active }) {
         </div>
       </div>
       <style>{`@keyframes kb-bounce{0%,80%,100%{transform:translateY(0);opacity:.25}40%{transform:translateY(-4px);opacity:.9}}@keyframes kb-blink{0%,100%{opacity:0}50%{opacity:1}}`}</style>
+
+      {/* KB generation progress overlay */}
+      {generating && (
+        <div style={{position:'absolute',inset:0,zIndex:10,background:'rgba(8,12,16,0.92)',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:16,backdropFilter:'blur(6px)'}}>
+          <div style={{fontFamily:"'Syne',sans-serif",fontWeight:700,fontSize:16,color:'rgba(74,222,128,1)'}}>
+            {genPct < 25 ? 'KB is reading your conversation...' : genPct < 50 ? 'KB is structuring the episode...' : genPct < 75 ? 'KB is writing your VO script...' : 'KB is compiling your package...'}
+          </div>
+          <div style={{width:240}}>
+            <div style={{display:'flex',justifyContent:'space-between',marginBottom:6}}>
+              <span style={{fontSize:10,color:'rgba(74,222,128,0.5)',fontFamily:"'Figtree',sans-serif",letterSpacing:'0.08em',textTransform:'uppercase'}}>Knowledge Base</span>
+              <span style={{fontSize:10,color:'rgba(74,222,128,0.5)',fontFamily:"'Figtree',sans-serif"}}>{Math.round(genPct)}%</span>
+            </div>
+            <div style={{height:3,background:'rgba(74,222,128,0.1)',borderRadius:2,overflow:'hidden'}}>
+              <div style={{height:'100%',width:`${genPct}%`,background:'linear-gradient(90deg,rgba(74,222,128,0.6),rgba(74,222,128,1))',borderRadius:2,transition:'width 0.3s ease'}}/>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
