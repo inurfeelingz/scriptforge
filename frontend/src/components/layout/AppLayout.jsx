@@ -510,8 +510,8 @@ export default function AppLayout() {
           </div>
         )}
 
-        {/* Floating KB orb — hidden on companion route */}
-        {!isCompanion && (
+        {/* Floating KB orb — hidden on companion route and on mobile */}
+        {!isCompanion && !isMobile && (
           <KBOrb
             mood={chatOpen ? 'active' : 'idle'}
             onClick={() => setChatOpen(!chatOpen)}
