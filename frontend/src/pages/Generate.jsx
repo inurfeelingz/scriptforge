@@ -79,6 +79,146 @@ function RegenButton({ label, section, episodeId, onDone, disabled }) {
   )
 }
 
+// ── Niche → form field config ─────────────────────────────────────────────────
+// Detects the workspace niche and returns appropriate context fields
+// instead of always showing music-specific BPM/mood/genre
+function getNicheConfig(niche = '') {
+  const n = niche.toLowerCase()
+
+  // Music / audio niches
+  if (/music|beat|producer|lofi|lo.fi|hip.hop|jazz|soul|edm|band|album|track|song|audio/.test(n)) {
+    return {
+      subjectLabel: 'Track name',
+      subjectPlaceholder: 'Echoes',
+      fields: [
+        { key: 'mood',  label: 'Mood',  placeholder: 'melancholic, late night' },
+        { key: 'genre', label: 'Genre', placeholder: 'lo-fi soul' },
+        { key: 'bpm',   label: 'BPM',   placeholder: '87' },
+      ],
+      platformLabel: 'Stream link',
+      platformPlaceholder: 'https://open.spotify.com/track/...',
+    }
+  }
+
+  // Cooking / food niches
+  if (/cook|food|recipe|chef|kitchen|bake|restaurant|eat|cuisine/.test(n)) {
+    return {
+      subjectLabel: 'Dish / recipe',
+      subjectPlaceholder: 'Jollof rice — the real way',
+      fields: [
+        { key: 'mood',  label: 'Vibe',      placeholder: 'comforting, celebratory' },
+        { key: 'genre', label: 'Cuisine',   placeholder: 'West African' },
+        { key: 'bpm',   label: 'Prep time', placeholder: '45 min' },
+      ],
+      platformLabel: 'Recipe link',
+      platformPlaceholder: 'https://yoursite.com/recipe/...',
+    }
+  }
+
+  // Tech / coding niches
+  if (/tech|code|coding|software|dev|engineer|saas|app|startup|ai|machine/.test(n)) {
+    return {
+      subjectLabel: 'Topic / project',
+      subjectPlaceholder: 'Building a real-time chat app',
+      fields: [
+        { key: 'mood',  label: 'Angle',      placeholder: 'beginner-friendly, deep dive' },
+        { key: 'genre', label: 'Stack',      placeholder: 'React, Supabase' },
+        { key: 'bpm',   label: 'Difficulty', placeholder: 'intermediate' },
+      ],
+      platformLabel: 'Repo / demo link',
+      platformPlaceholder: 'https://github.com/...',
+    }
+  }
+
+  // Fitness / health niches
+  if (/fit|gym|workout|health|wellness|yoga|sport|run|train|body/.test(n)) {
+    return {
+      subjectLabel: 'Workout / topic',
+      subjectPlaceholder: 'Full body HIIT — 20 min',
+      fields: [
+        { key: 'mood',  label: 'Energy',    placeholder: 'intense, motivating' },
+        { key: 'genre', label: 'Type',      placeholder: 'strength, cardio' },
+        { key: 'bpm',   label: 'Duration',  placeholder: '20 min' },
+      ],
+      platformLabel: 'Programme link',
+      platformPlaceholder: 'https://yoursite.com/programme/...',
+    }
+  }
+
+  // Finance / business niches
+  if (/financ|invest|money|business|entrepreneur|market|stock|crypto|wealth|tax/.test(n)) {
+    return {
+      subjectLabel: 'Topic',
+      subjectPlaceholder: 'Why most people retire broke',
+      fields: [
+        { key: 'mood',  label: 'Tone',     placeholder: 'urgent, eye-opening' },
+        { key: 'genre', label: 'Category', placeholder: 'personal finance, investing' },
+        { key: 'bpm',   label: 'Audience', placeholder: 'beginners, millennials' },
+      ],
+      platformLabel: 'Resource link',
+      platformPlaceholder: 'https://yoursite.com/guide/...',
+    }
+  }
+
+  // Gaming niches
+  if (/game|gaming|stream|esport|twitch|youtube.*gam|playthrough|review.*game/.test(n)) {
+    return {
+      subjectLabel: 'Game / topic',
+      subjectPlaceholder: 'Elden Ring — first boss breakdown',
+      fields: [
+        { key: 'mood',  label: 'Vibe',   placeholder: 'hype, chill commentary' },
+        { key: 'genre', label: 'Genre',  placeholder: 'action RPG, FPS' },
+        { key: 'bpm',   label: 'Format', placeholder: 'tips, review, playthrough' },
+      ],
+      platformLabel: 'Game / store link',
+      platformPlaceholder: 'https://store.steampowered.com/...',
+    }
+  }
+
+  // Travel niches
+  if (/travel|vlog|country|city|tour|adventure|explore|destination/.test(n)) {
+    return {
+      subjectLabel: 'Destination / story',
+      subjectPlaceholder: 'Cape Town in 48 hours',
+      fields: [
+        { key: 'mood',  label: 'Vibe',     placeholder: 'adventurous, laid-back' },
+        { key: 'genre', label: 'Type',     placeholder: 'budget travel, luxury' },
+        { key: 'bpm',   label: 'Duration', placeholder: '3 days' },
+      ],
+      platformLabel: 'Hotel / booking link',
+      platformPlaceholder: 'https://airbnb.com/...',
+    }
+  }
+
+  // Education / tutorial niches
+  if (/educat|teach|learn|tutor|course|lesson|school|university|skill/.test(n)) {
+    return {
+      subjectLabel: 'Lesson / topic',
+      subjectPlaceholder: 'Understanding compound interest',
+      fields: [
+        { key: 'mood',  label: 'Tone',       placeholder: 'engaging, no-fluff' },
+        { key: 'genre', label: 'Subject',    placeholder: 'maths, history, design' },
+        { key: 'bpm',   label: 'Level',      placeholder: 'beginner, advanced' },
+      ],
+      platformLabel: 'Course / resource link',
+      platformPlaceholder: 'https://yoursite.com/course/...',
+    }
+  }
+
+  // Default — generic video creator
+  return {
+    subjectLabel: 'Episode topic',
+    subjectPlaceholder: 'What this episode is about',
+    fields: [
+      { key: 'mood',  label: 'Tone',     placeholder: 'educational, entertaining' },
+      { key: 'genre', label: 'Category', placeholder: 'your content category' },
+      { key: 'bpm',   label: 'Format',   placeholder: 'interview, solo, b-roll' },
+    ],
+    platformLabel: 'Reference link',
+    platformPlaceholder: 'https://...',
+  }
+}
+
 // ── Main component ────────────────────────────────────────────────────────────
 export default function Generate() {
   const { activeCategoryId, activeCategory, notify } = useStore()
@@ -131,6 +271,7 @@ export default function Generate() {
   const scriptRef    = useRef(null)
   const autosaveRef  = useRef(null)
   const cat = activeCategory?.()
+  const nicheConfig = getNicheConfig(cat?.niche || '')
 
   // ── Draft persistence ────────────────────────────────────────────────────
   const saveDraft = useCallback(() => {
@@ -289,7 +430,7 @@ export default function Generate() {
 
   // ── 04: Hook variants ────────────────────────────────────────────────────
   async function fetchHookVariants() {
-    if (!form.trackName.trim()) return notify('Enter a track name first', 'error')
+    if (!form.trackName.trim()) return notify(`Enter a ${nicheConfig.subjectLabel.toLowerCase()} first`, 'error')
     if (!activeCategoryId) return notify('Select a category first', 'error')
     setLoadingVariants(true)
     setShowVariants(true)
@@ -315,7 +456,7 @@ export default function Generate() {
   }
 
   async function generateWithForm(f) {
-    if (!f.trackName.trim()) return notify('Track name is required', 'error')
+    if (!f.trackName.trim()) return notify(`${nicheConfig.subjectLabel} is required`, 'error')
     if (!activeCategoryId)   return notify('Select a category first', 'error')
 
     setGenerating(true)
@@ -453,19 +594,17 @@ export default function Generate() {
       {/* Form */}
       <div className="grid grid-cols-2 gap-4">
         <div className="col-span-2 space-y-1">
-          <label className="text-xs text-[#666] uppercase tracking-wide">Track name *</label>
+          <label className="text-xs text-[#666] uppercase tracking-wide">{nicheConfig.subjectLabel} *</label>
           <input
             value={form.trackName}
             onChange={e => setField('trackName', e.target.value)}
-            placeholder="Echoes"
+            placeholder={nicheConfig.subjectPlaceholder}
             className="w-full bg-[#0d0d0d] border border-[#1e1e1e] rounded px-3 py-2.5 text-sm text-[#f0ede8] placeholder-[#333] outline-none focus:border-[#c8b89a]/40 transition-colors"
           />
         </div>
 
         {[
-          { key: 'mood',  label: 'Mood',   placeholder: 'melancholic, late night' },
-          { key: 'genre', label: 'Genre',  placeholder: 'lo-fi soul' },
-          { key: 'bpm',   label: 'BPM',    placeholder: '87' },
+          ...nicheConfig.fields,
           { key: 'targetDurationMinutes', label: 'Target length (min)', placeholder: '8' },
           { key: 'episodeNumber', label: 'Episode #', placeholder: nextEpNumber ? String(nextEpNumber) : '7' },
         ].map(({ key, label, placeholder }) => (
@@ -481,11 +620,11 @@ export default function Generate() {
         ))}
 
         <div className="col-span-2 space-y-1">
-          <label className="text-xs text-[#666] uppercase tracking-wide">Platform link</label>
+          <label className="text-xs text-[#666] uppercase tracking-wide">{nicheConfig.platformLabel}</label>
           <input
             value={form.platformLink}
             onChange={e => setField('platformLink', e.target.value)}
-            placeholder="https://yourplatform.com/track/echoes"
+            placeholder={nicheConfig.platformPlaceholder}
             className="w-full bg-[#0d0d0d] border border-[#1e1e1e] rounded px-3 py-2.5 text-sm text-[#f0ede8] placeholder-[#333] outline-none focus:border-[#c8b89a]/40 transition-colors"
           />
         </div>
