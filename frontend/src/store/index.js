@@ -141,27 +141,18 @@ export const useStore = create((set, get) => ({
     supabase.auth.onAuthStateChange(async (event, session) => {
       set({ session, user: session?.user || null })
       if (session) {
-        // TOKEN_REFRESHED fires constantly — only reload data on actual sign-in
-        // INITIAL_SESSION fires on page load — skip it, init() handles that
-        if (event === 'SIGNED_IN') {
-          // Wait for Supabase to finish writing the token internally
-          // 200ms wasn't enough — use 500ms + one retry on failure
-          await new Promise(r => setTimeout(r, 500))
+        // SIGNED_IN fires on every page load during session recovery
+        // init() above already loaded the profile — only reload on genuine new sign-ins
+        // We detect a genuine sign-in by checking if we already have a profile
+        if (event === 'SIGNED_IN' && !get().profile) {
+          // No profile yet means this is a real new sign-in, not a recovery
+          // Wait for token to settle then load
+          await new Promise(r => setTimeout(r, 1000))
           try {
             const { profile } = await usersApi.profile()
             set({ profile })
             if (!get().categories?.length) await get().loadCategories()
-          } catch (err) {
-            // One retry after another short wait
-            await new Promise(r => setTimeout(r, 800))
-            try {
-              const { profile } = await usersApi.profile()
-              set({ profile })
-              if (!get().categories?.length) await get().loadCategories()
-            } catch (retryErr) {
-              console.warn('[store] onAuthStateChange profile fetch failed:', retryErr.message)
-            }
-          }
+          } catch {}
         }
         if (event === 'USER_UPDATED') {
           try {
