@@ -203,6 +203,19 @@ function DirectiveCard({ brief, loading, onRefresh }) {
 export default function Dashboard() {
   const { activeCategoryId, activeCategory, notify } = useStore()
   const cat = activeCategory?.()
+  const navigate = useNavigate()
+
+  // If coming from Companion with a processed session, redirect to generate
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const sessionId = params.get('session')
+    const ready = params.get('ready')
+    if (sessionId && ready === '1') {
+      // Clear the query params then navigate to generate with session context
+      window.history.replaceState({}, '', '/')
+      navigate(`/generate?session=${sessionId}`)
+    }
+  }, []) // eslint-disable-line
 
   // Brief state (07)
   const [brief,       setBrief]       = useState(null)

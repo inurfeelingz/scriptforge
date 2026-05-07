@@ -194,7 +194,7 @@ export default function Generate() {
     }
   }, [saveDraft])
 
-  // ── URL params (duplicate flow) ──────────────────────────────────────────
+  // ── URL params (duplicate flow + companion session flow) ──────────────────
   const [searchParams] = useSearchParams()
   useEffect(() => {
     const from = searchParams.get('from')
@@ -208,7 +208,19 @@ export default function Generate() {
         episodeNumber: searchParams.get('episodeNumber') || f.episodeNumber,
       }))
     }
-  }, [])
+    // Coming from Companion — auto-load the session memo
+    const sessionId = searchParams.get('session')
+    if (sessionId) {
+      import('../lib/api').then(({ api }) => {
+        api.get(`/session/${sessionId}`).then(session => {
+          if (session?.voice_memo_text) {
+            handleSessionSelect(session.voice_memo_text, session)
+            notify(`Session loaded — ready to generate`, 'success')
+          }
+        }).catch(() => {})
+      })
+    }
+  }, []) // eslint-disable-line
 
   // ── Auto episode number ──────────────────────────────────────────────────
   useEffect(() => {
@@ -558,7 +570,7 @@ export default function Generate() {
             )}
             {hookVariants && (
               <>
-                <div className="text-xs text-[#555] mb-2">Choose an opening strategy — or skip to let Claude decide</div>
+                <div className="text-xs text-[#555] mb-2">Choose an opening strategy — or skip to let KP decide</div>
                 {hookVariants.map((v, i) => (
                   <HookCard
                     key={i}
@@ -571,7 +583,7 @@ export default function Generate() {
                   onClick={() => { setSelectedHook(null); setShowVariants(false) }}
                   className="text-xs text-[#444] hover:text-[#888] transition-colors w-full text-center py-1"
                 >
-                  Skip — let Claude choose the hook
+                  Skip — let KP choose the hook
                 </button>
               </>
             )}
@@ -605,7 +617,7 @@ export default function Generate() {
           >
             <span className="flex items-center gap-2">
               <span className="w-1.5 h-1.5 rounded-full bg-[#c8b89a]/60 animate-pulse"/>
-              Claude's reasoning
+              KP's reasoning
             </span>
             {showReasoning ? <ChevronUp size={12}/> : <ChevronDown size={12}/>}
           </button>

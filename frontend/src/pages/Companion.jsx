@@ -267,12 +267,26 @@ export default function Companion() {
     let prog=0
     const iv=setInterval(()=>{prog=prog<70?prog+2:prog<90?prog+0.5:prog+0.1;setProcessPct(Math.min(prog,95))},400)
     try {
-      const r=await api.post(`/session/${sidRef.current}/process`)
+      let voiceMemoText = null
+      const sessionId = sidRef.current
+      // Try to process — if already processed, fall back to fetching stored memo
+      try {
+        const r = await api.post(`/session/${sessionId}/process`)
+        voiceMemoText = r?.voiceMemoText || r?.voice_memo_text || null
+      } catch(processErr) {
+        if (processErr.message?.includes('No entries') || processErr.message?.includes('No transcribed')) {
+          const session = await api.get(`/session/${sessionId}`)
+          voiceMemoText = session?.voice_memo_text || session?.voiceMemoText || null
+          if (!voiceMemoText) throw new Error('No conversation text found — make sure you speak during recording')
+        } else {
+          throw processErr
+        }
+      }
+      if (!voiceMemoText) throw new Error('No conversation text found — make sure you speak during recording')
       clearInterval(iv); setProcessPct(100); await new Promise(r=>setTimeout(r,400)); setProcessPct(0)
-      if (!r?.voiceMemoText&&!r?.voice_memo_text) throw new Error('No memo generated')
       set({processing:false,orbMood:'idle',status:'idle',entries:[],sessionId:null,elapsedMs:0})
       navigator.vibrate?.([100,50,100,50,200])
-      window.location.href='/'
+      window.location.href = `/?session=${sessionId}&ready=1`
     } catch(e) {
       clearInterval(iv); setProcessPct(0)
       set({processing:false,orbMood:'idle',error:e.message||'Processing failed',status:'ready'})

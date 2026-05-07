@@ -52,6 +52,9 @@ router.post('/generate', tierGate('generate_episode'), async (req, res) => {
   const send = (event, data) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
   const keepalive = setInterval(() => res.write(': ping\n\n'), 15000)
 
+  // Declare outside try so catch block can reference it
+  let generationTimeout = null
+
   try {
     send('progress', { step: 'context', message: 'Loading your creative context...', pct: 5 });
 
@@ -130,7 +133,7 @@ PLATFORM_CTA:`;
     let reasoningDone = false;
 
     // Hard cap: if generation hasn't finished in 3 minutes, close cleanly
-    const generationTimeout = setTimeout(() => {
+    generationTimeout = setTimeout(() => {
       if (!res.writableEnded) {
         send('error', { message: 'Generation timed out after 3 minutes — try again' })
         res.end()
