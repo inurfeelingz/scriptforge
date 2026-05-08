@@ -538,12 +538,12 @@ export default function Teleprompter() {
         )}
 
         {/* Main controls */}
-        <div className="flex items-center gap-4 px-6 py-4">
+        <div className="flex items-center gap-2 px-4 py-3 flex-wrap">
 
           {/* Reset */}
           <button
             onClick={() => { posRef.current = 0; setPosition(0); setPlaying(false) }}
-            className="text-[#444] hover:text-[#888] transition-colors"
+            className="text-[#444] hover:text-[#888] transition-colors shrink-0"
           >
             <RotateCcw size={16}/>
           </button>
@@ -551,66 +551,54 @@ export default function Teleprompter() {
           {/* Play/pause */}
           <button
             onClick={() => setPlaying(p => !p)}
-            className={`w-10 h-10 rounded-full border flex items-center justify-center transition-all ${
+            className={`w-9 h-9 rounded-full border flex items-center justify-center transition-all shrink-0 ${
               playing
                 ? 'border-[#c8b89a] text-[#c8b89a] bg-[#c8b89a]/10'
                 : 'border-[#333] text-[#666] hover:border-[#666]'
             }`}
           >
-            {playing ? <Pause size={14}/> : <Play size={14}/>}
+            {playing ? <Pause size={13}/> : <Play size={13}/>}
           </button>
 
           {/* Speed */}
-          <div className="flex items-center gap-2 flex-1">
-            <span className="text-xs text-[#444]">Speed</span>
+          <div className="flex items-center gap-2 flex-1 min-w-[80px]">
+            <span className="text-xs text-[#444] hidden sm:block">Speed</span>
             <input
               type="range" min={1} max={10} step={0.1} value={speed}
               onChange={e => setSpeed(+e.target.value)}
               className="flex-1 accent-[#c8b89a]"
             />
-            <span className="text-xs text-[#c8b89a] w-6">{speed.toFixed(1)}</span>
+            <span className="text-xs text-[#c8b89a] w-6 shrink-0">{speed.toFixed(1)}</span>
           </div>
 
-          <span className="text-xs text-[#444]">{Math.round(pct)}%</span>
-
-          {/* Mirror */}
-          <button
-            onClick={() => setMirrored(m => !m)}
-            className={`text-xs px-2 py-1 rounded border transition-all ${
-              mirrored ? 'border-[#c8b89a]/40 text-[#c8b89a]' : 'border-[#222] text-[#444]'
-            }`}
-          >⇔</button>
-
-          {/* 06 — Record button */}
+          {/* 06 — Record button — always visible */}
           <button
             onClick={recState === 'idle' || recState === 'done' ? startRecording : stopAndAlign}
             disabled={recState === 'requesting' || recState === 'stopping' || recState === 'uploading' || recState === 'aligning'}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded border text-xs transition-all disabled:opacity-40 ${
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded border text-xs transition-all disabled:opacity-40 shrink-0 ${
               recState === 'recording'
-                ? 'border-red-700/60 text-red-400 bg-red-900/15 hover:bg-red-900/25'
+                ? 'border-red-700/60 text-red-400 bg-red-900/15'
                 : 'border-[#333] text-[#555] hover:border-[#c8b89a]/30 hover:text-[#c8b89a]'
             }`}
-            title={recState === 'recording' ? 'Stop recording and align' : 'Record VO and auto-align timeline'}
           >
             {recState === 'recording'
               ? <><Square size={10}/> Stop</>
               : recState === 'idle' || recState === 'done'
-                ? <><Mic size={11}/> Record VO</>
+                ? <><Mic size={11}/> Record</>
                 : <RefreshCw size={10} className="animate-spin"/>
             }
           </button>
 
           {/* Upload external VO */}
           <label
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded border text-xs transition-all cursor-pointer ${
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded border text-xs transition-all cursor-pointer shrink-0 ${
               recState === 'uploading' || recState === 'aligning'
                 ? 'opacity-40 pointer-events-none border-[#333] text-[#555]'
                 : 'border-[#333] text-[#555] hover:border-[#c8b89a]/30 hover:text-[#c8b89a]'
             }`}
-            title="Upload externally recorded VO file"
           >
             <Upload size={11}/>
-            <span>Upload VO</span>
+            <span className="hidden sm:inline">Upload VO</span>
             <input
               type="file"
               accept="audio/*,video/mp4,video/quicktime"
@@ -622,7 +610,7 @@ export default function Teleprompter() {
           {/* Fullscreen */}
           <button
             onClick={() => setFullscreen(f => !f)}
-            className="text-[#444] hover:text-[#888] transition-colors"
+            className="text-[#444] hover:text-[#888] transition-colors shrink-0"
           >
             {fullscreen ? <Minimize size={16}/> : <Maximize size={16}/>}
           </button>

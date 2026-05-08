@@ -9,7 +9,7 @@ import {
   LayoutDashboard, Sparkles, Film, BookMarked,
   BarChart2, Mic, Music2, Scissors, Smartphone, Settings, LogOut,
   ChevronLeft, ChevronRight, Plus, RefreshCw, MessageSquare,
-  Calendar, Menu, X, FileText, CreditCard,
+  Calendar, Menu, X, FileText, CreditCard, Radio,
 } from 'lucide-react'
 import KBOrb from '../chat/KBOrb'
 import { useStore } from '../../store'
@@ -23,8 +23,8 @@ const NAV_GROUPS = [
   {
     label: null,
     items: [
-      { to: '/',         icon: LayoutDashboard, label: 'Dashboard' },
-      { to: '/generate', icon: Sparkles,        label: 'Generate'  },
+      { to: '/',          icon: LayoutDashboard, label: 'Dashboard' },
+      { to: '/companion', icon: Radio,           label: 'Companion' },  // START HERE
     ]
   },
   {
@@ -33,35 +33,41 @@ const NAV_GROUPS = [
     isRefresh: true,
   },
   {
-    label: 'Content',
+    label: 'Step 1 — Ideate',
     items: [
-      { to: '/series',       icon: Film,       label: 'Series'  },
-      { to: '/shorts',       icon: Scissors,   label: 'Shorts'  },
-      { to: '/series-bible', icon: BookMarked, label: 'Bible'   },
-      { to: '/vault',        icon: BookMarked, label: 'Vault'   },
+      { to: '/generate', icon: Sparkles, label: 'Generate'  },
     ]
   },
   {
-    label: 'Capture',
-    items: [
-      { to: '/journals', icon: Mic,      label: 'Journals' },
-      { to: '/scripts',     icon: FileText, label: 'Scripts'    },
-      { to: '/storyboard',  icon: Film,     label: 'Shot List' },
-    ]
-  },
-  {
-    label: 'Production',
+    label: 'Step 2 — Record',
     items: [
       { to: '/teleprompter', icon: Mic,      label: 'Teleprompter' },
-      { to: '/sound',        icon: Music2,   label: 'Sound'        },
-      { to: '/editor',       icon: Scissors, label: 'Editor'       },
+      { to: '/storyboard',   icon: Film,     label: 'Shot List'    },
     ]
   },
   {
-    label: 'Insights',
+    label: 'Step 3 — Edit',
     items: [
-      { to: '/analytics', icon: BarChart2, label: 'Analytics' },
+      { to: '/editor',  icon: Scissors, label: 'Editor' },
+      { to: '/shorts',  icon: Scissors, label: 'Shorts' },
+      { to: '/sound',   icon: Music2,   label: 'Sound'  },
+    ]
+  },
+  {
+    label: 'Step 4 — Publish',
+    items: [
       { to: '/schedule',  icon: Calendar,  label: 'Schedule'  },
+      { to: '/analytics', icon: BarChart2, label: 'Analytics' },
+    ]
+  },
+  {
+    label: 'Library',
+    items: [
+      { to: '/series',       icon: Film,       label: 'Series'  },
+      { to: '/scripts',      icon: FileText,   label: 'Scripts' },
+      { to: '/series-bible', icon: BookMarked, label: 'Bible'   },
+      { to: '/vault',        icon: BookMarked, label: 'Vault'   },
+      { to: '/journals',     icon: Mic,        label: 'Journals'},
     ]
   },
 ]
@@ -451,6 +457,23 @@ export default function AppLayout() {
           <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
             {!isMobile && (
               <span style={{ fontSize: '0.9375rem', color: 'var(--text2)' }}>{profile?.display_name}</span>
+            )}
+            {/* KB chat button — mobile only (orb is hidden on mobile) */}
+            {isMobile && (
+              <button
+                onClick={() => setChatOpen(o => !o)}
+                style={{
+                  width: 32, height: 32, borderRadius: '50%',
+                  border: chatOpen ? '1px solid rgba(74,222,128,0.5)' : '1px solid rgba(255,255,255,0.1)',
+                  background: chatOpen ? 'rgba(74,222,128,0.1)' : 'rgba(255,255,255,0.04)',
+                  color: chatOpen ? 'rgba(74,222,128,1)' : 'var(--text3)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  cursor: 'pointer', transition: 'all 0.2s',
+                }}
+                title="KB chat"
+              >
+                <MessageSquare size={14}/>
+              </button>
             )}
             <span style={{
               fontSize: '0.8125rem', padding: '2px 8px', borderRadius: 99,

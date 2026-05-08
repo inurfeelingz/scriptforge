@@ -5,7 +5,7 @@
 import { useState, useRef, useEffect, useReducer } from 'react'
 import {
   Mic, MicOff, Square, Flag, Send, Wifi, WifiOff,
-  Trash2, Check, Loader2, Volume2, Radio, Sparkles,
+  Trash2, Check, Loader2, Volume2, Radio,
 } from 'lucide-react'
 import { useStore } from '../store'
 import { api, chat as chatApi } from '../lib/api'
@@ -313,12 +313,27 @@ export default function Companion() {
         </div>
       </header>
 
-      <div style={{display:'flex',justifyContent:'center',gap:8,padding:'8px 16px',borderBottom:'1px solid rgba(255,255,255,0.05)',flexShrink:0}}>
-        {[{id:'record',label:'Record',icon:'⏺',activeColor:'rgba(224,48,48,1)',activeFaint:'rgba(224,48,48,0.08)',activeBorder:'rgba(224,48,48,0.4)'},{id:'brainstorm',label:'Brainstorm',icon:'✦',activeColor:KB_GREEN_DIM,activeFaint:KB_GREEN_FAINT,activeBorder:'rgba(74,222,128,0.4)'}].map(tab=>(
-          <button key={tab.id} onClick={()=>set({screen:tab.id})} style={{fontFamily:"'Figtree',sans-serif",fontSize:11,fontWeight:state.screen===tab.id?600:400,padding:'5px 18px',borderRadius:20,border:`1px solid ${state.screen===tab.id?tab.activeBorder:'rgba(255,255,255,0.08)'}`,background:state.screen===tab.id?tab.activeFaint:'transparent',color:state.screen===tab.id?tab.activeColor:'rgba(255,255,255,0.3)',cursor:'pointer',transition:'all 0.2s',display:'flex',alignItems:'center',gap:5}}>
-            <span style={{fontSize:9}}>{tab.icon}</span> {tab.label}
-          </button>
-        ))}
+      {/* Pipeline steps — tells users exactly what this app does */}
+      <div style={{padding:'8px 16px',borderBottom:'1px solid rgba(255,255,255,0.05)',flexShrink:0}}>
+        <div style={{fontFamily:"'Figtree',sans-serif",fontSize:9,color:'rgba(255,255,255,0.2)',letterSpacing:'0.12em',textTransform:'uppercase',marginBottom:6}}>Start here — talk your idea, then follow the steps</div>
+        <div style={{display:'flex',alignItems:'center',gap:0,overflowX:'auto',paddingBottom:2}}>
+          {[
+            {n:'1',label:'Talk',color:'rgba(224,48,48,0.8)',active:true},
+            {n:'2',label:'Generate',color:'rgba(200,184,154,0.4)'},
+            {n:'3',label:'Teleprompter',color:'rgba(200,184,154,0.4)'},
+            {n:'4',label:'Shoot',color:'rgba(200,184,154,0.4)'},
+            {n:'5',label:'Editor',color:'rgba(200,184,154,0.4)'},
+            {n:'6',label:'Export',color:'rgba(200,184,154,0.4)'},
+          ].map((s,i)=>(
+            <div key={s.n} style={{display:'flex',alignItems:'center',flexShrink:0}}>
+              <div style={{display:'flex',alignItems:'center',gap:4}}>
+                <span style={{width:16,height:16,borderRadius:'50%',background:s.active?'rgba(224,48,48,0.2)':'rgba(255,255,255,0.04)',border:`1px solid ${s.color}`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:8,color:s.color,fontWeight:700,flexShrink:0}}>{s.n}</span>
+                <span style={{fontSize:9,color:s.color,whiteSpace:'nowrap'}}>{s.label}</span>
+              </div>
+              {i<5&&<span style={{width:12,height:1,background:'rgba(255,255,255,0.06)',margin:'0 4px',flexShrink:0}}/>}
+            </div>
+          ))}
+        </div>
       </div>
 
       <div style={{flex:1,minHeight:0,position:'relative',overflow:'hidden'}}>
