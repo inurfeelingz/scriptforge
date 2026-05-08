@@ -295,6 +295,14 @@ export default function Companion() {
 
       <header className="companion-header">
         <div className="companion-brand">
+          <button
+            onClick={() => window.location.href = '/'}
+            disabled={state.recording}
+            style={{background:'none',border:'none',cursor:state.recording?'default':'pointer',padding:'4px 6px 4px 0',color:state.recording?'rgba(255,255,255,0.1)':'rgba(255,255,255,0.3)',display:'flex',alignItems:'center',flexShrink:0,transition:'color 0.15s'}}
+            title={state.recording ? 'Stop recording before leaving' : 'Back to dashboard'}
+          >
+            ←
+          </button>
           <img src="/icon-mark.svg" alt="WhispaCuts" style={{width:30,height:30,flexShrink:0}}/>
           <div style={{display:'flex',flexDirection:'column',lineHeight:1.2}}>
             <span className="brand-word">WhispaCuts</span>
