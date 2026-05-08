@@ -8,7 +8,7 @@ import {
   Trash2, Check, Loader2, Volume2, Radio,
 } from 'lucide-react'
 import { useStore } from '../store'
-import { api, chat as chatApi } from '../lib/api'
+import { api } from '../lib/api'
 import { getSession } from '../lib/supabase'
 import { detectMic, buildConstraints, getRecordingBitrate, needsStereoSum, describeMic } from '../lib/micDetect'
 import MascotOrb from '../components/companion/MascotOrb'
@@ -469,7 +469,7 @@ export default function Companion() {
         </div>
 
         <div style={{position:'absolute',inset:0,opacity:state.screen==='brainstorm'?1:0,pointerEvents:state.screen==='brainstorm'?'auto':'none',transition:'opacity 0.2s ease'}}>
-          <BrainstormScreen categoryId={activeCategoryId} active={state.screen==='brainstorm'}/>
+
         </div>
 
       </div>
@@ -535,180 +535,4 @@ function EntryRow({ entry, onDelete }) {
       {lowConf&&<span style={{fontSize:8,color:'#555',marginLeft:4,flexShrink:0}}>?</span>}
     </div>
   )
-}
-
-function BrainstormScreen({ categoryId, active }) {
-  const [messages,setMessages]=useState([])
-  const [input,setInput]=useState('')
-  const [streaming,setStreaming]=useState(false)
-  const [streamText,setStreamText]=useState('')
-  const [orbMood,setOrbMood]=useState('idle')
-  const [generating,setGenerating]=useState(false)
-  const [genPct,setGenPct]=useState(0)
-  const [generated,setGenerated]=useState(null)
-  const bottomRef=useRef(null)
-  const inputRef=useRef(null)
-  const abortRef=useRef(null)
-  const genTimerRef=useRef(null)
-
-  useEffect(()=>{return()=>{abortRef.current?.abort()}},[])
-  useEffect(()=>{if(!categoryId)return;chatApi.getHistory({categoryId,mode:'generate'}).then(({messages:h})=>setMessages(h||[])).catch(()=>{})},[categoryId])
-  useEffect(()=>{bottomRef.current?.scrollIntoView({behavior:'smooth'})},[messages,streamText])
-  useEffect(()=>{if(active)setTimeout(()=>inputRef.current?.focus(),200)},[active])
-
-  async function send() {
-    const text=input.trim()
-    if(!text||streaming)return
-    setMessages(p=>[...p,{role:'user',content:text,timestamp:new Date().toISOString()}])
-    setInput('');setStreaming(true);setStreamText('');setOrbMood('processing')
-    abortRef.current?.abort()
-    const ctrl=new AbortController();abortRef.current=ctrl
-    try {
-      await chatApi.send({categoryId,mode:'generate',message:text,messages:[]},{
-        chunk:({text:t})=>setStreamText(p=>p+t),
-        done:({response})=>{setMessages(p=>[...p,{role:'assistant',content:response,timestamp:new Date().toISOString()}]);setStreamText('');setStreaming(false);setOrbMood('active');setTimeout(()=>setOrbMood('idle'),3000)},
-        error:()=>{setStreamText('');setStreaming(false);setOrbMood('idle')},
-      },ctrl.signal)
-    }catch(e){if(e.name!=='AbortError'){setStreaming(false);setOrbMood('idle')}}
-  }
-
-  async function generateFromChat() {
-    if(generating||!categoryId)return
-    setGenerating(true);setOrbMood('processing');setGenPct(0)
-    // Animate progress bar while waiting for generation
-    let pct=0
-    genTimerRef.current=setInterval(()=>{
-      pct=pct<60?pct+1.5:pct<80?pct+0.5:pct<92?pct+0.15:pct
-      setGenPct(Math.min(pct,92))
-    },300)
-    abortRef.current?.abort()
-    const ctrl=new AbortController();abortRef.current=ctrl
-    try {
-      await chatApi.generateEpisode({categoryId,mode:'generate'},{
-        progress:({message})=>setMessages(p=>{const l=p[p.length-1];return l?.isGenerating?[...p.slice(0,-1),{...l,content:message}]:[...p,{role:'assistant',content:message,isGenerating:true}]}),
-        done:({parsed})=>{
-          clearInterval(genTimerRef.current);setGenPct(100)
-          setTimeout(()=>setGenPct(0),600)
-          setMessages(p=>p.filter(m=>!m.isGenerating));setGenerated(parsed?.metadata?.trackName || 'Your episode');setGenerating(false);setOrbMood('discovery');setTimeout(()=>setOrbMood('idle'),4000)
-        },
-        error:()=>{clearInterval(genTimerRef.current);setGenPct(0);setMessages(p=>p.filter(m=>!m.isGenerating));setGenerating(false);setOrbMood('idle')},
-      },ctrl.signal)
-    }catch(e){if(e.name!=='AbortError'){clearInterval(genTimerRef.current);setGenPct(0);setGenerating(false);setOrbMood('idle')}}
-  }
-
-  const canGenerate=messages.length>=4&&!streaming&&!generating
-
-  return (
-    <div style={{display:'flex',flexDirection:'column',height:'100%',background:'rgba(10,12,18,0.97)',position:'relative'}}>
-      <div style={{position:'absolute',top:0,left:0,right:0,height:1,background:'linear-gradient(90deg,transparent 0%,rgba(74,222,128,0) 10%,rgba(74,222,128,0.7) 35%,rgba(74,222,128,1) 50%,rgba(74,222,128,0.7) 65%,rgba(74,222,128,0) 90%,transparent 100%)',zIndex:2}}/>
-      <div style={{position:'absolute',top:0,left:'10%',right:'10%',height:40,background:'radial-gradient(ellipse at 50% 0%,rgba(74,222,128,0.12) 0%,transparent 70%)',pointerEvents:'none',zIndex:1}}/>
-      <div style={{display:'flex',justifyContent:'center',paddingTop:16,paddingBottom:4,flexShrink:0,zIndex:3}}>
-        <MascotOrb mood={orbMood} audioLevel={0} size={160}/>
-      </div>
-      <div style={{textAlign:'center',paddingBottom:10,flexShrink:0}}>
-        <div style={{fontFamily:"'Figtree',sans-serif",fontSize:10,fontWeight:500,letterSpacing:'0.10em',textTransform:'uppercase',color:'rgba(255,255,255,0.3)',marginBottom:2}}>Knowledge Base</div>
-        <div style={{fontFamily:"'Syne',sans-serif",fontSize:15,fontWeight:600,color:'rgba(74,222,128,1)',letterSpacing:'-0.01em'}}>Brainstorm</div>
-        {messages.length > 0 && (
-          <button
-            onClick={() => { abortRef.current?.abort(); setMessages([]); setStreamText(''); setStreaming(false); setGenerated(null); setGenerating(false); setOrbMood('idle') }}
-            style={{marginTop:8,fontSize:10,color:'rgba(255,255,255,0.2)',background:'none',border:'none',cursor:'pointer',fontFamily:"'Figtree',sans-serif",letterSpacing:'0.05em',padding:'4px 8px',borderRadius:6,transition:'color 0.15s'}}
-            onMouseEnter={e=>e.currentTarget.style.color='rgba(255,255,255,0.45)'}
-            onMouseLeave={e=>e.currentTarget.style.color='rgba(255,255,255,0.2)'}
-          >
-            ↺ New conversation
-          </button>
-        )}
-      </div>
-      <div style={{flex:1,minHeight:0,overflowY:'auto',overflowX:'hidden',padding:'8px 16px',display:'flex',flexDirection:'column',gap:10,scrollbarWidth:'thin',scrollbarColor:'rgba(255,255,255,0.05) transparent',WebkitOverflowScrolling:'touch'}}>
-        {messages.length===0&&!streaming&&(
-          <div style={{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',height:'100%',textAlign:'center',gap:6}}>
-            <div style={{fontSize:28,marginBottom:4,opacity:0.2,color:'rgba(74,222,128,1)'}}>✦</div>
-            <div style={{fontFamily:"'Figtree',sans-serif",fontSize:13,color:'rgba(74,222,128,0.4)'}}>Hooks, structure, trending angles...</div>
-          </div>
-        )}
-        {messages.map((m,i)=>(
-          <div key={i} style={{display:'flex',justifyContent:m.role==='user'?'flex-end':'flex-start'}}>
-            <div style={{maxWidth:'82%',padding:'10px 14px',borderRadius:12,fontFamily:"'Figtree',sans-serif",fontSize:14,lineHeight:1.65,fontWeight:400,whiteSpace:'pre-wrap',wordBreak:'break-word',...(m.role==='user'?{borderBottomRightRadius:3,background:'rgba(255,255,255,0.05)',border:'1px solid rgba(255,255,255,0.08)',color:'#e8eaed'}:{borderBottomLeftRadius:3,background:'rgba(255,255,255,0.02)',border:'1px solid rgba(255,255,255,0.04)',color:'#b0b5c0'})}}>
-              <KBMsg content={m.content}/>
-              {m.isGenerating&&<span style={{color:'rgba(74,222,128,0.6)',marginLeft:6}}>✦</span>}
-            </div>
-          </div>
-        ))}
-        {streaming&&streamText&&(
-          <div style={{display:'flex',justifyContent:'flex-start'}}>
-            <div style={{maxWidth:'82%',padding:'10px 14px',borderRadius:12,borderBottomLeftRadius:3,fontFamily:"'Figtree',sans-serif",fontSize:14,lineHeight:1.65,whiteSpace:'pre-wrap',wordBreak:'break-word',background:'rgba(255,255,255,0.02)',border:'1px solid rgba(255,255,255,0.04)',color:'#b0b5c0'}}>
-              <KBMsg content={streamText}/>
-              <span style={{display:'inline-block',width:2,height:12,borderRadius:1,marginLeft:2,verticalAlign:'middle',background:'rgba(74,222,128,0.8)',animation:'kb-blink 1s infinite'}}/>
-            </div>
-          </div>
-        )}
-        {streaming&&!streamText&&(
-          <div style={{display:'flex',gap:5,padding:'10px 0'}}>
-            {[0,1,2].map(i=><div key={i} style={{width:4,height:4,borderRadius:'50%',background:'rgba(74,222,128,1)',animation:`kb-bounce 0.8s ${i*150}ms infinite`}}/>)}
-          </div>
-        )}
-        <div ref={bottomRef}/>
-      </div>
-      {generated&&(
-        <div style={{padding:'14px 16px',display:'flex',alignItems:'center',justifyContent:'space-between',gap:12,borderTop:'1px solid rgba(74,222,128,0.2)',background:'rgba(74,222,128,0.07)',flexShrink:0}}>
-          <div style={{display:'flex',alignItems:'center',gap:8}}>
-            <div style={{width:20,height:20,borderRadius:'50%',background:'rgba(74,222,128,0.2)',border:'1px solid rgba(74,222,128,0.5)',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
-              <Check size={11} style={{color:'rgba(74,222,128,1)'}}/>
-            </div>
-            <div>
-              <div style={{fontSize:12,fontWeight:600,color:'rgba(74,222,128,1)',fontFamily:"'Figtree',sans-serif"}}>KB is done</div>
-              <div style={{fontSize:10,color:'rgba(74,222,128,0.5)',fontFamily:"'Figtree',sans-serif",marginTop:1}}>"{generated}" is ready to review</div>
-            </div>
-          </div>
-          <button
-            onClick={()=>window.location.href='/'}
-            style={{fontSize:11,fontWeight:600,padding:'6px 12px',borderRadius:8,border:'1px solid rgba(74,222,128,0.4)',background:'rgba(74,222,128,0.12)',color:'rgba(74,222,128,1)',cursor:'pointer',fontFamily:"'Figtree',sans-serif",whiteSpace:'nowrap'}}
-          >
-            Open app →
-          </button>
-        </div>
-      )}
-      {canGenerate&&(
-        <div style={{margin:'0 12px 8px',padding:'9px 13px',borderRadius:9,border:'1px solid rgba(74,222,128,0.12)',background:'rgba(74,222,128,0.04)',display:'flex',alignItems:'center',justifyContent:'space-between',flexShrink:0}}>
-          <span style={{fontFamily:"'Figtree',sans-serif",fontSize:13,color:'rgba(74,222,128,0.55)'}}>Ready to generate</span>
-          <button onClick={generateFromChat} style={{fontFamily:"'Figtree',sans-serif",fontSize:13,fontWeight:500,padding:'5px 10px',borderRadius:6,border:'1px solid rgba(74,222,128,0.18)',background:'rgba(74,222,128,0.07)',color:'rgba(74,222,128,0.85)',cursor:'pointer',display:'flex',alignItems:'center',gap:5}}>
-            {generating?<Loader2 size={9}/>:<Sparkles size={9}/>}{generating?'Generating...':'Generate episode'}
-          </button>
-        </div>
-      )}
-      <div style={{padding:'8px 16px 16px',flexShrink:0}}>
-        <div style={{display:'flex',gap:8,background:'rgba(255,255,255,0.025)',border:'1px solid rgba(255,255,255,0.07)',borderRadius:10,padding:'8px 12px'}}>
-          <input ref={inputRef} value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>e.key==='Enter'&&send()} placeholder="Hooks, structure, trending angles..." style={{flex:1,background:'transparent',border:'none',outline:'none',fontFamily:"'Figtree',sans-serif",fontSize:14,lineHeight:1.5,color:'#e8eaed'}}/>
-          <button onClick={send} disabled={!input.trim()||streaming} style={{alignSelf:'flex-end',width:30,height:30,borderRadius:7,border:'none',cursor:input.trim()&&!streaming?'pointer':'not-allowed',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,background:input.trim()&&!streaming?'rgba(74,222,128,1)':'rgba(255,255,255,0.04)',color:input.trim()&&!streaming?'#080808':'rgba(255,255,255,0.2)',transition:'all 0.15s',opacity:!input.trim()||streaming?0.4:1}}>
-            <Send size={12}/>
-          </button>
-        </div>
-      </div>
-
-      {/* KB generation progress overlay — inside relative container */}
-      {generating && (
-        <div style={{position:'fixed',inset:0,zIndex:50,background:'rgba(8,12,16,0.92)',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:16,backdropFilter:'blur(6px)'}}>
-          <div style={{fontFamily:"'Syne',sans-serif",fontWeight:700,fontSize:16,color:'rgba(74,222,128,1)',textAlign:'center',padding:'0 32px'}}>
-            {genPct < 25 ? 'KB is reading your conversation...' : genPct < 50 ? 'KB is structuring the episode...' : genPct < 75 ? 'KB is writing your VO script...' : 'KB is compiling your package...'}
-          </div>
-          <div style={{width:240}}>
-            <div style={{display:'flex',justifyContent:'space-between',marginBottom:6}}>
-              <span style={{fontSize:10,color:'rgba(74,222,128,0.5)',fontFamily:"'Figtree',sans-serif",letterSpacing:'0.08em',textTransform:'uppercase'}}>Knowledge Base</span>
-              <span style={{fontSize:10,color:'rgba(74,222,128,0.5)',fontFamily:"'Figtree',sans-serif"}}>{Math.round(genPct)}%</span>
-            </div>
-            <div style={{height:3,background:'rgba(74,222,128,0.1)',borderRadius:2,overflow:'hidden'}}>
-              <div style={{height:'100%',width:`${genPct}%`,background:'linear-gradient(90deg,rgba(74,222,128,0.6),rgba(74,222,128,1))',borderRadius:2,transition:'width 0.3s ease'}}/>
-            </div>
-          </div>
-        </div>
-      )}
-
-      <style>{`@keyframes kb-bounce{0%,80%,100%{transform:translateY(0);opacity:.25}40%{transform:translateY(-4px);opacity:.9}}@keyframes kb-blink{0%,100%{opacity:0}50%{opacity:1}}`}</style>
-    </div>
-  )
-}
-
-function KBMsg({ content }) {
-  const parts=(content||'').split(/(\*\*[^*]+\*\*|`[^`]+`|\n)/g)
-  return <span>{parts.map((p,i)=>{if(p.startsWith('**')&&p.endsWith('**'))return<strong key={i} style={{color:'#e8eaed',fontWeight:600}}>{p.slice(2,-2)}</strong>;if(p.startsWith('`')&&p.endsWith('`'))return<code key={i} style={{fontFamily:'monospace',fontSize:12,background:'rgba(255,255,255,0.06)',padding:'1px 5px',borderRadius:3,color:'#b0b5c0'}}>{p.slice(1,-1)}</code>;if(p==='\n')return<br key={i}/>;return p})}</span>
 }
