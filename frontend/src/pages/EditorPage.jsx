@@ -5,13 +5,13 @@
 import { useState, useEffect } from 'react'
 import { Layers, Film, Download, Cpu, FolderOpen } from 'lucide-react'
 import { useStore } from '../store'
+import NextStepBanner from '../components/layout/NextStepBanner'
 import { useClipIndexer } from '../hooks/useClipIndexer'
 import ClipLibrary   from '../components/editor/ClipLibrary'
 import HybridTimeline from '../components/editor/HybridTimeline'
 import EditorExport  from '../components/editor/EditorExport'
 import IndexingPanel from '../components/editor/IndexingPanel'
-import NextStepBanner from '../components/layout/NextStepBanner'
-import { api }       from '../lib/api'
+import { api, episodes as episodesApi } from '../lib/api'
 
 const TABS = [
   { key: 'library',  label: 'Clip library',  icon: Layers },
@@ -24,8 +24,7 @@ export default function EditorPage() {
   const [tab,       setTab]       = useState('library')
   const [project,   setProject]   = useState(null)
   const [projects,  setProjects]  = useState([])
-  const [showIndex,  setShowIndex]  = useState(false)
-  const [exportReady, setExportReady] = useState(false)
+  const [showIndex, setShowIndex] = useState(false)
 
   const cat      = activeCategory?.()
   const indexer  = useClipIndexer()
@@ -95,9 +94,8 @@ export default function EditorPage() {
       {/* Indexing panel */}
       {showIndex && (
         <IndexingPanel
-          categoryId={activeCategoryId}
+          indexer={indexer}
           onClose={() => setShowIndex(false)}
-          onIndexed={() => { setShowIndex(false) }}
         />
       )}
 
@@ -149,15 +147,12 @@ export default function EditorPage() {
           </div>
 
           {tab === 'library'  && <ClipLibrary    project={project} computeSearchVectors={indexer.computeSearchVectors} />}
-          {tab === 'timeline' && <HybridTimeline  project={project} onProjectUpdate={(updated) => {
+          {tab === 'timeline' && <HybridTimeline project={project} onProjectUpdate={(updated) => {
             setProject(updated)
-            // Advance pipeline stage when clips are approved
             if (updated?.timeline?.filter(cl => cl.approved).length > 0) {
               setExportReady(true)
               if (updated?.episode_id) {
-                import('../lib/api').then(({ episodes: ep }) =>
-                  ep.patch(updated.episode_id, { pipeline_stage: 'edited' }).catch(() => {})
-                )
+                episodesApi.patch(updated.episode_id, { pipeline_stage: 'edited' }).catch(() => {})
               }
             }
           }} />}
@@ -165,12 +160,12 @@ export default function EditorPage() {
         </>
       )}
 
-    {/* Next step: export is ready */}
-    {exportReady && project && (
+    {/* Next step — shown after clips approved */}
+    {exportReady && (
       <NextStepBanner
         title="Edit approved — download your package"
-        subtitle="Export your EDL/FCPXML then head to Schedule to plan your publish date"
-        ctaLabel="Go to Export"
+        subtitle="Export your EDL or FCPXML, then import into DaVinci Resolve to render your final video"
+        ctaLabel="Export"
         onCta={() => setTab('export')}
       />
     )}

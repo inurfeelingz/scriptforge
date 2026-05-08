@@ -346,7 +346,7 @@ export default function Dashboard() {
           <h1 className="text-2xl font-serif text-[#f0ede8]">Dashboard</h1>
           {cat && <p className="text-sm text-[#555] mt-1">{cat.name} · {cat.niche}</p>}
         </div>
-        <Link to="/generate"
+        <Link to="/companion"
           className="flex items-center gap-2 px-4 py-2 bg-[#c8b89a] text-[#080808] rounded text-sm font-medium hover:bg-[#e8c87a] transition-all">
           <Sparkles size={13}/> New episode
         </Link>

@@ -333,14 +333,7 @@ export default function AppLayout() {
                 <CreditCard size={18} style={{ flexShrink: 0 }}/>
                 {showLabels && <span>Billing</span>}
               </NavLink>
-              <a
-                href="/companion" target="_blank" rel="noopener noreferrer"
-                style={{ ...NAV_INACTIVE, justifyContent: (!showLabels && !isMobile) ? 'center' : 'flex-start', padding: (!showLabels && !isMobile) ? '10px' : '8px 14px' }}
-                title={(!showLabels && !isMobile) ? 'Companion' : undefined}
-              >
-                <Smartphone size={18} style={{ flexShrink: 0 }}/>
-                {showLabels && <span>Companion</span>}
-              </a>
+
               <NavLink
                 to="/settings"
                 onClick={() => setMobileOpen(false)}

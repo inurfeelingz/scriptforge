@@ -124,7 +124,7 @@ export const episodes = {
   usage:       ()          => req('GET',  '/episodes/usage'),
   hookVariants:(body)      => req('POST', '/episodes/hook-variants', body),
   regenerateSection: (id, section, handlers) => streamRequest(`/episodes/${id}/regenerate-section`, { section }, handlers),
-  patch:       (id, body)  => req('PATCH', `/episodes/${id}`, body),
+  patch:       (id, body) => req('PATCH', `/episodes/${id}`, body),
 }
 
 // ── Vault ─────────────────────────────────────────────────────────────────────
