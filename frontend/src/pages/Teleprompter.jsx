@@ -247,6 +247,7 @@ export default function Teleprompter() {
       if (selectedEpId) {
         episodesApi.patch(selectedEpId, { pipeline_stage: 'vo_recorded' }).catch(() => {})
       }
+      if (selectedEpId) episodesApi.patch(selectedEpId, { pipeline_stage: 'vo_recorded' }).catch(() => {})
       setRecState('done')
       notify(
         aligned > 0
@@ -558,6 +559,17 @@ export default function Teleprompter() {
           </button>
         </div>
       </div>
+
+    {/* Pipeline CTA — after VO recorded */}
+    {(recState === 'done') && (
+      <NextStepBanner
+        title="VO recorded — now plan your shoot"
+        subtitle="Your shot list tells you exactly what to film for this episode"
+        ctaLabel="View shot list"
+        ctaRoute="/storyboard"
+      />
+    )}
+
     </div>
   )
 }

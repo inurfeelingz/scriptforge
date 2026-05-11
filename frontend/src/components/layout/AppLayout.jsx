@@ -192,6 +192,13 @@ export default function AppLayout() {
     return () => window.removeEventListener('resize', check)
   }, [])
 
+  // Listen for kb:open event (from Dashboard New Episode button)
+  useEffect(() => {
+    const handler = () => setChatOpen(true)
+    window.addEventListener('kb:open', handler)
+    return () => window.removeEventListener('kb:open', handler)
+  }, [])
+
   // Close drawer on route change (mobile)
   useEffect(() => { setMobileOpen(false) }, [activeCategoryId])
 

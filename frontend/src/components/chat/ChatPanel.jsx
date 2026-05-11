@@ -5,10 +5,11 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import {
   Send, Trash2, Loader2, BookmarkPlus, Check,
-  Plus, Clock, X, Sparkles,
+  Plus, Clock, X, Sparkles, Mic, MicOff, Volume2,
 } from 'lucide-react'
 import { useStore } from '../../store'
 import { chat as chatApi } from '../../lib/api'
+import useKBVoice from '../../hooks/useKBVoice'
 import { useLocation } from 'react-router-dom'
 
 const MODE_MAP = {
@@ -476,6 +477,7 @@ export default function ChatPanel() {
     if (!text || streaming) return
     setMessages(prev => [...prev, { role: 'user', content: text, timestamp: new Date().toISOString() }])
     setInput('')
+    setCommitted(null) // Reset so commit button reappears after new messages
     setStreaming(true)
     setStreamText('')
 
@@ -603,7 +605,7 @@ export default function ChatPanel() {
   }
 
   const isSeriesMode = mode === 'series' || mode === 'generate'
-  const canCommit    = isSeriesMode && messages.length >= 4 && !committed
+  const canCommit    = isSeriesMode && messages.length >= 4
   const canGenerate  = isSeriesMode && messages.length >= 4 && !generated && !streaming && !generating
 
   // ── HISTORY VIEW ─────────────────────────────────────────────────────────
@@ -698,6 +700,12 @@ export default function ChatPanel() {
           <button className="kb-action-btn" onClick={newChat}>
             <Plus size={9}/> New chat
           </button>
+          {/* Commit hint */}
+          {canCommit && !committed && messages.length >= 4 && (
+            <div style={{fontSize:9,color:'rgba(255,255,255,0.2)',textAlign:'center',marginBottom:2}}>
+              or say "commit" to lock in
+            </div>
+          )}
           {canCommit && (
             <button className="kb-action-btn accent" onClick={commitEpisode} disabled={committing}
               style={{ color: meta.color, borderColor: meta.color + '30' }}>

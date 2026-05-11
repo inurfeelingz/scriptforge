@@ -70,6 +70,7 @@ async function assembleContext(userId, categoryId, options = {}) {
     clipIndexData,
     scriptLibrary,
     plannedEpisodes,
+    recentVoiceMemos,
   ] = await Promise.all([
     getCategory(userId, categoryId),
     getRecentEpisodes(userId, categoryId, 5),
@@ -82,6 +83,7 @@ async function assembleContext(userId, categoryId, options = {}) {
     getClipIndexData(userId),
     getScriptLibrary(userId, categoryId),
     getPlannedEpisodes(userId, categoryId),
+    getRecentVoiceMemos(userId, categoryId),
   ]);
 
   if (!category) return buildMinimalContext(mode);
@@ -216,6 +218,12 @@ ${clipLines}`)
 ${vaultHighlights.map(v =>
   `[${v.type}] "${v.title}": ${v.content.slice(0, 100)}...`
 ).join('\n')}`);
+  }
+
+  // ── RECENT VOICE MEMOS (from Companion sessions) ────────
+  if (recentVoiceMemos?.length) {
+    sections.push(`## RECENT VOICE MEMOS (creator's raw ideas, in their own words)
+${recentVoiceMemos.map(m => `[${new Date(m.created_at).toLocaleDateString()}] "${m.voice_memo_text?.slice(0, 400)}${m.voice_memo_text?.length > 400 ? '...' : ''}"`).join('\n\n')}`)
   }
 
   // ── SCRIPT LIBRARY ────────────────────────────────────────
@@ -461,6 +469,20 @@ async function getScriptLibrary(userId, categoryId) {
 
 function buildMinimalContext(mode) {
   return `# WHISPACUTS\nYou are the AI creative layer in WhispaCuts.\nMode: ${mode.toUpperCase()}\nNo category context loaded yet — help the user get set up.`;
+}
+
+async function getRecentVoiceMemos(userId, categoryId) {
+  try {
+    const { data } = await supabase
+      .from('sessions')
+      .select('voice_memo_text, created_at, title')
+      .eq('user_id', userId)
+      .eq('category_id', categoryId)
+      .not('voice_memo_text', 'is', null)
+      .order('created_at', { ascending: false })
+      .limit(3)
+    return data || []
+  } catch { return [] }
 }
 
 module.exports = { assembleContext, invalidateContext };

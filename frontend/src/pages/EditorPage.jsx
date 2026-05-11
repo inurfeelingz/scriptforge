@@ -170,6 +170,17 @@ export default function EditorPage() {
       />
     )}
 
+
+    {/* Pipeline CTA — after clips approved */}
+    {exportReady && (
+      <NextStepBanner
+        title="Edit approved — download your package"
+        subtitle="Export as EDL or FCPXML and import into DaVinci Resolve to render your final video"
+        ctaLabel="Go to Export"
+        onCta={() => setTab('export')}
+      />
+    )}
+
     </div>
   )
 }

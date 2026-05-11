@@ -520,6 +520,7 @@ export default function Generate() {
             setSelectedHook(null)
             setShowVariants(false)
             notify('Episode package ready', 'success')
+            if (eid) episodesApi.patch(eid, { pipeline_stage: 'generated' }).catch(() => {})
           },
           error: ({ message }) => {
             notify('Generation failed: ' + message, 'error')

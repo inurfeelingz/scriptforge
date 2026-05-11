@@ -116,8 +116,6 @@ ${clipList}
 VOICE MEMO:
 "${voiceMemoText || 'No voice memo provided — use track context to infer the story'}"
 
-Before writing, think out loud: explain your hook choice, your opening clip decision, which trending angle you're using and why, and your intercut rhythm decision. Then generate the full package in the required format.
-
 Return using these exact section markers:
 ===REASONING===
 [Your structural thinking — 3-5 sentences]

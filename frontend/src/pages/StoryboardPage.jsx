@@ -2,6 +2,7 @@
 import { useState, useEffect } from 'react'
 import { Film, Wand2, Trash2, ChevronRight, Camera, FileText, FileSpreadsheet } from 'lucide-react'
 import { useStore } from '../store'
+import NextStepBanner from '../components/layout/NextStepBanner'
 import { api } from '../lib/api'
 
 const SHOT_META = {
@@ -446,6 +447,17 @@ function ShotCard({ frame }) {
           </p>
         </div>
       )}
+
+    {/* Pipeline CTA — after shot list viewed */}
+    {active?.frames?.length > 0 && (
+      <NextStepBanner
+        title="Shot list ready — go film your footage"
+        subtitle="Once filmed, upload your clips in the Editor to AI-assemble your edit"
+        ctaLabel="Upload footage"
+        ctaRoute="/editor"
+      />
+    )}
+
     </div>
   )
 }
