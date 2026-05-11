@@ -443,11 +443,12 @@ export default function ChatPanel() {
   const { listening, speaking, audioLevel: voiceLevel, supported: voiceSupported,
           startListening, stopListening, speak, stopSpeaking } = useKBVoice({
     onTranscript: ({ text, isFinal, interim }) => {
-      // Show interim text in input as visual feedback
-      setInput(isFinal ? text : (interim || text))
+      // Show words appearing in real time as feedback
+      setInput(text || interim || '')
+      // Only send when speech recognition gives a final result
       if (isFinal && text.trim()) {
         voiceUsedRef.current = true
-        setTimeout(() => sendMessage(text), 400)
+        sendMessage(text.trim())
       }
     },
   })

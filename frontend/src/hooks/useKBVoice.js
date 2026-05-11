@@ -60,33 +60,22 @@ export default function useKBVoice({ onTranscript, enabled = true }) {
     if (!SpeechRecognition) return
 
     const rec = new SpeechRecognition()
-    rec.continuous      = true   // keep listening until manually stopped
-    rec.interimResults  = true   // show partial results as feedback
+    rec.continuous      = false  // stops after natural speech pause
+    rec.interimResults  = true   // show words appearing as feedback only
     rec.lang            = 'en-US'
     recognitionRef.current = rec
 
-    let finalTranscript = ''
-
     rec.onresult = (e) => {
+      // Show interim words in input as visual feedback — don't send yet
       let interim = ''
-      finalTranscript = ''
+      let final = ''
       for (let i = 0; i < e.results.length; i++) {
-        if (e.results[i].isFinal) {
-          finalTranscript += e.results[i][0].transcript
-        } else {
-          interim += e.results[i][0].transcript
-        }
+        if (e.results[i].isFinal) final += e.results[i][0].transcript
+        else interim += e.results[i][0].transcript
       }
-      // Show interim in input so user sees it's working
-      if (interim || finalTranscript) {
-        onTranscript?.({ text: finalTranscript || interim, isFinal: !!finalTranscript, interim })
-      }
+      onTranscript?.({ text: final || interim, isFinal: !!final, interim })
     }
     rec.onend = () => {
-      // Auto-send final transcript when recognition ends
-      if (finalTranscript.trim()) {
-        onTranscript?.({ text: finalTranscript.trim(), isFinal: true, interim: '' })
-      }
       setListening(false)
       stopAnalysis()
     }
@@ -96,7 +85,6 @@ export default function useKBVoice({ onTranscript, enabled = true }) {
       stopAnalysis()
     }
 
-    // Get mic stream for level visualization
     navigator.mediaDevices?.getUserMedia({ audio: true }).then(stream => {
       startAnalysis(stream)
     }).catch(() => {})
