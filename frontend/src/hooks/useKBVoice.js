@@ -60,28 +60,45 @@ export default function useKBVoice({ onTranscript, enabled = true }) {
     if (!SpeechRecognition) return
 
     const rec = new SpeechRecognition()
-    rec.continuous      = false
-    rec.interimResults  = false
+    rec.continuous      = true   // keep listening until manually stopped
+    rec.interimResults  = true   // show partial results as feedback
     rec.lang            = 'en-US'
     recognitionRef.current = rec
 
+    let finalTranscript = ''
+
     rec.onresult = (e) => {
-      const transcript = e.results[0]?.[0]?.transcript?.trim()
-      if (transcript) onTranscript?.(transcript)
+      let interim = ''
+      finalTranscript = ''
+      for (let i = 0; i < e.results.length; i++) {
+        if (e.results[i].isFinal) {
+          finalTranscript += e.results[i][0].transcript
+        } else {
+          interim += e.results[i][0].transcript
+        }
+      }
+      // Show interim in input so user sees it's working
+      if (interim || finalTranscript) {
+        onTranscript?.({ text: finalTranscript || interim, isFinal: !!finalTranscript, interim })
+      }
     }
     rec.onend = () => {
+      // Auto-send final transcript when recognition ends
+      if (finalTranscript.trim()) {
+        onTranscript?.({ text: finalTranscript.trim(), isFinal: true, interim: '' })
+      }
       setListening(false)
       stopAnalysis()
     }
-    rec.onerror = () => {
+    rec.onerror = (e) => {
+      console.warn('[voice] error:', e.error)
       setListening(false)
       stopAnalysis()
     }
 
-    // Get mic stream for orb animation
+    // Get mic stream for level visualization
     navigator.mediaDevices?.getUserMedia({ audio: true }).then(stream => {
       startAnalysis(stream)
-      stream.getTracks().forEach(t => t.stop()) // stop actual stream, analyser is already connected
     }).catch(() => {})
 
     rec.start()
@@ -89,7 +106,7 @@ export default function useKBVoice({ onTranscript, enabled = true }) {
   }, [enabled, onTranscript])
 
   const stopListening = useCallback(() => {
-    recognitionRef.current?.stop()
+    recognitionRef.current?.stop()  // triggers onend which handles final send
     setListening(false)
     stopAnalysis()
   }, [])

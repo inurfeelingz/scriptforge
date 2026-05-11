@@ -442,7 +442,14 @@ export default function ChatPanel() {
 
   const { listening, speaking, audioLevel: voiceLevel, supported: voiceSupported,
           startListening, stopListening, speak, stopSpeaking } = useKBVoice({
-    onTranscript: (text) => { voiceUsedRef.current = true; setInput(text) },
+    onTranscript: ({ text, isFinal, interim }) => {
+      // Show interim text in input as visual feedback
+      setInput(isFinal ? text : (interim || text))
+      if (isFinal && text.trim()) {
+        voiceUsedRef.current = true
+        setTimeout(() => sendMessage(text), 400)
+      }
+    },
   })
 
   // Cancel any in-flight stream when the panel unmounts (tab switch, page change)
@@ -478,8 +485,8 @@ export default function ChatPanel() {
     }
   }, [messages, streamText])
 
-  const sendMessage = useCallback(async () => {
-    const text = input.trim()
+  const sendMessage = useCallback(async (overrideText) => {
+    const text = (overrideText || input).trim()
     if (!text || streaming) return
     setMessages(prev => [...prev, { role: 'user', content: text, timestamp: new Date().toISOString() }])
     setInput('')
@@ -815,7 +822,7 @@ export default function ChatPanel() {
             {voiceSupported && (
               <button
                 onClick={speaking ? stopSpeaking : listening ? stopListening : startListening}
-                style={{width:32,height:32,borderRadius:8,border:'none',flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center',background:speaking?'rgba(74,222,128,0.15)':listening?'rgba(224,48,48,0.15)':'rgba(255,255,255,0.04)',color:speaking?'rgba(74,222,128,0.9)':listening?'#e03030':'rgba(255,255,255,0.25)',cursor:'pointer',transition:'all 0.15s'}}
+                style={{width:32,height:32,borderRadius:8,border:'none',flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center',background:speaking?'rgba(74,222,128,0.15)':listening?'rgba(224,48,48,0.15)':'rgba(255,255,255,0.04)',color:speaking?'rgba(74,222,128,0.9)':listening?'#e03030':'rgba(255,255,255,0.25)',cursor:'pointer',transition:'all 0.15s',transform:listening&&voiceLevel>0.1?`scale(${1+voiceLevel*0.3})`:'scale(1)'}}
                 title={speaking?'Stop KB':listening?'Stop':'Voice input'}
               >
                 {speaking?<Volume2 size={13}/>:listening?<MicOff size={13}/>:<Mic size={13}/>}
