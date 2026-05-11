@@ -438,6 +438,12 @@ export default function ChatPanel() {
   const bottomRef   = useRef(null)
   const inputRef    = useRef(null)
   const abortRef    = useRef(null)   // AbortController for the active stream
+  const voiceUsedRef  = useRef(false)
+
+  const { listening, speaking, audioLevel: voiceLevel, supported: voiceSupported,
+          startListening, stopListening, speak, stopSpeaking } = useKBVoice({
+    onTranscript: (text) => { voiceUsedRef.current = true; setInput(text) },
+  })
 
   // Cancel any in-flight stream when the panel unmounts (tab switch, page change)
   useEffect(() => {
