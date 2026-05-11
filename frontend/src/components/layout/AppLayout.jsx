@@ -192,13 +192,6 @@ export default function AppLayout() {
     return () => window.removeEventListener('resize', check)
   }, [])
 
-  // Listen for kb:open event (from Dashboard New Episode button)
-  useEffect(() => {
-    const handler = () => setChatOpen(true)
-    window.addEventListener('kb:open', handler)
-    return () => window.removeEventListener('kb:open', handler)
-  }, [])
-
   // Close drawer on route change (mobile)
   useEffect(() => { setMobileOpen(false) }, [activeCategoryId])
 
@@ -533,14 +526,23 @@ export default function AppLayout() {
           </div>
         )}
 
-        {/* Floating KB orb — hidden on companion route and on mobile */}
+        {/* Floating KB orb — centered above chat sheet, hidden on companion + mobile */}
         {!isCompanion && !isMobile && (
-          <KBOrb
-            mood={chatOpen ? 'active' : 'idle'}
-            onClick={() => setChatOpen(!chatOpen)}
-            isOpen={chatOpen}
-            offsetBottom={chatOpen ? 'calc(72vh + 16px)' : '32px'}
-          />
+          <div style={{
+            position:   'fixed',
+            bottom:     chatOpen ? 'calc(72vh - 60px)' : '20px',
+            left:       '50%',
+            transform:  'translateX(-50%)',
+            zIndex:     45,
+            transition: 'bottom 0.4s cubic-bezier(0.32,0.72,0,1)',
+          }}>
+            <KBOrb
+              mood={chatOpen ? 'active' : 'idle'}
+              onClick={() => setChatOpen(!chatOpen)}
+              isOpen={chatOpen}
+              offsetBottom="0px"
+            />
+          </div>
         )}
       </main>
 

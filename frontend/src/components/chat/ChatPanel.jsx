@@ -814,7 +814,7 @@ export default function ChatPanel() {
             />
             {voiceSupported && (
               <button
-                onMouseDown={speaking ? stopSpeaking : listening ? stopListening : startListening}
+                onClick={speaking ? stopSpeaking : listening ? stopListening : startListening}
                 style={{width:32,height:32,borderRadius:8,border:'none',flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center',background:speaking?'rgba(74,222,128,0.15)':listening?'rgba(224,48,48,0.15)':'rgba(255,255,255,0.04)',color:speaking?'rgba(74,222,128,0.9)':listening?'#e03030':'rgba(255,255,255,0.25)',cursor:'pointer',transition:'all 0.15s'}}
                 title={speaking?'Stop KB':listening?'Stop':'Voice input'}
               >

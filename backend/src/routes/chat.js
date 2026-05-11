@@ -89,15 +89,11 @@ router.post('/message', async (req, res) => {
       .limit(5)
 
     const crossContext = (otherHistory || [])
-      .flatMap(h => (h.messages || []).slice(-3).map(m => ({
+      .flatMap(h => (h.messages || []).slice(-2).map(m => ({
         ...m,
-        content: `[from ${h.mode} mode] ${m.content}`
+        content: m.content  // no mode prefix — prevents KB echoing metadata
       })))
-      .slice(-6)
-
-    // Detect commit commands in message
-    const commitTriggers = ['commit', 'save this', 'lock it in', 'lock this in', 'save the plan', 'commit this', "let's commit", 'commit to this', 'save episode', 'lock episode']
-    const isCommitCommand = commitTriggers.some(t => message.toLowerCase().includes(t))
+      .slice(-4)
 
     // Assemble system context
     const ctxKey = episodeCtx ? null : `${req.user.id}:${categoryId}:${mode}`
@@ -106,21 +102,6 @@ router.post('/message', async (req, res) => {
       systemContext = await assembleContext(req.user.id, categoryId, { mode, episodeCtx })
       if (ctxKey) setCachedCtx(ctxKey, systemContext)
     }
-
-    // ── KB PERSONALITY: concise creative friend, not encyclopedia ──
-    systemContext += `
-
-## HOW YOU COMMUNICATE
-You are a sharp creative collaborator — like a talented friend who knows content inside out.
-- Keep responses SHORT. Max 4-6 sentences for casual conversation. Max 10 lines for detailed feedback.
-- NEVER explain your reasoning unless asked. Just give the insight or idea.
-- Talk like a person, not a system. No bullet lists unless the creator asks for a list.
-- When giving feedback or ideas, lead with the actual point — no preamble like "Great question!" or "Of course!"
-- If you're suggesting a hook or angle, just say it — don't explain why it's a hook.
-- Use "I" and "you" naturally. Keep energy up but not hyped.
-- Never write walls of text. If you need more than 3 paragraphs, you're doing too much.
-- When the creator seems done ideating and has a clear direction, suggest committing: "Ready to lock this in? Say 'commit' when you are."
-`
 
     // Append any planned episodes KB is aware of
     const { data: planned } = await supabase
@@ -136,50 +117,6 @@ You are a sharp creative collaborator — like a talented friend who knows conte
         planned.map(e =>
           `Ep ${e.episode_number}: "${e.track_name}" [${e.status}]${e.summary ? ` — ${e.summary}` : ''}`
         ).join('\n')
-    }
-
-    // Auto-commit if user says commit trigger
-    if (isCommitCommand) {
-      try {
-        const { messages: commitHistory } = await loadHistory(req.user.id, categoryId, mode)
-        if (commitHistory.length >= 2) {
-          const extractionPrompt = `Extract a structured episode plan from this conversation:\n${commitHistory.slice(-20).map(m => `${m.role}: ${m.content}`).join('\n\n')}`
-          const extraction = await client.messages.create({
-            model:      process.env.CLAUDE_MODEL || 'claude-sonnet-4-5',
-            max_tokens: 600,
-            system:     'Extract episode planning data as JSON only. No preamble. Return: { "track_name": string, "episode_number": number|null, "mood": string, "summary": string, "themes": string[], "callback_seeds": string[], "targetDurationMinutes": number }',
-            messages:   [{ role: 'user', content: extractionPrompt }],
-          })
-          const text = extraction.content[0]?.text || '{}'
-          const plan = JSON.parse(text.replace(/```json|```/g, '').trim())
-          if (plan.track_name) {
-            await supabase.from('kb_planned_episodes').upsert({
-              user_id: req.user.id, category_id: categoryId,
-              episode_number: plan.episode_number || null,
-              track_name: plan.track_name,
-              track_context: { mood: plan.mood || '', targetDurationMinutes: plan.targetDurationMinutes || 8 },
-              summary: plan.summary, themes: plan.themes || [],
-              callback_seeds: plan.callback_seeds || [],
-              status: 'planned', chat_session: mode || 'generate',
-              updated_at: new Date().toISOString(),
-            }, { onConflict: plan.episode_number ? 'user_id,category_id,episode_number' : undefined })
-            // Override the user message to acknowledge the commit
-            const ackMessage = `"${plan.track_name}" is locked in. Head to Generate whenever you're ready — everything is loaded.`
-            send('chunk', { text: ackMessage })
-            const updatedHistory = [...commitHistory,
-              { role: 'user', content: message, timestamp: new Date().toISOString() },
-              { role: 'assistant', content: ackMessage, timestamp: new Date().toISOString() },
-            ]
-            await saveHistory(req.user.id, categoryId, mode, updatedHistory)
-            send('done', { response: ackMessage })
-            clearInterval(keepalive)
-            return res.end()
-          }
-        }
-      } catch (commitErr) {
-        console.warn('[auto-commit]', commitErr.message)
-        // Fall through to normal response
-      }
     }
 
     // Build message list — current mode history + cross-mode context
@@ -405,44 +342,6 @@ router.delete('/sessions/:id', async (req, res) => {
     .eq('id', req.params.id)
     .eq('user_id', req.user.id)
   res.json({ deleted: true })
-})
-
-
-// ── POST /api/chat/speak — ElevenLabs TTS ────────────────────────────────────
-router.post('/speak', async (req, res) => {
-  const { text } = req.body
-  if (!text?.trim()) return res.status(400).json({ error: 'text required' })
-  if (!process.env.ELEVENLABS_API_KEY) return res.status(503).json({ error: 'TTS not configured' })
-
-  try {
-    const voiceId = process.env.ELEVENLABS_VOICE_ID || 'EXAVITQu4vr4xnSDxMaL' // default: Bella
-    const elevenRes = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}/stream`, {
-      method:  'POST',
-      headers: {
-        'Accept':       'audio/mpeg',
-        'Content-Type': 'application/json',
-        'xi-api-key':   process.env.ELEVENLABS_API_KEY,
-      },
-      body: JSON.stringify({
-        text:            text.slice(0, 500),
-        model_id:        'eleven_turbo_v2',
-        voice_settings:  { stability: 0.5, similarity_boost: 0.75, style: 0.0, use_speaker_boost: true },
-      }),
-    })
-
-    if (!elevenRes.ok) {
-      const err = await elevenRes.text()
-      return res.status(502).json({ error: 'ElevenLabs error: ' + err.slice(0, 100) })
-    }
-
-    res.setHeader('Content-Type', 'audio/mpeg')
-    res.setHeader('Cache-Control', 'no-cache')
-    elevenRes.body.pipe(res)
-
-  } catch (err) {
-    console.error('[chat/speak]', err.message)
-    res.status(500).json({ error: err.message })
-  }
 })
 
 module.exports = router;
