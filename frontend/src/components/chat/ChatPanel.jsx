@@ -477,7 +477,6 @@ export default function ChatPanel() {
     if (!text || streaming) return
     setMessages(prev => [...prev, { role: 'user', content: text, timestamp: new Date().toISOString() }])
     setInput('')
-    setCommitted(null) // Reset so commit button reappears after new messages
     setStreaming(true)
     setStreamText('')
 
@@ -495,6 +494,7 @@ export default function ChatPanel() {
             setMessages(prev => [...prev, { role: 'assistant', content: response, timestamp: new Date().toISOString() }])
             setStreamText('')
             setStreaming(false)
+            if (voiceUsedRef.current) { voiceUsedRef.current = false; speak(response) }
           },
           error: ({ message: e }) => {
             setMessages(prev => [...prev, { role: 'assistant', content: `Error: ${e}`, isError: true, timestamp: new Date().toISOString() }])
@@ -605,7 +605,7 @@ export default function ChatPanel() {
   }
 
   const isSeriesMode = mode === 'series' || mode === 'generate'
-  const canCommit    = isSeriesMode && messages.length >= 4
+  const canCommit    = isSeriesMode && messages.length >= 4 && !committed
   const canGenerate  = isSeriesMode && messages.length >= 4 && !generated && !streaming && !generating
 
   // ── HISTORY VIEW ─────────────────────────────────────────────────────────
@@ -700,12 +700,6 @@ export default function ChatPanel() {
           <button className="kb-action-btn" onClick={newChat}>
             <Plus size={9}/> New chat
           </button>
-          {/* Commit hint */}
-          {canCommit && !committed && messages.length >= 4 && (
-            <div style={{fontSize:9,color:'rgba(255,255,255,0.2)',textAlign:'center',marginBottom:2}}>
-              or say "commit" to lock in
-            </div>
-          )}
           {canCommit && (
             <button className="kb-action-btn accent" onClick={commitEpisode} disabled={committing}
               style={{ color: meta.color, borderColor: meta.color + '30' }}>
@@ -812,6 +806,15 @@ export default function ChatPanel() {
               rows={2}
               className="kb-textarea"
             />
+            {voiceSupported && (
+              <button
+                onMouseDown={speaking ? stopSpeaking : listening ? stopListening : startListening}
+                style={{width:32,height:32,borderRadius:8,border:'none',flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center',background:speaking?'rgba(74,222,128,0.15)':listening?'rgba(224,48,48,0.15)':'rgba(255,255,255,0.04)',color:speaking?'rgba(74,222,128,0.9)':listening?'#e03030':'rgba(255,255,255,0.25)',cursor:'pointer',transition:'all 0.15s'}}
+                title={speaking?'Stop KB':listening?'Stop':'Voice input'}
+              >
+                {speaking?<Volume2 size={13}/>:listening?<MicOff size={13}/>:<Mic size={13}/>}
+              </button>
+            )}
             <button
               onClick={sendMessage}
               disabled={!input.trim() || streaming}

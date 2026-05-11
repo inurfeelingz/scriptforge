@@ -1,7 +1,6 @@
 // frontend/src/components/chat/KBOrb.jsx
-// Floating KB orb — uses MascotOrb renderer at small size.
+// Floating KB orb — uses MascotOrb renderer (same living blob as Companion).
 // Clicking opens/closes the KB sheet.
-// Supports speaking mood when KB is reading aloud via TTS.
 
 import MascotOrb from '../companion/MascotOrb'
 
