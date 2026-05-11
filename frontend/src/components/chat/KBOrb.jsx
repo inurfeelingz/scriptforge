@@ -139,18 +139,34 @@ export default function KBOrb({ mood = 'idle', onClick, isOpen, audioLevel = 0 }
       onClick={onClick}
       title={isOpen ? 'Close KB' : 'Open KB'}
       style={{
-        background: 'none', border: 'none', cursor: 'pointer', padding: 0,
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        transform: isOpen ? 'scale(1.1)' : 'scale(1)',
-        transition: 'transform 0.3s cubic-bezier(0.34,1.56,0.64,1)',
+        background:     'radial-gradient(circle, rgba(12,12,24,0.92) 55%, rgba(6,6,14,0.7) 100%)',
+        border:         isOpen ? '1px solid rgba(74,222,128,0.25)' : '1px solid rgba(255,255,255,0.06)',
+        borderRadius:   '50%',
+        cursor:         'pointer',
+        padding:        0,
+        width:          size,
+        height:         size,
+        display:        'flex',
+        alignItems:     'center',
+        justifyContent: 'center',
+        transform:      isOpen ? 'scale(1.08)' : 'scale(1)',
+        transition:     'transform 0.3s cubic-bezier(0.34,1.56,0.64,1), box-shadow 0.3s ease, border-color 0.3s ease',
+        boxShadow:      isOpen
+          ? '0 0 32px rgba(74,222,128,0.2), 0 8px 32px rgba(0,0,0,0.6)'
+          : '0 0 16px rgba(100,110,160,0.1), 0 8px 24px rgba(0,0,0,0.5)',
         WebkitTapHighlightColor: 'transparent',
+        overflow:       'hidden',
       }}
     >
       <canvas
         ref={canvasRef}
         width={size}
         height={size}
-        style={{ display: 'block', width: size, height: size, background: 'transparent' }}
+        style={{
+          display: 'block', width: size, height: size, background: 'transparent',
+          WebkitMaskImage: 'radial-gradient(ellipse 55% 55% at 50% 50%, black 60%, transparent 85%)',
+          maskImage:       'radial-gradient(ellipse 55% 55% at 50% 50%, black 60%, transparent 85%)',
+        }}
       />
     </button>
   )
