@@ -70,7 +70,6 @@ async function assembleContext(userId, categoryId, options = {}) {
     clipIndexData,
     scriptLibrary,
     plannedEpisodes,
-    recentVoiceMemos,
   ] = await Promise.all([
     getCategory(userId, categoryId),
     getRecentEpisodes(userId, categoryId, 5),
@@ -83,7 +82,6 @@ async function assembleContext(userId, categoryId, options = {}) {
     getClipIndexData(userId),
     getScriptLibrary(userId, categoryId),
     getPlannedEpisodes(userId, categoryId),
-    getRecentVoiceMemos(userId, categoryId),
   ]);
 
   if (!category) return buildMinimalContext(mode);
@@ -220,12 +218,6 @@ ${vaultHighlights.map(v =>
 ).join('\n')}`);
   }
 
-  // ── RECENT VOICE MEMOS (from Companion sessions) ────────
-  if (recentVoiceMemos?.length) {
-    sections.push(`## RECENT VOICE MEMOS (creator's raw ideas, in their own words)
-${recentVoiceMemos.map(m => `[${new Date(m.created_at).toLocaleDateString()}] "${m.voice_memo_text?.slice(0, 400)}${m.voice_memo_text?.length > 400 ? '...' : ''}"`).join('\n\n')}`)
-  }
-
   // ── SCRIPT LIBRARY ────────────────────────────────────────
   if (scriptLibrary.own.length || scriptLibrary.competitor.length || scriptLibrary.shorts.length) {
     const parts = []
@@ -284,45 +276,34 @@ ${chatHistory}`);
 // ─── MODE INSTRUCTIONS ────────────────────────────────────────────────────────
 
 function getModeInstructions(mode) {
+  const base = `## HOW TO RESPOND
+You are a sharp creative collaborator — talk like a talented friend, not a system.
+NEVER start responses with headers, mode announcements, or labels like "# KB MODE".
+NEVER say "I'm here" or announce your status. Just respond to what was said.
+Keep responses SHORT — max 4-6 sentences for chat, more only when writing actual content.
+No bullet lists unless asked. No preamble. Lead with the actual insight or idea.
+Do not explain your reasoning unless asked. Just give the answer.`
+
   const instructions = {
-    generate: `## YOUR ROLE IN GENERATE MODE
-You are writing for this creator — always in their voice, never generic.
-Think out loud before writing: explain your structural decisions (hook choice, intercut rhythm, trending angle).
-Stream the VO script line by line. Flag anything that sounds written rather than spoken.
-After generating, provide a mood/energy curve: rate emotional intensity 1-10 at each minute mark.`,
+    generate: base + `
+In generate mode: help the creator develop episode ideas. When asked to generate, write in their voice. Don't think out loud — just produce.`,
+    vault:    base + `
+In vault mode: surface ideas from their library. Be specific — name the idea, why it fits now.`,
+    series:   base + `
+In series mode: think like a showrunner. Spot narrative threads, callback opportunities, arc development.`,
+    analytics: base + `
+In analytics mode: interpret numbers, don't just display them. Name the cause, give 1-2 concrete next steps.`,
+    teleprompter: base + `
+In teleprompter mode: flag lines that sound written not spoken. Keep it brief — creator is about to record.`,
+    sound:    base + `
+In sound mode: give precise sound design direction. BPM, texture, timecode. Ask one clarifying question if needed.`,
+    editor:   base + `
+In editor mode: help with clip selection, edit structure, pacing decisions.`,
+    storyboard: base + `
+In storyboard mode: suggest shot types, framing, visual coverage.`,
+  }
 
-    vault: `## YOUR ROLE IN VAULT MODE
-You have read access to this creator's full ideas library.
-Surface connections and patterns they haven't noticed.
-When asked to find ideas, rank by fit with current trends + past performance.
-Recommend the 3 strongest unused ideas for this week unprompted.`,
-
-    series: `## YOUR ROLE IN SERIES MODE
-You know the full episode history. Think like a showrunner.
-Identify narrative threads that could connect upcoming episodes.
-Suggest callback opportunities — specific moments from past episodes worth referencing.
-Think about the season arc: where is the creator's story going?`,
-
-    analytics: `## YOUR ROLE IN ANALYTICS MODE
-You are interpreting performance data, not just displaying it.
-Explain WHY videos retained or dropped off — connect it to structural decisions.
-Be specific: name timecodes, name episodes, name patterns.
-Always end with 3 concrete recommendations for the next episode.`,
-
-    teleprompter: `## YOUR ROLE IN TELEPROMPTER MODE
-Review the VO script for speakability — flag lines that sound written not spoken.
-Suggest simpler, more natural alternatives.
-Mark emphasis points and natural pause locations.
-Keep suggestions brief — the creator is about to record.`,
-
-    sound: `## YOUR ROLE IN SOUND MODE
-You are generating sound design briefs, not generic advice.
-Know the track's BPM, mood, and genre — everything should serve those.
-Be precise: timecodes, dB levels, specific atmosphere textures.
-Stay in conversation — ask clarifying questions about the emotional intent of key scenes.`,
-  };
-
-  return instructions[mode] || instructions.generate;
+  return instructions[mode] || instructions.generate
 }
 
 // ─── DATA FETCHERS ────────────────────────────────────────────────────────────
@@ -469,20 +450,6 @@ async function getScriptLibrary(userId, categoryId) {
 
 function buildMinimalContext(mode) {
   return `# WHISPACUTS\nYou are the AI creative layer in WhispaCuts.\nMode: ${mode.toUpperCase()}\nNo category context loaded yet — help the user get set up.`;
-}
-
-async function getRecentVoiceMemos(userId, categoryId) {
-  try {
-    const { data } = await supabase
-      .from('sessions')
-      .select('voice_memo_text, created_at, title')
-      .eq('user_id', userId)
-      .eq('category_id', categoryId)
-      .not('voice_memo_text', 'is', null)
-      .order('created_at', { ascending: false })
-      .limit(3)
-    return data || []
-  } catch { return [] }
 }
 
 module.exports = { assembleContext, invalidateContext };

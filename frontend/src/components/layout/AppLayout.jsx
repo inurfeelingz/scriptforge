@@ -526,21 +526,22 @@ export default function AppLayout() {
           </div>
         )}
 
-        {/* Floating KB orb — centered above chat sheet, hidden on companion + mobile */}
+        {/* Floating KB orb — centered, sits above chat sheet */}
         {!isCompanion && !isMobile && (
           <div style={{
             position:   'fixed',
-            bottom:     chatOpen ? 'calc(72vh - 60px)' : '20px',
+            bottom:     chatOpen ? 'calc(72vh - 50px)' : '24px',
             left:       '50%',
-            transform:  'translateX(-50%)',
+            marginLeft: '-50px',
             zIndex:     45,
             transition: 'bottom 0.4s cubic-bezier(0.32,0.72,0,1)',
+            pointerEvents: 'auto',
           }}>
             <KBOrb
               mood={chatOpen ? 'active' : 'idle'}
               onClick={() => setChatOpen(!chatOpen)}
               isOpen={chatOpen}
-              offsetBottom="0px"
+              audioLevel={0}
             />
           </div>
         )}
