@@ -407,10 +407,7 @@ let stylesInjected = false
 export default function ChatPanel() {
   const { activeCategoryId, notify } = useStore()
   const location = useLocation()
-  const mode       = MODE_MAP[location.pathname] || 'generate'
-  // Pick up episodeId from URL so KB can edit the current episode
-  const urlParams  = new URLSearchParams(location.search)
-  const urlEpId    = urlParams.get('episodeId') || urlParams.get('episode')
+  const mode     = MODE_MAP[location.pathname] || 'generate'
   const meta     = MODE_META[mode] || MODE_META.generate
 
   // Inject styles once
@@ -424,7 +421,6 @@ export default function ChatPanel() {
 
   const [view,        setView]        = useState('chat')
   const isMobile    = typeof window !== 'undefined' && window.innerWidth < 600
-  const [sidebarOpen, setSidebarOpen] = useState(!isMobile)
   const [messages,    setMessages]    = useState([])
   const [sessions,    setSessions]    = useState([])
   const [input,       setInput]       = useState('')
@@ -504,17 +500,13 @@ export default function ChatPanel() {
 
     try {
       await chatApi.send(
-        { categoryId: activeCategoryId, mode, message: text, messages: [], episodeId: urlEpId || undefined },
+        { categoryId: activeCategoryId, mode, message: text, messages: [] },
         {
           chunk: ({ text: t }) => setStreamText(prev => prev + t),
-          done:  ({ response, episodeEdited, field }) => {
+          done:  ({ response }) => {
             setMessages(prev => [...prev, { role: 'assistant', content: response, timestamp: new Date().toISOString() }])
             setStreamText('')
             setStreaming(false)
-            // If KB edited an episode, dispatch event so the page can refresh
-            if (episodeEdited) {
-              window.dispatchEvent(new CustomEvent('kb:episode-edited', { detail: { field } }))
-            }
             if (voiceUsedRef.current) { voiceUsedRef.current = false; speak(response) }
           },
           error: ({ message: e }) => {
@@ -633,22 +625,14 @@ export default function ChatPanel() {
   if (view === 'history') {
     return (
       <div className="kb-panel">
-        <button className={`kb-sidebar-toggle ${sidebarOpen ? 'sidebar-open' : ''}`} onClick={() => setSidebarOpen(o => !o)} title={sidebarOpen ? 'Hide sidebar' : 'Show sidebar'}>
-          {sidebarOpen ? '‹' : '›'}
-        </button>
-        <div className={`kb-sidebar ${sidebarOpen ? '' : 'collapsed'}`}>
-          <div className="kb-mode-glyph" style={{ color: meta.color }}>{meta.glyph}</div>
-          <div className="kb-mode-name">Knowledge Base</div>
-          <div className="kb-mode-label" style={{ color: meta.color }}>History</div>
-          <button className="kb-action-btn" onClick={() => setView('chat')} style={{ color: meta.color }}>
-            ← Back to chat
-          </button>
-        </div>
         <div className="kb-main">
+          <div style={{ padding:'12px 16px 0', display:'flex', alignItems:'center', gap:8, borderBottom:'1px solid rgba(255,255,255,0.05)', paddingBottom:12, marginBottom:4 }}>
+            <button onClick={() => setView('chat')} style={{ background:'none', border:'none', cursor:'pointer', color:'rgba(255,255,255,0.4)', fontSize:12, fontFamily:"'Figtree',sans-serif", display:'flex', alignItems:'center', gap:4 }}>
+              ← Back
+            </button>
+            <span style={{ fontSize:11, color:'rgba(255,255,255,0.25)', textTransform:'uppercase', letterSpacing:'0.1em', fontFamily:"'Figtree',sans-serif" }}>Saved conversations</span>
+          </div>
           <div className="kb-messages">
-            <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 9, letterSpacing: '0.15em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.2)', marginBottom: 16 }}>
-              Saved conversations
-            </div>
             {sessions.length === 0 && (
               <div style={{ color: 'rgba(255,255,255,0.2)', fontSize: 11, fontFamily: "'DM Mono', monospace" }}>
                 No saved conversations yet
@@ -675,66 +659,6 @@ export default function ChatPanel() {
   // ── CHAT VIEW ─────────────────────────────────────────────────────────────
   return (
     <div className="kb-panel">
-
-      {/* Sidebar toggle — mobile only (shown via CSS media query) */}
-      <button
-        className={`kb-sidebar-toggle ${sidebarOpen ? 'sidebar-open' : ''}`}
-        onClick={() => setSidebarOpen(o => !o)}
-        title={sidebarOpen ? 'Hide sidebar' : 'Show sidebar'}
-      >
-        {sidebarOpen ? '‹' : '›'}
-      </button>
-
-      {/* Sidebar */}
-      <div className={`kb-sidebar ${sidebarOpen ? '' : 'collapsed'}`}>
-        <div className="kb-mode-glyph" style={{ color: meta.color }}>{meta.glyph}</div>
-        <div className="kb-mode-name">Knowledge Base</div>
-        <div className="kb-mode-label" style={{ color: meta.color }}>{meta.name}</div>
-
-        {/* Quick prompts */}
-        <div className="kb-quick-label">Quick start</div>
-        {QUICK_PROMPTS[mode]?.map((p, i) => (
-          <button key={i} className="kb-quick-btn" style={{ color: 'rgba(255,255,255,0.6)' }}
-            onClick={() => { setInput(p); inputRef.current?.focus() }}>
-            {p}
-          </button>
-        ))}
-
-        {/* Spacer */}
-        <div style={{ flex: 1 }}/>
-
-        {/* Actions */}
-        <div style={{ borderTop: '1px solid rgba(255,255,255,0.04)', paddingTop: 12 }}>
-          {messages.length > 2 && !saved && (
-            <button className="kb-action-btn" onClick={saveSession} disabled={saving}>
-              {saving ? <Loader2 size={9} style={{ animation: 'spin 1s linear infinite' }}/> : '◌'} Save chat
-            </button>
-          )}
-          {saved && (
-            <div className="kb-action-btn" style={{ color: 'rgba(100,180,100,0.7)' }}>
-              <Check size={9}/> Saved
-            </div>
-          )}
-          <button className="kb-action-btn" onClick={() => setView('history')}>
-            <Clock size={9}/> History
-          </button>
-          <button className="kb-action-btn" onClick={newChat}>
-            <Plus size={9}/> New chat
-          </button>
-          {canCommit && (
-            <button className="kb-action-btn accent" onClick={commitEpisode} disabled={committing}
-              style={{ color: meta.color, borderColor: meta.color + '30' }}>
-              {committing ? <Loader2 size={9}/> : <BookmarkPlus size={9}/>}
-              Commit plan
-            </button>
-          )}
-          {committed && (
-            <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 9, color: 'rgba(100,180,100,0.7)', padding: '6px 0', display: 'flex', alignItems: 'center', gap: 5 }}>
-              <Check size={9}/> Plan committed
-            </div>
-          )}
-        </div>
-      </div>
 
       {/* Main chat area */}
       <div className="kb-main">
@@ -814,6 +738,39 @@ export default function ChatPanel() {
             </div>
           </div>
         )}
+
+        {/* Quick prompts — shown when chat is empty */}
+        {messages.length === 0 && !streaming && QUICK_PROMPTS[mode]?.length > 0 && (
+          <div style={{ display:'flex', flexWrap:'wrap', gap:5, padding:'0 12px 10px', justifyContent:'center' }}>
+            {QUICK_PROMPTS[mode].map((p, i) => (
+              <button key={i}
+                onClick={() => { setInput(p); inputRef.current?.focus() }}
+                style={{ padding:'4px 11px', borderRadius:99, border:'1px solid rgba(255,255,255,0.08)', background:'transparent', color:'rgba(255,255,255,0.4)', cursor:'pointer', fontSize:11, fontFamily:"'Figtree',sans-serif" }}
+              >
+                {p}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* Action row — save / history / new */}
+        <div style={{ display:'flex', gap:6, padding:'0 12px 8px', justifyContent:'flex-end' }}>
+          {messages.length > 2 && !saved && (
+            <button onClick={saveSession} disabled={saving}
+              style={{ fontSize:10, padding:'3px 8px', borderRadius:6, border:'1px solid rgba(255,255,255,0.06)', background:'transparent', color:'rgba(255,255,255,0.3)', cursor:'pointer', fontFamily:"'Figtree',sans-serif", display:'flex', alignItems:'center', gap:4 }}>
+              {saving ? '...' : '◌'} Save
+            </button>
+          )}
+          {saved && <span style={{ fontSize:10, color:'rgba(74,222,128,0.6)', fontFamily:"'Figtree',sans-serif", padding:'3px 8px' }}>✓ Saved</span>}
+          <button onClick={() => setView('history')}
+            style={{ fontSize:10, padding:'3px 8px', borderRadius:6, border:'1px solid rgba(255,255,255,0.06)', background:'transparent', color:'rgba(255,255,255,0.3)', cursor:'pointer', fontFamily:"'Figtree',sans-serif", display:'flex', alignItems:'center', gap:4 }}>
+            <Clock size={9}/> History
+          </button>
+          <button onClick={newChat}
+            style={{ fontSize:10, padding:'3px 8px', borderRadius:6, border:'1px solid rgba(255,255,255,0.06)', background:'transparent', color:'rgba(255,255,255,0.3)', cursor:'pointer', fontFamily:"'Figtree',sans-serif", display:'flex', alignItems:'center', gap:4 }}>
+            <Plus size={9}/> New
+          </button>
+        </div>
 
         {/* Input */}
         <div className="kb-input-area">

@@ -164,8 +164,8 @@ export default function KBOrb({ mood = 'idle', onClick, isOpen, audioLevel = 0 }
         height={size}
         style={{
           display: 'block', width: size, height: size, background: 'transparent',
-          WebkitMaskImage: 'radial-gradient(ellipse 55% 55% at 50% 50%, black 60%, transparent 85%)',
-          maskImage:       'radial-gradient(ellipse 55% 55% at 50% 50%, black 60%, transparent 85%)',
+          WebkitMaskImage: 'radial-gradient(circle at 50% 50%, black 60%, transparent 85%)',
+          maskImage:       'radial-gradient(circle at 50% 50%, black 60%, transparent 85%)',
         }}
       />
     </button>
