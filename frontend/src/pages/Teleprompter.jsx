@@ -284,7 +284,7 @@ export default function Teleprompter() {
 
   // ── Setup screen ─────────────────────────────────────────────────────────
   if (!started) return (
-    <div className="max-w-4xl mx-auto space-y-6">
+    <div className="max-w-3xl mx-auto space-y-6">
       <div>
         <h1 className="text-2xl font-serif text-[#f0ede8]">Teleprompter</h1>
         <p className="text-sm text-[#555] mt-1">Load an episode script or paste your own</p>
@@ -332,7 +332,7 @@ export default function Teleprompter() {
           onChange={e => { setScript(e.target.value); setScriptDirty(true) }}
           placeholder={"Paste your voiceover script here...\n\n[CAM-001 ~0:00] Lines with clip hints will be dimmed automatically."}
           rows={10}
-          className="w-full bg-[#0d0d0d] border border-[#1e1e1e] rounded px-4 py-3 text-sm text-[#f0ede8] placeholder-[#333] outline-none focus:border-[rgba(74,222,128,0.40)] resize-none font-mono"
+          className="w-full bg-[#0d0d0d] border border-[#1e1e1e] rounded px-4 py-3 text-sm text-[#f0ede8] placeholder-[#333] outline-none focus:border-[rgba(74,222,128,0.40)] resize-none" style={{fontFamily:"'Figtree',sans-serif", lineHeight:1.7}}
         />
         {scriptDirty && selectedEpId && (
           <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>

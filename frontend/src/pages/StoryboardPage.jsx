@@ -2,7 +2,6 @@
 import { useState, useEffect } from 'react'
 import { Film, Wand2, Trash2, ChevronRight, Camera, FileText, FileSpreadsheet } from 'lucide-react'
 import { useStore } from '../store'
-import InlineEdit from '../components/ui/InlineEdit'
 import NextStepBanner from '../components/layout/NextStepBanner'
 import { api } from '../lib/api'
 
@@ -207,7 +206,7 @@ ${cardHTML}
   )
 
   return (
-    <div style={{ maxWidth: 896, margin: '0 auto' }}>
+    <div className="max-w-4xl mx-auto space-y-6">
 
       {/* Pipeline CTA — top of page */}
       {active?.frames?.length > 0 && (
@@ -354,28 +353,7 @@ ${cardHTML}
                 gap:14,
               }}>
                 {group.frames.map(frame => (
-                  <ShotCard
-                    key={frame.id}
-                    frame={frame}
-                    onUpdate={async (updated) => {
-                      try {
-                        const { supabaseClient } = await import('../lib/supabase')
-                        // Update via storyboard frames - patch the frame
-                        const { api } = await import('../lib/api')
-                        await api.patch(`/storyboard/frames/${updated.id}`, {
-                          description: updated.description,
-                          notes: updated.notes,
-                        })
-                        // Update local state
-                        setActive(prev => prev ? {
-                          ...prev,
-                          frames: prev.frames.map(f => f.id === updated.id ? updated : f)
-                        } : prev)
-                      } catch (err) {
-                        console.warn('Frame update failed:', err.message)
-                      }
-                    }}
-                  />
+                  <ShotCard key={frame.id} frame={frame} />
                 ))}
               </div>
             </div>
@@ -397,7 +375,7 @@ ${cardHTML}
 }
 
 // ── SHOT CARD ────────────────────────────────────────────────────────────────
-function ShotCard({ frame, onUpdate }) {
+function ShotCard({ frame }) {
   const meta = SHOT_META[frame.shot_type] || SHOT_META.ms
   const [hover, setHover] = useState(false)
 
@@ -461,35 +439,24 @@ function ShotCard({ frame, onUpdate }) {
         </div>
       </div>
 
-      {/* Description — click to edit */}
+      {/* Description */}
       <div style={{ padding:'8px 14px 10px' }}>
-        {onUpdate ? (
-          <InlineEdit
-            value={frame.description || ''}
-            placeholder="Describe this shot..."
-            multiline
-            onSave={async (val) => onUpdate({ ...frame, description: val })}
-            style={{ fontSize:13, color:'#c8ccd6', lineHeight:1.58 }}
-          />
-        ) : (
-          <p style={{ fontSize:13, color:'#c8ccd6', lineHeight:1.58, margin:0 }}>{frame.description}</p>
-        )}
+        <p style={{ fontSize:13, color:'#c8ccd6', lineHeight:1.58, margin:0 }}>
+          {frame.description}
+        </p>
       </div>
 
       {/* Notes */}
-      <div style={{ padding:'6px 14px 12px', borderTop:'1px solid rgba(255,255,255,0.04)' }}>
-        {onUpdate ? (
-          <InlineEdit
-            value={frame.notes || ''}
-            placeholder="Add notes..."
-            multiline
-            onSave={async (val) => onUpdate({ ...frame, notes: val })}
-            style={{ fontSize:11.5, color:meta.color, lineHeight:1.52, fontStyle:'italic', opacity:0.65 }}
-          />
-        ) : frame.notes ? (
-          <p style={{ fontSize:11.5, color:meta.color, lineHeight:1.52, margin:0, fontStyle:'italic', opacity:0.65 }}>{frame.notes}</p>
-        ) : null}
-      </div>
+      {frame.notes && (
+        <div style={{
+          padding:'8px 14px 12px',
+          borderTop:`1px solid rgba(255,255,255,0.04)`,
+        }}>
+          <p style={{ fontSize:11.5, color:meta.color, lineHeight:1.52, margin:0, fontStyle:'italic', opacity:0.65 }}>
+            {frame.notes}
+          </p>
+        </div>
+      )}
 
 
 
