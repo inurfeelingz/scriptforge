@@ -129,7 +129,7 @@ function RetentionSparkline({ curve, durationSec }) {
 
   return (
     <svg width="100%" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{ height: 48 }}>
-      <path d={pathD} fill="none" stroke="#c8b89a" strokeWidth="1.5" opacity="0.6"/>
+      <path d={pathD} fill="none" stroke="rgba(74,222,128,1)" strokeWidth="1.5" opacity="0.6"/>
       {/* 50% line */}
       <line x1="0" y1={H/2} x2={W} y2={H/2} stroke="#333" strokeWidth="0.5" strokeDasharray="4,4"/>
     </svg>
@@ -228,6 +228,21 @@ export default function EpisodeReview() {
             {episode.retentionScore && (
               <span className="text-sm text-[#555]">Retention: {episode.retentionScore}%</span>
             )}
+            {/* Gemini Script Score badge */}
+            {episode.scriptScore?.overallScore && (
+              <span style={{
+                fontSize: 11, padding: '2px 8px', borderRadius: 99,
+                background: episode.scriptScore.overallScore >= 70 ? 'rgba(74,222,128,0.1)' : 'rgba(255,170,0,0.1)',
+                border: `1px solid ${episode.scriptScore.overallScore >= 70 ? 'rgba(74,222,128,0.3)' : 'rgba(255,170,0,0.3)'}`,
+                color: episode.scriptScore.overallScore >= 70 ? 'rgba(74,222,128,1)' : 'rgba(255,170,0,1)',
+                fontFamily: "'Figtree',sans-serif", cursor: 'pointer',
+              }}
+              title={`Gemini score: Hook ${episode.scriptScore.dimensions?.hookStrength?.score || '?'} · Voice ${episode.scriptScore.dimensions?.voiceMatch?.score || '?'} · Retention ${episode.scriptScore.dimensions?.retentionStructure?.score || '?'}`}
+              >
+                ✦ {episode.scriptScore.overallScore}/100
+              </span>
+            )}
+
             {/* YouTube Video ID link */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.25)' }}>YouTube ID:</span>
@@ -281,7 +296,7 @@ export default function EpisodeReview() {
           </p>
           <button
             onClick={() => setShowCurve(s => !s)}
-            className="flex items-center gap-2 text-xs px-3 py-1.5 border border-[#1a1a1a] rounded text-[#555] hover:border-[#c8b89a]/30 hover:text-[#c8b89a] transition-all"
+            className="flex items-center gap-2 text-xs px-3 py-1.5 border border-[#1a1a1a] rounded text-[#555] hover:border-[rgba(74,222,128,0.30)] hover:text-[rgba(74,222,128,1)] transition-all"
           >
             <Upload size={11}/> Paste retention CSV
           </button>
@@ -292,12 +307,12 @@ export default function EpisodeReview() {
                 onChange={e => setCurveInput(e.target.value)}
                 placeholder={"Paste YouTube retention CSV here:\n\nElapsed video time,Audience retention (%)\n0:00,100\n0:15,92\n0:30,88\n..."}
                 rows={8}
-                className="w-full bg-[#0d0d0d] border border-[#1e1e1e] rounded px-3 py-2.5 text-xs text-[#888] font-mono outline-none focus:border-[#c8b89a]/40 resize-none"
+                className="w-full bg-[#0d0d0d] border border-[#1e1e1e] rounded px-3 py-2.5 text-xs text-[#888] font-mono outline-none focus:border-[rgba(74,222,128,0.40)] resize-none"
               />
               <button
                 onClick={saveCurve}
                 disabled={savingCurve || !curveInput.trim()}
-                className="px-4 py-2 bg-[#c8b89a] text-[#080808] rounded text-sm font-medium hover:bg-[#e8c87a] disabled:opacity-40 transition-all"
+                className="px-4 py-2 bg-[rgba(74,222,128,1)] text-[#080808] rounded text-sm font-medium hover:bg-[rgba(74,222,128,0.85)] disabled:opacity-40 transition-all"
               >
                 {savingCurve ? 'Saving…' : 'Save curve'}
               </button>
