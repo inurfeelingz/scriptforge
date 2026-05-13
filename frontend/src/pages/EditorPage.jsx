@@ -21,14 +21,14 @@ const TABS = [
 
 export default function EditorPage() {
   const { activeCategoryId, activeCategory } = useStore()
-  const [tab,       setTab]       = useState('library')
-  const [project,   setProject]   = useState(null)
-  const [projects,  setProjects]  = useState([])
+  const [tab,        setTab]        = useState('library')
+  const [project,    setProject]    = useState(null)
+  const [projects,   setProjects]   = useState([])
   const [showIndex,  setShowIndex]  = useState(false)
   const [exportReady, setExportReady] = useState(false)
 
-  const cat      = activeCategory?.()
-  const indexer  = useClipIndexer()
+  const cat     = activeCategory?.()
+  const indexer = useClipIndexer()
 
   useEffect(() => {
     if (!activeCategoryId) return
@@ -36,6 +36,7 @@ export default function EditorPage() {
       .then(({ projects }) => setProjects(projects || []))
       .catch(console.warn)
   }, [activeCategoryId])
+
   async function createProject(episodeId, name) {
     const { project } = await api.post('/editor/projects', {
       categoryId: activeCategoryId,
@@ -50,6 +51,16 @@ export default function EditorPage() {
   return (
     <div className="max-w-6xl mx-auto space-y-4">
 
+      {/* Pipeline CTA — top of page, shown after clips approved */}
+      {exportReady && (
+        <NextStepBanner
+          title="Edit approved — download your package"
+          subtitle="Export your EDL or FCPXML, then import into DaVinci Resolve to render your final video"
+          ctaLabel="Go to Export"
+          onCta={() => setTab('export')}
+        />
+      )}
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -57,7 +68,6 @@ export default function EditorPage() {
           {cat && <p className="text-sm text-[#555] mt-1">{cat.name}</p>}
         </div>
         <div className="flex items-center gap-3">
-          {/* Index stats badge */}
           {indexer.stats?.total > 0 && (
             <div className="text-xs text-[#555] border border-[#1a1a1a] rounded px-3 py-1.5">
               {indexer.stats.total} clips indexed
@@ -117,10 +127,7 @@ export default function EditorPage() {
             ))}
           </select>
           <button
-            onClick={() => {
-              const name = `Edit ${new Date().toLocaleDateString()}`
-              createProject(null, name)
-            }}
+            onClick={() => createProject(null, `Edit ${new Date().toLocaleDateString()}`)}
             className="px-3 py-2 border border-[#1a1a1a] rounded text-sm text-[#666] hover:text-[#aaa] hover:border-[#333] transition-all"
           >
             + New project
@@ -147,57 +154,49 @@ export default function EditorPage() {
             ))}
           </div>
 
-          {tab === 'library' && <ClipLibrary
-            project={project}
-            computeSearchVectors={indexer.computeSearchVectors}
-            onAddClip={(clip) => {
-              if (!project) return
-              const newEntry = {
-                id: `manual-${clip.id}-${Date.now()}`,
-                clipId: clip.id,
-                filename: clip.filename,
-                clipType: clip.clip_type,
-                startMs: 0,
-                durationMs: clip.duration_ms || 5000,
-                approved: false,
-                confidence: 1.0,
-                source: 'manual',
-                thumbnail_b64: clip.thumbnail_b64,
-              }
-              const updated = { ...project, timeline: [...(project.timeline || []), newEntry] }
-              setProject(updated)
-              // Persist to backend
-              import('../lib/api').then(({ api }) =>
+          {tab === 'library' && (
+            <ClipLibrary
+              project={project}
+              computeSearchVectors={indexer.computeSearchVectors}
+              onAddClip={(clip) => {
+                if (!project) return
+                const newEntry = {
+                  id:           `manual-${clip.id}-${Date.now()}`,
+                  clipId:       clip.id,
+                  filename:     clip.filename,
+                  clipType:     clip.clip_type,
+                  startMs:      0,
+                  durationMs:   clip.duration_ms || 5000,
+                  approved:     false,
+                  confidence:   1.0,
+                  source:       'manual',
+                  thumbnail_b64: clip.thumbnail_b64,
+                }
+                const updated = { ...project, timeline: [...(project.timeline || []), newEntry] }
+                setProject(updated)
                 api.patch(`/editor/projects/${project.id}`, { timeline: updated.timeline }).catch(() => {})
-              )
-            }}
-          />}
-          {tab === 'timeline' && <HybridTimeline project={project} onProjectUpdate={(updated) => {
-            setProject(updated)
-            if (updated?.timeline?.filter(cl => cl.approved).length > 0) {
-              setExportReady(true)
-              if (updated?.episode_id) {
-                episodesApi.patch(updated.episode_id, { pipeline_stage: 'edited' }).catch(() => {})
-              }
-            }
-          }} />}
-          {tab === 'export'   && <EditorExport    project={project} />}
+              }}
+            />
+          )}
+
+          {tab === 'timeline' && (
+            <HybridTimeline
+              project={project}
+              onProjectUpdate={(updated) => {
+                setProject(updated)
+                if (updated?.timeline?.filter(cl => cl.approved).length > 0) {
+                  setExportReady(true)
+                  if (updated?.episode_id) {
+                    episodesApi.patch(updated.episode_id, { pipeline_stage: 'edited' }).catch(() => {})
+                  }
+                }
+              }}
+            />
+          )}
+
+          {tab === 'export' && <EditorExport project={project} />}
         </>
       )}
-
-    {/* Next step — shown after clips approved */}
-    {exportReady && (
-      <NextStepBanner
-        title="Edit approved — download your package"
-        subtitle="Export your EDL or FCPXML, then import into DaVinci Resolve to render your final video"
-        ctaLabel="Export"
-        onCta={() => setTab('export')}
-      />
-    )}
-
-
-    {/* Pipeline CTA — after clips approved */}
-
 
     </div>
   )
