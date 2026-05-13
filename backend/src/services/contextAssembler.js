@@ -162,9 +162,10 @@ Latest batch AI insights: ${latest.insights || 'Not yet generated'}`)
   if (topPerformers.length) {
     sections.push(`## TOP PERFORMING EPISODES (real published data only)
 ${topPerformers.map(e =>
-  `Ep ${e.episode_number}: "${e.track_name}" — ${e.yt_retention_score}/100 retention
+  `Ep ${e.episode_number}: "${e.track_name}" — ${e.yt_retention_score}/100 retention${e.script_score ? ` · Gemini script score: ${e.script_score.overallScore}/100` : ''}
   Concept: ${e.episode_concept || 'N/A'}
-  Hook used: ${e.generation_decisions?.hookVariantUsed?.slice(0, 80) || 'N/A'}`
+  Hook used: ${e.generation_decisions?.hookVariantUsed?.slice(0, 80) || 'N/A'}${e.script_score?.topIssue ? `
+  Gemini noted: ${e.script_score.topIssue}` : ''}`
 ).join('\n\n')}`)
   } else {
     sections.push(`## TOP PERFORMING EPISODES
@@ -337,7 +338,7 @@ async function getCategory(userId, categoryId) {
 async function getRecentEpisodes(userId, categoryId, limit) {
   const { data } = await supabase
     .from('episodes')
-    .select('episode_number, track_name, episode_concept, generation_decisions, yt_retention_score, status')
+    .select('episode_number, track_name, episode_concept, generation_decisions, yt_retention_score, script_score, status')
     .eq('user_id', userId)
     .eq('category_id', categoryId)
     .order('episode_number', { ascending: false })
@@ -348,7 +349,7 @@ async function getRecentEpisodes(userId, categoryId, limit) {
 async function getTopPerformers(userId, categoryId, limit) {
   const { data } = await supabase
     .from('episodes')
-    .select('episode_number, track_name, episode_concept, generation_decisions, yt_retention_score, status')
+    .select('episode_number, track_name, episode_concept, generation_decisions, yt_retention_score, script_score, status')
     .eq('user_id', userId)
     .eq('category_id', categoryId)
     .eq('status', 'published')           // only real published episodes

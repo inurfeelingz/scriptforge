@@ -10,6 +10,7 @@ const { supabase } = require('../utils/supabase');
 
 const client  = new Anthropic.Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 const youtube = google.youtube({ version: 'v3', auth: process.env.YOUTUBE_API_KEY });
+const gemini  = require('./geminiService');
 
 /**
  * Full trending refresh for a category.
@@ -70,11 +71,27 @@ async function fetchTopVideos(niche, count) {
                     err.errors?.[0]?.reason === 'dailyLimitExceeded'
 
     if (isQuota) {
-      console.warn('[trendingService] YouTube quota exceeded — trending unavailable today. Resets at midnight PT.')
+      console.warn('[trendingService] YouTube quota exceeded — trying Gemini grounding fallback')
+      if (process.env.GEMINI_API_KEY) {
+        try {
+          const groundedVideos = await gemini.fetchTrendingWithGrounding(niche)
+          if (groundedVideos.length) {
+            console.log(`[trendingService] Gemini grounding found ${groundedVideos.length} trending videos`)
+            return groundedVideos.map(v => ({
+              videoId:      '',
+              title:        v.title || '',
+              channelTitle: v.channel || '',
+              publishedAt:  new Date().toISOString(),
+            }))
+          }
+        } catch (gErr) {
+          console.warn('[trendingService] Gemini grounding also failed:', gErr.message)
+        }
+      }
     } else {
       console.warn('[trendingService] YouTube API error:', err.message)
     }
-    return []  // empty array → synthesiseTrending handles gracefully with cached/empty data
+    return []
   }
 }
 
@@ -94,6 +111,17 @@ async function fetchTranscripts(videos) {
 }
 
 async function synthesiseTrending(niche, allVideos, withTranscripts) {
+  // Try Gemini first — larger context, better trend analysis
+  if (process.env.GEMINI_API_KEY) {
+    try {
+      console.log('[trendingService] Using Gemini for trend analysis')
+      const result = await gemini.analyseTrends(niche, allVideos, withTranscripts)
+      if (result?.themes?.length) return result
+    } catch (err) {
+      console.warn('[trendingService] Gemini failed, falling back to Claude:', err.message)
+    }
+  }
+  // Claude fallback
   const titlesText = allVideos.slice(0, 20)
     .map((v, i) => `${i + 1}. "${v.title}" — ${v.channelTitle}`)
     .join('\n');
@@ -136,6 +164,6 @@ Return JSON:
       raw: response.content[0].text,
     };
   }
-}
+}  // end synthesiseTrending
 
 module.exports = { refreshCategoryTrending };

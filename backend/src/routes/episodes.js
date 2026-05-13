@@ -326,6 +326,46 @@ PLATFORM_CTA:`;
     }
     res.end();
 
+    // Gemini script scoring — async, non-blocking, runs after response sent
+    if (process.env.GEMINI_API_KEY && parsed?.voScript && episode?.id) {
+      setImmediate(async () => {
+        try {
+          const { data: topEps } = await supabase
+            .from('episodes')
+            .select('track_name, yt_retention_score')
+            .eq('user_id', req.user.id)
+            .eq('category_id', req.body.categoryId)
+            .eq('status', 'published')
+            .not('yt_retention_score', 'is', null)
+            .order('yt_retention_score', { ascending: false })
+            .limit(5)
+
+          const { data: cat } = await supabase
+            .from('categories')
+            .select('niche, trending_data')
+            .eq('id', req.body.categoryId)
+            .single()
+
+          const score = await gemini.scoreScript(
+            parsed.voScript,
+            topEps || [],
+            cat?.niche || '',
+            cat?.trending_data?.analysis || null
+          )
+
+          if (score) {
+            await supabase.from('episodes').update({
+              script_score: score,
+              updated_at:   new Date().toISOString(),
+            }).eq('id', episode.id)
+            console.log(`[gemini] Script scored ${score.overallScore}/100 for ep ${episode.id}`)
+          }
+        } catch (err) {
+          console.warn('[gemini/scoring]', err.message)
+        }
+      })
+    }
+
   } catch (err) {
     clearTimeout(generationTimeout)
     clearInterval(keepalive)
