@@ -446,7 +446,7 @@ export default function AppLayout() {
           right:      isMobile ? 12 : 'auto',
           width:      isMobile ? 'auto' : 'min(860px, calc(100vw - 64px))',
           transform:  isMobile ? 'none' : 'translateX(-50%)',
-          bottom:     120,
+          bottom:     130,
           height:     chatOpen ? (isMobile ? '82vh' : '75vh') : 0,
           overflow:   'hidden',
           transition: 'height 0.4s cubic-bezier(0.32,0.72,0,1)',
