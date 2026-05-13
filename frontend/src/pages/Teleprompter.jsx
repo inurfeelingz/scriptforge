@@ -12,6 +12,7 @@ import {
 import { useStore } from '../store'
 import NextStepBanner from '../components/layout/NextStepBanner'
 import { episodes as episodesApi, api } from '../lib/api'
+// episodesApi.patch used to save VO script edits back to episode
 import { getSession } from '../lib/supabase'
 
 // ── Recording state machine ───────────────────────────────────────────────────
@@ -25,6 +26,8 @@ export default function Teleprompter() {
   const [episodes,       setEpisodes]       = useState([])
   const [selectedEpId,   setSelectedEpId]   = useState('')
   const [script,         setScript]         = useState('')
+  const [scriptDirty,    setScriptDirty]    = useState(false)
+  const [originalScript, setOriginalScript] = useState('')
   const [episodeName,    setEpisodeName]     = useState('')
   const [loadingEp,      setLoadingEp]      = useState(false)
   const [started,        setStarted]        = useState(false)
@@ -77,6 +80,8 @@ export default function Teleprompter() {
       .then(({ episode }) => {
         const voScript = episode?.vo_script || ''
         setScript(voScript)
+        setOriginalScript(voScript)
+        setScriptDirty(false)
         setEpisodeName(episode?.track_name || '')
         setLoadingEp(false)
       })
@@ -324,11 +329,31 @@ export default function Teleprompter() {
         </label>
         <textarea
           value={script}
-          onChange={e => setScript(e.target.value)}
+          onChange={e => { setScript(e.target.value); setScriptDirty(true) }}
           placeholder={"Paste your voiceover script here...\n\n[CAM-001 ~0:00] Lines with clip hints will be dimmed automatically."}
           rows={10}
           className="w-full bg-[#0d0d0d] border border-[#1e1e1e] rounded px-4 py-3 text-sm text-[#f0ede8] placeholder-[#333] outline-none focus:border-[#c8b89a]/40 resize-none font-mono"
         />
+        {scriptDirty && selectedEpId && (
+          <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
+            <button
+              onClick={async () => {
+                await episodesApi.patch(selectedEpId, { vo_script: script })
+                setScriptDirty(false)
+                notify('Script saved', 'success')
+              }}
+              style={{ padding: '4px 14px', borderRadius: 6, border: 'none', background: 'rgba(74,222,128,0.15)', color: 'rgba(74,222,128,1)', cursor: 'pointer', fontSize: 12, fontFamily: "'Figtree', sans-serif" }}
+            >
+              Save changes
+            </button>
+            <button
+              onClick={() => { setScript(originalScript); setScriptDirty(false) }}
+              style={{ padding: '4px 10px', borderRadius: 6, border: 'none', background: 'transparent', color: 'rgba(255,255,255,0.25)', cursor: 'pointer', fontSize: 12, fontFamily: "'Figtree', sans-serif" }}
+            >
+              Revert
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Font size */}

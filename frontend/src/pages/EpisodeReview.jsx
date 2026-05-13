@@ -11,7 +11,8 @@ import { useEffect, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { ArrowLeft, TrendingDown, TrendingUp, Info, Upload } from 'lucide-react'
 import { useStore } from '../store'
-import { analytics as analyticsApi } from '../lib/api'
+import { analytics as analyticsApi, episodes as episodesApi } from '../lib/api'
+import InlineEdit from '../components/ui/InlineEdit'
 
 // ── Retention colour helpers ──────────────────────────────────────────────────
 
@@ -214,13 +215,40 @@ export default function EpisodeReview() {
         <Link to="/analytics" className="text-[#444] hover:text-[#888] transition-colors">
           <ArrowLeft size={16}/>
         </Link>
-        <div>
-          <h1 className="text-xl font-serif text-[#f0ede8]">
-            Ep {episode.episodeNumber}: {episode.trackName}
-          </h1>
-          {episode.retentionScore && (
-            <p className="text-sm text-[#555] mt-0.5">Retention score: {episode.retentionScore}%</p>
-          )}
+        <div style={{ flex: 1 }}>
+          <InlineEdit
+            value={episode.trackName}
+            onSave={async (val) => {
+              await episodesApi.patch(episode.id, { track_name: val })
+              setData(d => ({ ...d, episode: { ...d.episode, trackName: val } }))
+            }}
+            style={{ fontSize: '1.25rem', fontFamily: 'serif', color: '#f0ede8', fontWeight: 600 }}
+          />
+          <div style={{ display: 'flex', gap: 12, marginTop: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+            {episode.retentionScore && (
+              <span className="text-sm text-[#555]">Retention: {episode.retentionScore}%</span>
+            )}
+            {/* YouTube Video ID link */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.25)' }}>YouTube ID:</span>
+              <InlineEdit
+                value={episode.youtubeVideoId || ''}
+                placeholder="Link video ID"
+                onSave={async (val) => {
+                  await episodesApi.patch(episode.id, { youtube_video_id: val.trim() })
+                  setData(d => ({ ...d, episode: { ...d.episode, youtubeVideoId: val.trim() } }))
+                }}
+                style={{ fontSize: 11, fontFamily: 'monospace', color: 'rgba(74,222,128,0.8)' }}
+              />
+              {episode.youtubeVideoId && (
+                <a
+                  href={`https://youtube.com/watch?v=${episode.youtubeVideoId}`}
+                  target="_blank" rel="noopener noreferrer"
+                  style={{ fontSize: 10, color: 'rgba(74,222,128,0.5)' }}
+                >↗</a>
+              )}
+            </div>
+          </div>
         </div>
       </div>
 

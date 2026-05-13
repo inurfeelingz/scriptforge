@@ -711,7 +711,7 @@ function detectHookType(voScript) {
 
 // ─── PATCH /episodes/:id — general field update (pipeline_stage etc.) ─────────
 router.patch('/:id', async (req, res) => {
-  const ALLOWED = ['pipeline_stage', 'status', 'title', 'track_name']
+  const ALLOWED = ['pipeline_stage', 'status', 'title', 'track_name', 'vo_script', 'youtube_video_id', 'tiktok_video_id', 'description', 'tags']
   const updates = {}
   ALLOWED.forEach(k => { if (req.body[k] !== undefined) updates[k] = req.body[k] })
   if (!Object.keys(updates).length) return res.status(400).json({ error: 'No valid fields' })

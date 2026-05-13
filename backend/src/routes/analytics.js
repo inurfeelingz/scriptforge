@@ -395,27 +395,50 @@ Give 3-4 specific, actionable insights based on this data. ${dataType === 'per_v
       .single();
 
     // Auto-match to existing episodes and log performance
+    // Priority: 1) exact video_id match, 2) skip fuzzy title (too many false positives)
     let matched = 0;
-    for (const video of scored.slice(0, 30)) {
-      const { data: episodes } = await supabase
-        .from('episodes')
-        .select('id, track_name')
-        .eq('user_id', req.user.id)
-        .eq('category_id', categoryId)
-        .ilike('track_name', `%${video.title.slice(0, 20)}%`);
+    for (const video of scored.slice(0, 50)) {
+      let matchedEpisodes = []
 
-      if (episodes?.length) {
-        for (const ep of episodes) {
-          await supabase.from('episodes').update({
-            yt_view_count:      platform === 'youtube' ? video.views : null,
-            yt_avg_view_pct:    platform === 'youtube' ? video.avgViewPercentage : null,
-            yt_retention_score: platform === 'youtube' ? video.retentionScore : null,
-            tt_view_count:      platform === 'tiktok'  ? video.views : null,
-            tt_full_watch_rate: platform === 'tiktok'  ? video.fullWatchRate : null,
-            performance_logged_at: new Date().toISOString(),
-          }).eq('id', ep.id);
-          matched++;
+      // Try exact video ID match first (most reliable)
+      if (video.videoId && platform === 'youtube') {
+        const { data: idMatches } = await supabase
+          .from('episodes')
+          .select('id, track_name')
+          .eq('user_id', req.user.id)
+          .eq('category_id', categoryId)
+          .eq('youtube_video_id', video.videoId)
+        if (idMatches?.length) matchedEpisodes = idMatches
+      }
+
+      // Only fall back to title match if no ID match AND title is specific enough (>30 chars)
+      if (!matchedEpisodes.length && video.title?.length > 30) {
+        const { data: titleMatches } = await supabase
+          .from('episodes')
+          .select('id, track_name')
+          .eq('user_id', req.user.id)
+          .eq('category_id', categoryId)
+          .ilike('track_name', `%${video.title.slice(0, 35)}%`)
+        // Only accept if exactly ONE match to avoid false positives
+        if (titleMatches?.length === 1) matchedEpisodes = titleMatches
+      }
+
+      for (const ep of matchedEpisodes) {
+        const updateData = { performance_logged_at: new Date().toISOString() }
+        if (platform === 'youtube') {
+          updateData.yt_view_count      = video.views
+          updateData.yt_avg_view_pct    = video.avgViewPercentage
+          updateData.yt_retention_score = video.retentionScore
+          // Auto-store the video ID if we matched by title
+          if (video.videoId && !ep.youtube_video_id) {
+            updateData.youtube_video_id = video.videoId
+          }
+        } else {
+          updateData.tt_view_count      = video.views
+          updateData.tt_full_watch_rate = video.fullWatchRate
         }
+        await supabase.from('episodes').update(updateData).eq('id', ep.id)
+        matched++
       }
     }
 
