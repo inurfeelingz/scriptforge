@@ -70,7 +70,6 @@ async function assembleContext(userId, categoryId, options = {}) {
     clipIndexData,
     scriptLibrary,
     plannedEpisodes,
-    recentVoiceMemos,
   ] = await Promise.all([
     getCategory(userId, categoryId),
     getRecentEpisodes(userId, categoryId, 5),
@@ -83,7 +82,6 @@ async function assembleContext(userId, categoryId, options = {}) {
     getClipIndexData(userId),
     getScriptLibrary(userId, categoryId),
     getPlannedEpisodes(userId, categoryId),
-    getRecentVoiceMemos(userId, categoryId),
   ]);
 
   if (!category) return buildMinimalContext(mode);
@@ -160,14 +158,27 @@ ${topVideos || '  No video data yet'}
 Latest batch AI insights: ${latest.insights || 'Not yet generated'}`)
   }
 
-  // ── TOP PERFORMERS (weighted — most relevant examples) ────
+  // ── TOP PERFORMERS — only real published episodes ────────
   if (topPerformers.length) {
-    sections.push(`## TOP PERFORMING EPISODES (study these patterns)
+    sections.push(`## TOP PERFORMING EPISODES (real published data only)
 ${topPerformers.map(e =>
-  `Ep ${e.episode_number}: "${e.track_name}" — ${e.yt_retention_score || '?'}/100 retention
+  `Ep ${e.episode_number}: "${e.track_name}" — ${e.yt_retention_score}/100 retention
   Concept: ${e.episode_concept || 'N/A'}
   Hook used: ${e.generation_decisions?.hookVariantUsed?.slice(0, 80) || 'N/A'}`
-).join('\n\n')}`);
+).join('\n\n')}`)
+  } else {
+    sections.push(`## TOP PERFORMING EPISODES
+No published episodes with real performance data yet. Do not reference or invent episode benchmarks. The creator is still in pre-launch — base all recommendations on the analytics upload data and industry knowledge only.`)
+  }
+
+  // ── RECENT VOICE MEMOS (raw ideas from Companion sessions) ──────────
+  if (recentVoiceMemos?.length) {
+    sections.push(`## RECENT VOICE MEMOS
+These are unfiltered notes the creator recorded during production sessions — their raw thinking in their own words.
+${recentVoiceMemos.map(m =>
+  `[${new Date(m.created_at).toLocaleDateString()}${m.title ? ` — ${m.title}` : ''}]
+"${(m.voice_memo_text || '').slice(0, 400)}${m.voice_memo_text?.length > 400 ? '...' : ''}"`
+).join('\n\n')}`)
   }
 
   // ── SERIES MEMORY ─────────────────────────────────────────
@@ -218,14 +229,6 @@ ${clipLines}`)
 ${vaultHighlights.map(v =>
   `[${v.type}] "${v.title}": ${v.content.slice(0, 100)}...`
 ).join('\n')}`);
-  }
-
-  // ── RECENT VOICE MEMOS ───────────────────────────────────
-  if (recentVoiceMemos?.length) {
-    sections.push('## RECENT VOICE MEMOS (creator\'s raw session notes)\n' +
-      recentVoiceMemos.map(m =>
-        `[${new Date(m.created_at).toLocaleDateString()}] "${(m.voice_memo_text||'').slice(0,300)}${m.voice_memo_text?.length>300?'...':''}"`
-      ).join('\n\n'))
   }
 
   // ── SCRIPT LIBRARY ────────────────────────────────────────
@@ -342,10 +345,12 @@ async function getRecentEpisodes(userId, categoryId, limit) {
 async function getTopPerformers(userId, categoryId, limit) {
   const { data } = await supabase
     .from('episodes')
-    .select('episode_number, track_name, episode_concept, generation_decisions, yt_retention_score')
+    .select('episode_number, track_name, episode_concept, generation_decisions, yt_retention_score, status')
     .eq('user_id', userId)
     .eq('category_id', categoryId)
+    .eq('status', 'published')           // only real published episodes
     .not('yt_retention_score', 'is', null)
+    .gt('yt_retention_score', 0)         // must have a real score
     .order('yt_retention_score', { ascending: false })
     .limit(limit);
   return data || [];
@@ -464,11 +469,14 @@ function buildMinimalContext(mode) {
 
 async function getRecentVoiceMemos(userId, categoryId) {
   try {
-    const { data } = await supabase.from('sessions')
+    const { data } = await supabase
+      .from('sessions')
       .select('voice_memo_text, created_at, title')
-      .eq('user_id', userId).eq('category_id', categoryId)
+      .eq('user_id', userId)
+      .eq('category_id', categoryId)
       .not('voice_memo_text', 'is', null)
-      .order('created_at', { ascending: false }).limit(3)
+      .order('created_at', { ascending: false })
+      .limit(3)
     return data || []
   } catch { return [] }
 }
