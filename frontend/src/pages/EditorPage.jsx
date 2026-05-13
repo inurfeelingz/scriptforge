@@ -49,7 +49,7 @@ export default function EditorPage() {
   }
 
   return (
-    <div className="max-w-6xl mx-auto space-y-4">
+    <div className="max-w-4xl mx-auto space-y-4">
 
       {/* Pipeline CTA — top of page, shown after clips approved */}
       {exportReady && (

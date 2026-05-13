@@ -522,19 +522,25 @@ Show name: ${cat?.name || 'their show'}. Niche: ${cat?.niche || 'content creatio
 
     const stream = await client.messages.stream({
       model:      process.env.CLAUDE_MODEL || 'claude-sonnet-4-5',
-      max_tokens: 400,
+      max_tokens: 1200,
       system:     SYSTEM,
       messages,
     })
 
     let full = ''
+    let inJsonBlock = false
     for await (const chunk of stream) {
       if (chunk.type === 'content_block_delta' && chunk.delta.type === 'text_delta') {
         const text = chunk.delta.text
         full += text
 
-        // Don't stream the JSON block — handle it silently
-        if (full.includes('===VOICE_PROFILE===')) continue
+        // Track whether we are inside the JSON block
+        if (text.includes('===VOICE_PROFILE===')) {
+          inJsonBlock = !inJsonBlock
+          continue // skip the marker line itself
+        }
+        if (inJsonBlock) continue // suppress JSON content
+
         send('chunk', { text })
       }
     }

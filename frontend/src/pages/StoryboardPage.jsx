@@ -206,7 +206,7 @@ ${cardHTML}
   )
 
   return (
-    <div style={{ maxWidth: 1100, margin: '0 auto' }}>
+    <div style={{ maxWidth: 896, margin: '0 auto' }}>
 
       {/* Pipeline CTA — top of page */}
       {active?.frames?.length > 0 && (

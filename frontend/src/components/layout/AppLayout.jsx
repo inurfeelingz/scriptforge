@@ -312,29 +312,28 @@ export default function AppLayout() {
 
           <div style={{ width: 1, height: 20, background: 'rgba(255,255,255,0.06)', margin: '0 2px' }}/>
 
-          {/* KB Orb — inline in pill, small, grows when open */}
-          <div
-            onClick={() => setChatOpen(o => !o)}
-            style={{
-              width:      chatOpen ? 48 : 36,
-              height:     chatOpen ? 48 : 36,
-              borderRadius: '50%',
-              cursor:     'pointer',
-              flexShrink: 0,
-              transition: 'all 0.3s cubic-bezier(0.34,1.56,0.64,1)',
-              display:    'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              boxShadow:  chatOpen ? '0 0 16px rgba(74,222,128,0.25)' : 'none',
-            }}
-          >
-            <KBOrb
-              mood={chatOpen ? 'active' : 'idle'}
-              isOpen={chatOpen}
-              audioLevel={0}
-              size={chatOpen ? 48 : 34}
-            />
-          </div>
+          {/* KB Orb — hidden on home route (KB is already visible there) */}
+          {!isHome && (
+            <div
+              onClick={() => setChatOpen(o => !o)}
+              style={{
+                cursor:     'pointer',
+                flexShrink: 0,
+                display:    'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                transition: 'transform 0.3s cubic-bezier(0.34,1.56,0.64,1)',
+                transform:  chatOpen ? 'scale(1.15)' : 'scale(1)',
+              }}
+            >
+              <KBOrb
+                mood={chatOpen ? 'active' : 'idle'}
+                isOpen={chatOpen}
+                audioLevel={0}
+                size={38}
+              />
+            </div>
+          )}
 
           <div style={{ width: 1, height: 20, background: 'rgba(255,255,255,0.06)', margin: '0 2px' }}/>
 
