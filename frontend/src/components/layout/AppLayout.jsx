@@ -216,12 +216,6 @@ export default function AppLayout() {
         {/* Advanced / Settings */}
         <div style={{ padding: '12px 20px', borderTop: '1px solid rgba(255,255,255,0.04)', display: 'flex', flexDirection: 'column', gap: 2 }}>
           <button
-            onClick={() => { navigate('/dashboard'); setSidebarOpen(false) }}
-            style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 8, border: 'none', background: 'transparent', color: 'rgba(255,255,255,0.3)', cursor: 'pointer', fontSize: 12, fontFamily: "'Figtree', sans-serif", textAlign: 'left' }}
-          >
-            <ChevronRight size={13}/> Dashboard
-          </button>
-          <button
             onClick={() => { navigate('/settings'); setSidebarOpen(false) }}
             style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 8, border: 'none', background: 'transparent', color: 'rgba(255,255,255,0.3)', cursor: 'pointer', fontSize: 12, fontFamily: "'Figtree', sans-serif", textAlign: 'left' }}
           >
@@ -264,7 +258,7 @@ export default function AppLayout() {
         ref={pillRef}
         style={{
           position:   'fixed',
-          bottom:     chatOpen ? 'calc(72vh + 16px)' : '24px',
+          bottom:     chatOpen ? 'calc(75vh + 12px)' : '24px',
           left:       '50%',
           transform:  'translateX(-50%)',
           zIndex:     44,
@@ -426,7 +420,7 @@ export default function AppLayout() {
         </div>
       </main>
 
-      {/* KB backdrop — hidden on home (KB is inline there) */}
+      {/* KB backdrop */}
       {!isCompanion && !isHome && chatOpen && (
         <div
           onClick={() => setChatOpen(false)}
@@ -439,7 +433,7 @@ export default function AppLayout() {
         />
       )}
 
-      {/* KB chat sheet — hidden on home (KB is inline there) */}
+      {/* KB chat sheet */}
       {!isCompanion && !isHome && (
         <div style={{
           position:   'fixed',
@@ -463,13 +457,13 @@ export default function AppLayout() {
         </div>
       )}
 
-      {/* KB Orb — hidden on home (KB is full screen there) */}
+      {/* KB Orb — hidden on home */}
       {!isCompanion && !isHome && (
         <div style={{
           position:   'fixed',
           bottom:     chatOpen
             ? (isMobile ? 'calc(82vh - 44px)' : 'calc(75vh - 44px)')
-            : isMobile ? 100 : 100,
+            : (isMobile ? 86 : 86),
           left:       '50%',
           marginLeft: -44,
           zIndex:     45,

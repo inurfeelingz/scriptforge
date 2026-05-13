@@ -7,7 +7,7 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import {
   Play, Pause, RotateCcw, Maximize, Minimize, X,
   ChevronDown, Mic, MicOff, Square, AlignCenter,
-  RefreshCw, Check, AlertCircle, BookOpen,
+  RefreshCw, Check, AlertCircle, BookOpen, Upload,
 } from 'lucide-react'
 import { useStore } from '../store'
 import NextStepBanner from '../components/layout/NextStepBanner'
@@ -247,7 +247,6 @@ export default function Teleprompter() {
       if (selectedEpId) {
         episodesApi.patch(selectedEpId, { pipeline_stage: 'vo_recorded' }).catch(() => {})
       }
-      if (selectedEpId) episodesApi.patch(selectedEpId, { pipeline_stage: 'vo_recorded' }).catch(() => {})
       setRecState('done')
       notify(
         aligned > 0

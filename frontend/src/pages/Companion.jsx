@@ -476,9 +476,6 @@ export default function Companion() {
           )}
         </div>
 
-        <div style={{position:'absolute',inset:0,opacity:state.screen==='brainstorm'?1:0,pointerEvents:state.screen==='brainstorm'?'auto':'none',transition:'opacity 0.2s ease'}}>
-
-        </div>
 
       </div>
     </div>
