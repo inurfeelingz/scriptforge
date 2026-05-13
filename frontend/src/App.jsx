@@ -50,11 +50,9 @@ function AuthGuard({ children }) {
 
 function SplashScreen() {
   return (
-    <div className="min-h-screen bg-[#080808] flex items-center justify-center">
-      <div className="text-center space-y-4">
-        <div className="text-2xl font-serif text-[#c8b89a] tracking-widest">WHISPACUTS</div>
-        <div className="w-6 h-6 border border-[#c8b89a]/30 border-t-[#c8b89a] rounded-full animate-spin mx-auto" />
-      </div>
+    <div style={{ minHeight: '100vh', background: '#080c10', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 20 }}>
+      <div style={{ fontFamily: "'Syne', sans-serif", fontSize: 22, fontWeight: 800, color: '#e8eaed', letterSpacing: '-0.5px' }}>WhispaCuts</div>
+      <div style={{ width: 24, height: 24, border: '1.5px solid rgba(74,222,128,0.2)', borderTopColor: 'rgba(74,222,128,1)', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }}/>
     </div>
   )
 }

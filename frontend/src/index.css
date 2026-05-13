@@ -22,10 +22,15 @@
   --text2:     #b0b5c0;
   --text3:     #6b7280;
 
-  /* Accent — gold, used ONLY for logo + primary CTA + tier badges */
-  --accent:    #d4a853;
-  --accent-lo: rgba(212,168,83,0.10);
-  --accent-mid:rgba(212,168,83,0.30);
+  /* Accent — KB green as primary */
+  --accent:    #4ade80;
+  --accent-lo: rgba(74,222,128,0.08);
+  --accent-mid:rgba(74,222,128,0.25);
+
+  /* Gold — kept for episode cards and secondary UI only */
+  --gold:      #d4a853;
+  --gold-lo:   rgba(212,168,83,0.10);
+  --gold-mid:  rgba(212,168,83,0.30);
 
   /* Active/selected state — cool white, not brown */
   --active-bg:   rgba(255,255,255,0.07);
