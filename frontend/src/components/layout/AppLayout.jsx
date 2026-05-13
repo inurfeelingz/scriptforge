@@ -25,10 +25,10 @@ import NewCategoryModal from './NewCategoryModal'
 
 // ── PILL MENU ITEMS ──────────────────────────────────────────────────────────
 const PILL_ITEMS = [
-  { to: '/companion',    icon: Radio,      label: 'Companion',   newTab: true },
   { to: '/teleprompter', icon: Mic,        label: 'Teleprompter' },
   { to: '/storyboard',   icon: Film,       label: 'Shot List'    },
   { to: '/editor',       icon: Scissors,   label: 'Editor'       },
+  { to: '/schedule',     icon: Calendar,   label: 'Schedule'     },
   { to: '/analytics',    icon: BarChart2,  label: 'Analytics'    },
 ]
 
@@ -52,7 +52,7 @@ export default function AppLayout() {
           loadCategories, setActiveCategory, notify } = useStore()
 
   const [chatOpen,     setChatOpen]     = useState(false)
-  const [sidebarOpen,  setSidebarOpen]  = useState(false)
+  const [gearOpen,     setGearOpen]     = useState(false)
   const [pillExpanded, setPillExpanded] = useState(false)
   const [isMobile,     setIsMobile]     = useState(false)
   const [showNewCat,   setShowNewCat]   = useState(false)
@@ -85,7 +85,7 @@ export default function AppLayout() {
   }, [pillExpanded])
 
   // Close pill on route change
-  useEffect(() => { setPillExpanded(false); setSidebarOpen(false) }, [location.pathname])
+  useEffect(() => { setPillExpanded(false); setGearOpen(false) }, [location.pathname])
 
   // Listen for kb:open event
   useEffect(() => {
@@ -107,11 +107,10 @@ export default function AppLayout() {
     catch (err) { notify('Refresh failed: ' + err.message, 'error') }
   }
 
-  function PillButton({ to, icon: Icon, label, onClick, newTab }) {
+  function PillButton({ to, icon: Icon, label, onClick }) {
     const active = location.pathname === to
     const handleClick = () => {
       if (onClick) { onClick(); return }
-      if (newTab) { window.open(to, '_blank'); return }
       navigate(to)
       setPillExpanded(false)
     }
@@ -144,109 +143,86 @@ export default function AppLayout() {
     )
   }
 
-  // ── SIDEBAR CONTENT ────────────────────────────────────────────────────────
-  function Sidebar() {
+  // ── GEAR PANEL ────────────────────────────────────────────────────────────
+  function GearPanel() {
+    if (!gearOpen) return null
     return (
-      <div style={{
-        width: 260, height: '100vh', background: 'rgba(8,10,16,0.98)',
-        borderRight: '1px solid rgba(74,222,128,0.08)',
-        display: 'flex', flexDirection: 'column',
-        position: 'fixed', top: 0, left: 0, zIndex: 60,
-        transform: sidebarOpen ? 'translateX(0)' : 'translateX(-100%)',
-        transition: 'transform 0.25s cubic-bezier(0.4,0,0.2,1)',
-        backdropFilter: 'blur(20px)',
-      }}>
-        {/* Header */}
-        <div style={{ padding: '20px 20px 16px', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-            <span style={{ fontFamily: "'Syne', sans-serif", fontWeight: 800, fontSize: 15, color: '#e8eaed', letterSpacing: '-0.3px' }}>
-              WhispaCuts
-            </span>
-            <button onClick={() => setSidebarOpen(false)} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.3)', cursor: 'pointer' }}>
-              <X size={16}/>
-            </button>
+      <>
+        {/* Backdrop */}
+        <div
+          onClick={() => setGearOpen(false)}
+          style={{ position:'fixed', inset:0, zIndex:58, background:'rgba(0,0,0,0.5)', backdropFilter:'blur(4px)' }}
+        />
+        {/* Panel — floats above pill */}
+        <div style={{
+          position:'fixed', bottom:80, left:'50%', transform:'translateX(-50%)',
+          width:'min(340px, calc(100vw - 32px))',
+          background:'rgba(8,10,16,0.98)', border:'1px solid rgba(74,222,128,0.12)',
+          borderRadius:16, zIndex:59, overflow:'hidden',
+          boxShadow:'0 -8px 40px rgba(0,0,0,0.7)',
+          backdropFilter:'blur(20px)',
+        }}>
+          {/* Workspace selector */}
+          <div style={{ padding:'16px 16px 12px', borderBottom:'1px solid rgba(255,255,255,0.05)' }}>
+            <div style={{ fontSize:10, color:'rgba(255,255,255,0.25)', textTransform:'uppercase', letterSpacing:'0.1em', marginBottom:8, fontFamily:"'Figtree',sans-serif" }}>Workspace</div>
+            <div style={{ display:'flex', flexDirection:'column', gap:3 }}>
+              {(categories || []).map(cat => (
+                <button key={cat.id}
+                  onClick={() => { setActiveCategory(cat.id); setGearOpen(false) }}
+                  style={{ display:'flex', alignItems:'center', gap:8, padding:'8px 10px', borderRadius:8, border:'none', cursor:'pointer', background: cat.id === activeCategoryId ? GREEN_LOW : 'transparent', color: cat.id === activeCategoryId ? GREEN : 'rgba(255,255,255,0.55)', textAlign:'left', transition:'all 0.15s', fontFamily:"'Figtree',sans-serif", fontSize:13 }}
+                >
+                  <span style={{ width:6, height:6, borderRadius:'50%', background: cat.id === activeCategoryId ? GREEN : '#333', flexShrink:0 }}/>
+                  {cat.name}
+                  {cat.id === activeCategoryId && <span style={{ fontSize:9, color:'rgba(74,222,128,0.5)', marginLeft:'auto' }}>active</span>}
+                </button>
+              ))}
+              <button
+                onClick={() => { setShowNewCat(true); setGearOpen(false) }}
+                style={{ display:'flex', alignItems:'center', gap:8, padding:'6px 10px', borderRadius:8, border:'1px dashed rgba(255,255,255,0.08)', background:'transparent', color:'rgba(255,255,255,0.25)', cursor:'pointer', fontSize:12, fontFamily:"'Figtree',sans-serif" }}
+              >
+                <Plus size={12}/> New workspace
+              </button>
+            </div>
           </div>
 
-          {/* Workspace selector */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            {(categories || []).map(cat => (
-              <button
-                key={cat.id}
-                onClick={() => { setActiveCategory(cat.id); setSidebarOpen(false) }}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px',
-                  borderRadius: 8, border: 'none', cursor: 'pointer',
-                  background: cat.id === activeCategoryId ? GREEN_LOW : 'transparent',
-                  color: cat.id === activeCategoryId ? GREEN : 'rgba(255,255,255,0.5)',
-                  textAlign: 'left', transition: 'all 0.15s',
-                }}
+          {/* Actions grid */}
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', borderBottom:'1px solid rgba(255,255,255,0.05)' }}>
+            {[
+              { icon: <RefreshCw size={15}/>, label:'Refresh trends', action: () => { handleManualRefresh(); setGearOpen(false) } },
+              { icon: <Radio size={15}/>,     label:'Companion',      action: () => { window.open('/companion','_blank'); setGearOpen(false) } },
+              { icon: <Settings size={15}/>,  label:'Settings',       action: () => { navigate('/settings'); setGearOpen(false) } },
+              { icon: <ChevronRight size={15}/>, label:'Plan & billing', action: () => { navigate('/billing'); setGearOpen(false) } },
+            ].map((item, i) => (
+              <button key={i} onClick={item.action}
+                style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:6, padding:'14px 8px', background:'transparent', border:'none', borderRight: i%2===0 ? '1px solid rgba(255,255,255,0.05)' : 'none', borderBottom: i<2 ? '1px solid rgba(255,255,255,0.05)' : 'none', color:'rgba(255,255,255,0.5)', cursor:'pointer', transition:'background 0.15s', fontFamily:"'Figtree',sans-serif", fontSize:11 }}
+                onMouseEnter={e => e.currentTarget.style.background='rgba(255,255,255,0.04)'}
+                onMouseLeave={e => e.currentTarget.style.background='transparent'}
               >
-                <span style={{ width: 6, height: 6, borderRadius: '50%', background: cat.id === activeCategoryId ? GREEN : '#333', flexShrink: 0 }}/>
-                <span style={{ fontSize: 13, fontFamily: "'Figtree', sans-serif" }}>{cat.name}</span>
-                {cat.id === activeCategoryId && <span style={{ fontSize: 9, color: 'rgba(74,222,128,0.5)', marginLeft: 'auto' }}>active</span>}
+                {item.icon}
+                <span style={{ textTransform:'uppercase', letterSpacing:'0.05em' }}>{item.label}</span>
               </button>
             ))}
-            <button
-              onClick={() => { setShowNewCat(true); setSidebarOpen(false) }}
-              style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', borderRadius: 8, border: '1px dashed rgba(255,255,255,0.08)', background: 'transparent', color: 'rgba(255,255,255,0.25)', cursor: 'pointer', fontSize: 12, fontFamily: "'Figtree', sans-serif" }}
+          </div>
+
+          {/* Profile + sign out */}
+          <div style={{ padding:'12px 16px', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+            <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+              <div style={{ width:28, height:28, borderRadius:'50%', background:GREEN_LOW, border:`1px solid ${GREEN_MID}`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:11, color:GREEN, fontWeight:600 }}>
+                {(profile?.display_name||'U')[0].toUpperCase()}
+              </div>
+              <div>
+                <div style={{ fontSize:12, color:'#e8eaed', fontFamily:"'Figtree',sans-serif" }}>{profile?.display_name||'Creator'}</div>
+                <div style={{ fontSize:10, color:GREEN, fontFamily:"'Figtree',sans-serif" }}>{profile?.tier||'free'}</div>
+              </div>
+            </div>
+            <button onClick={signOut}
+              style={{ display:'flex', alignItems:'center', gap:6, padding:'6px 12px', borderRadius:7, border:'1px solid rgba(255,0,0,0.2)', background:'transparent', color:'rgba(255,80,80,0.7)', cursor:'pointer', fontSize:12, fontFamily:"'Figtree',sans-serif" }}
             >
-              <Plus size={12}/> New workspace
+              <LogOut size={12}/> Sign out
             </button>
           </div>
         </div>
-
-        {/* Refresh trends */}
-        <button
-          onClick={() => { handleManualRefresh(); setSidebarOpen(false) }}
-          style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 20px', background: 'none', border: 'none', color: 'rgba(255,255,255,0.3)', cursor: 'pointer', fontSize: 12, fontFamily: "'Figtree', sans-serif", borderBottom: '1px solid rgba(255,255,255,0.04)' }}
-        >
-          <RefreshCw size={12}/> Refresh trends
-        </button>
-
-        {/* Companion shortcut */}
-        <button
-          onClick={() => { window.open('/companion', '_blank'); setSidebarOpen(false) }}
-          style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 20px', background: 'none', border: 'none', color: 'rgba(255,255,255,0.3)', cursor: 'pointer', fontSize: 12, fontFamily: "'Figtree', sans-serif", borderBottom: '1px solid rgba(255,255,255,0.04)' }}
-        >
-          <Radio size={12}/> Open Companion
-        </button>
-
-        {/* Spacer */}
-        <div style={{ flex: 1 }}/>
-
-        {/* Advanced / Settings */}
-        <div style={{ padding: '12px 20px', borderTop: '1px solid rgba(255,255,255,0.04)', display: 'flex', flexDirection: 'column', gap: 2 }}>
-          <button
-            onClick={() => { navigate('/settings'); setSidebarOpen(false) }}
-            style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 8, border: 'none', background: 'transparent', color: 'rgba(255,255,255,0.3)', cursor: 'pointer', fontSize: 12, fontFamily: "'Figtree', sans-serif", textAlign: 'left' }}
-          >
-            <Settings size={13}/> Advanced settings
-          </button>
-          <button
-            onClick={() => { navigate('/billing'); setSidebarOpen(false) }}
-            style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 8, border: 'none', background: 'transparent', color: 'rgba(255,255,255,0.3)', cursor: 'pointer', fontSize: 12, fontFamily: "'Figtree', sans-serif", textAlign: 'left' }}
-          >
-            <ChevronRight size={13}/> Plan & billing
-          </button>
-          <button
-            onClick={signOut}
-            style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 8, border: 'none', background: 'transparent', color: 'rgba(255,0,0,0.35)', cursor: 'pointer', fontSize: 12, fontFamily: "'Figtree', sans-serif", textAlign: 'left' }}
-          >
-            <LogOut size={13}/> Sign out
-          </button>
-        </div>
-
-        {/* Profile */}
-        <div style={{ padding: '12px 20px', borderTop: '1px solid rgba(255,255,255,0.04)', display: 'flex', alignItems: 'center', gap: 10 }}>
-          <div style={{ width: 28, height: 28, borderRadius: '50%', background: GREEN_LOW, border: `1px solid ${GREEN_MID}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, color: GREEN, fontWeight: 600 }}>
-            {(profile?.display_name || 'U')[0].toUpperCase()}
-          </div>
-          <div>
-            <div style={{ fontSize: 12, color: '#e8eaed', fontFamily: "'Figtree', sans-serif" }}>{profile?.display_name || 'Creator'}</div>
-            <div style={{ fontSize: 10, color: GREEN, fontFamily: "'Figtree', sans-serif" }}>{profile?.tier || 'free'}</div>
-          </div>
-        </div>
-      </div>
+      </>
     )
   }
 
@@ -270,67 +246,24 @@ export default function AppLayout() {
           gap:        8,
         }}
       >
-        {/* Expanded more menu — icon grid */}
+        {/* Expanded more menu */}
         {pillExpanded && (
           <div style={{
-            background:     'rgba(8,10,16,0.98)',
-            border:         '1px solid rgba(74,222,128,0.15)',
+            background:     'rgba(8,10,16,0.97)',
+            border:         `1px solid rgba(74,222,128,0.12)`,
             borderRadius:   16,
-            boxShadow:      '0 -8px 40px rgba(0,0,0,0.7), 0 0 0 1px rgba(74,222,128,0.04)',
+            padding:        '8px 4px',
+            display:        'flex',
+            gap:            0,
+            boxShadow:      '0 -8px 40px rgba(0,0,0,0.6), 0 0 0 1px rgba(74,222,128,0.04)',
             backdropFilter: 'blur(20px)',
-            overflow:       'hidden',
-            width:          isMobile ? 280 : 320,
+            flexWrap:       isMobile ? 'wrap' : 'nowrap',
+            maxWidth:       isMobile ? 340 : 'none',
+            justifyContent: 'center',
           }}>
-            <div style={{
-              display:             'grid',
-              gridTemplateColumns: 'repeat(4, 1fr)',
-            }}>
-              {MORE_ITEMS.map((item, i) => {
-                const Icon    = item.icon
-                const active  = location.pathname === item.to
-                const col     = i % 4
-                const row     = Math.floor(i / 4)
-                const isLast  = i === MORE_ITEMS.length - 1
-                return (
-                  <button
-                    key={item.to}
-                    onClick={() => { navigate(item.to); setPillExpanded(false) }}
-                    style={{
-                      display:        'flex',
-                      flexDirection:  'column',
-                      alignItems:     'center',
-                      justifyContent: 'center',
-                      gap:            6,
-                      padding:        '16px 8px',
-                      background:     active ? 'rgba(74,222,128,0.06)' : 'transparent',
-                      border:         'none',
-                      borderRight:    col < 3 ? '1px solid rgba(255,255,255,0.05)' : 'none',
-                      borderBottom:   row === 0 && MORE_ITEMS.length > 4 ? '1px solid rgba(255,255,255,0.05)' : 'none',
-                      color:          active ? GREEN : 'rgba(255,255,255,0.5)',
-                      cursor:         'pointer',
-                      transition:     'background 0.15s',
-                    }}
-                    onMouseEnter={e => { if (!active) e.currentTarget.style.background = 'rgba(255,255,255,0.04)' }}
-                    onMouseLeave={e => { if (!active) e.currentTarget.style.background = 'transparent' }}
-                  >
-                    <Icon size={18}/>
-                    <span style={{ fontSize: 10, letterSpacing: '0.05em', textTransform: 'uppercase', fontFamily: "'Figtree',sans-serif", whiteSpace: 'nowrap' }}>
-                      {item.label}
-                    </span>
-                  </button>
-                )
-              })}
-              {/* Settings in grid */}
-              <button
-                onClick={() => { navigate('/settings'); setPillExpanded(false) }}
-                style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:6, padding:'16px 8px', background:'transparent', border:'none', borderLeft:'1px solid rgba(255,255,255,0.05)', borderTop: MORE_ITEMS.length > 4 ? '1px solid rgba(255,255,255,0.05)' : 'none', color:'rgba(255,255,255,0.35)', cursor:'pointer', transition:'background 0.15s' }}
-                onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.04)'}
-                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-              >
-                <Settings size={18}/>
-                <span style={{ fontSize:10, letterSpacing:'0.05em', textTransform:'uppercase', fontFamily:"'Figtree',sans-serif" }}>Settings</span>
-              </button>
-            </div>
+            {MORE_ITEMS.map(item => (
+              <PillButton key={item.to} {...item}/>
+            ))}
           </div>
         )}
 
@@ -346,18 +279,18 @@ export default function AppLayout() {
           boxShadow:      '0 4px 32px rgba(0,0,0,0.5), 0 0 0 1px rgba(74,222,128,0.04), 0 0 20px rgba(74,222,128,0.04)',
           backdropFilter: 'blur(20px)',
         }}>
-          {/* Menu/hamburger */}
+          {/* Gear icon → opens gear panel */}
           <button
-            onClick={() => setSidebarOpen(o => !o)}
-            style={{ width: 36, height: 36, borderRadius: 50, background: 'none', border: 'none', color: 'rgba(255,255,255,0.35)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'color 0.15s' }}
+            onClick={() => setGearOpen(o => !o)}
+            style={{ width: 36, height: 36, borderRadius: 50, background: gearOpen ? GREEN_LOW : 'none', border: 'none', color: gearOpen ? GREEN : 'rgba(255,255,255,0.35)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.15s' }}
           >
-            <Menu size={15}/>
+            <Settings size={15}/>
           </button>
 
           <div style={{ width: 1, height: 20, background: 'rgba(255,255,255,0.06)', margin: '0 2px' }}/>
 
-          {/* KB Orb — inline in pill, small, grows when open */}
-          <div
+          {/* KB Orb — hidden on home (KB is already full screen there) */}
+          {!isHome && <div
             onClick={() => setChatOpen(o => !o)}
             style={{
               width:      chatOpen ? 48 : 36,
@@ -378,7 +311,7 @@ export default function AppLayout() {
               audioLevel={0}
               size={chatOpen ? 48 : 34}
             />
-          </div>
+          </div>}
 
           <div style={{ width: 1, height: 20, background: 'rgba(255,255,255,0.06)', margin: '0 2px' }}/>
 
@@ -411,15 +344,7 @@ export default function AppLayout() {
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg)', color: 'var(--text)', display: 'flex', flexDirection: 'column' }}>
 
-      {/* Sidebar overlay */}
-      {sidebarOpen && (
-        <div
-          onClick={() => setSidebarOpen(false)}
-          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 59, backdropFilter: 'blur(2px)' }}
-        />
-      )}
 
-      <Sidebar/>
 
       {/* Top bar — minimal */}
       {!isCompanion && (
@@ -438,6 +363,14 @@ export default function AppLayout() {
           backdropFilter: 'blur(16px)',
         }}>
           {/* Workspace indicator */}
+          {/* Logo — click to go home */}
+          <button
+            onClick={() => navigate('/')}
+            style={{ background:'none', border:'none', cursor:'pointer', padding:'0 8px 0 0', color: isHome ? GREEN : 'rgba(255,255,255,0.4)', fontFamily:"'Syne',sans-serif", fontWeight:800, fontSize:14, letterSpacing:'-0.3px', flexShrink:0, transition:'color 0.15s' }}
+          >
+            Wc
+          </button>
+
           {activeCategory_ && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: 1, minWidth: 0, overflow: 'hidden' }}>
               <span style={{ width: 6, height: 6, borderRadius: '50%', background: GREEN, flexShrink: 0, boxShadow: `0 0 6px ${GREEN}` }}/>
@@ -532,6 +465,7 @@ export default function AppLayout() {
       {/* Pill toolbar */}
       <PillToolbar/>
 
+      <GearPanel/>
       <Notifications/>
       {showNewCat && (
         <NewCategoryModal
