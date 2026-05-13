@@ -24,7 +24,8 @@ export default function EditorPage() {
   const [tab,       setTab]       = useState('library')
   const [project,   setProject]   = useState(null)
   const [projects,  setProjects]  = useState([])
-  const [showIndex, setShowIndex] = useState(false)
+  const [showIndex,  setShowIndex]  = useState(false)
+  const [exportReady, setExportReady] = useState(false)
 
   const cat      = activeCategory?.()
   const indexer  = useClipIndexer()
@@ -146,7 +147,31 @@ export default function EditorPage() {
             ))}
           </div>
 
-          {tab === 'library'  && <ClipLibrary    project={project} computeSearchVectors={indexer.computeSearchVectors} />}
+          {tab === 'library' && <ClipLibrary
+            project={project}
+            computeSearchVectors={indexer.computeSearchVectors}
+            onAddClip={(clip) => {
+              if (!project) return
+              const newEntry = {
+                id: `manual-${clip.id}-${Date.now()}`,
+                clipId: clip.id,
+                filename: clip.filename,
+                clipType: clip.clip_type,
+                startMs: 0,
+                durationMs: clip.duration_ms || 5000,
+                approved: false,
+                confidence: 1.0,
+                source: 'manual',
+                thumbnail_b64: clip.thumbnail_b64,
+              }
+              const updated = { ...project, timeline: [...(project.timeline || []), newEntry] }
+              setProject(updated)
+              // Persist to backend
+              import('../lib/api').then(({ api }) =>
+                api.patch(`/editor/projects/${project.id}`, { timeline: updated.timeline }).catch(() => {})
+              )
+            }}
+          />}
           {tab === 'timeline' && <HybridTimeline project={project} onProjectUpdate={(updated) => {
             setProject(updated)
             if (updated?.timeline?.filter(cl => cl.approved).length > 0) {
@@ -172,14 +197,7 @@ export default function EditorPage() {
 
 
     {/* Pipeline CTA — after clips approved */}
-    {exportReady && (
-      <NextStepBanner
-        title="Edit approved — download your package"
-        subtitle="Export as EDL or FCPXML and import into DaVinci Resolve to render your final video"
-        ctaLabel="Go to Export"
-        onCta={() => setTab('export')}
-      />
-    )}
+
 
     </div>
   )

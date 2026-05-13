@@ -374,6 +374,15 @@ export default function Teleprompter() {
         position: 'relative',
       }}
     >
+      {/* Pipeline CTA — top of page */}
+      {recState === 'done' && (
+        <NextStepBanner
+          title="VO recorded — now plan your shoot"
+          subtitle="Your shot list tells you exactly what to film for this episode"
+          ctaLabel="View shot list"
+          ctaRoute="/storyboard"
+        />
+      )}
       {/* Progress bar */}
       <div className="h-0.5 bg-[#111] shrink-0">
         <div className="h-full transition-all" style={{ width: `${pct}%`, background: '#d4a853' }}/>
@@ -561,14 +570,7 @@ export default function Teleprompter() {
       </div>
 
     {/* Pipeline CTA — after VO recorded */}
-    {(recState === 'done') && (
-      <NextStepBanner
-        title="VO recorded — now plan your shoot"
-        subtitle="Your shot list tells you exactly what to film for this episode"
-        ctaLabel="View shot list"
-        ctaRoute="/storyboard"
-      />
-    )}
+    
 
     </div>
   )

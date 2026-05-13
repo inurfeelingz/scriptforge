@@ -567,6 +567,16 @@ export default function Generate() {
   return (
     <div className="max-w-4xl mx-auto space-y-6">
 
+      {/* Pipeline CTA — top of page */}
+      {!generating && result && episodeId && (
+        <NextStepBanner
+          title="Script ready — record your voiceover"
+          subtitle="Open the teleprompter, load this episode and record your VO"
+          ctaLabel="Record VO"
+          ctaRoute="/teleprompter"
+        />
+      )}
+
       {/* Header */}
       <div>
         <h1 className="text-2xl font-serif text-[#f0ede8]">Generate episode</h1>

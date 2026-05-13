@@ -95,6 +95,10 @@ router.post('/message', async (req, res) => {
       })))
       .slice(-4)
 
+    // Auto-commit detection
+    const commitTriggers = ['commit', 'save this', 'lock it in', 'lock this in', 'commit this', "let's commit", 'save episode']
+    const isCommitCommand = commitTriggers.some(t => message.toLowerCase().includes(t))
+
     // Assemble system context
     const ctxKey = episodeCtx ? null : `${req.user.id}:${categoryId}:${mode}`
     let systemContext = ctxKey ? getCachedCtx(ctxKey) : null
@@ -117,6 +121,35 @@ router.post('/message', async (req, res) => {
         planned.map(e =>
           `Ep ${e.episode_number}: "${e.track_name}" [${e.status}]${e.summary ? ` — ${e.summary}` : ''}`
         ).join('\n')
+    }
+
+    // Auto-commit if triggered
+    if (isCommitCommand) {
+      try {
+        const { messages: h } = await loadHistory(req.user.id, categoryId, mode)
+        if (h.length >= 2) {
+          const extraction = await client.messages.create({
+            model: process.env.CLAUDE_MODEL || 'claude-sonnet-4-5',
+            max_tokens: 400,
+            system: 'Extract episode plan as JSON only. No preamble. Return: {"track_name":string,"summary":string,"themes":string[]}',
+            messages: [{ role: 'user', content: h.slice(-10).map(m => `${m.role}: ${m.content}`).join('\n') + '\nExtract the episode plan.' }],
+          })
+          const plan = JSON.parse((extraction.content[0]?.text || '{}').replace(/```json|```/g, '').trim())
+          if (plan.track_name) {
+            await supabase.from('kb_planned_episodes').insert({
+              user_id: req.user.id, category_id: categoryId,
+              track_name: plan.track_name, summary: plan.summary || '',
+              themes: plan.themes || [], status: 'planned',
+              chat_session: mode, updated_at: new Date().toISOString(),
+            })
+            const ack = `"${plan.track_name}" is locked in. Head to Generate whenever you're ready.`
+            send('chunk', { text: ack })
+            send('done', { response: ack })
+            clearInterval(keepalive)
+            return res.end()
+          }
+        }
+      } catch (e) { console.warn('[auto-commit]', e.message) }
     }
 
     // Build message list — current mode history + cross-mode context
@@ -342,6 +375,28 @@ router.delete('/sessions/:id', async (req, res) => {
     .eq('id', req.params.id)
     .eq('user_id', req.user.id)
   res.json({ deleted: true })
+})
+
+
+// ── POST /api/chat/speak — ElevenLabs TTS ────────────────────────────────────
+router.post('/speak', async (req, res) => {
+  const { text } = req.body
+  if (!text?.trim()) return res.status(400).json({ error: 'text required' })
+  if (!process.env.ELEVENLABS_API_KEY) return res.status(503).json({ error: 'TTS not configured' })
+  try {
+    const voiceId = process.env.ELEVENLABS_VOICE_ID || 'EXAVITQu4vr4xnSDxMaL'
+    const r = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}/stream`, {
+      method: 'POST',
+      headers: { 'Accept': 'audio/mpeg', 'Content-Type': 'application/json', 'xi-api-key': process.env.ELEVENLABS_API_KEY },
+      body: JSON.stringify({ text: text.slice(0, 500), model_id: 'eleven_turbo_v2', voice_settings: { stability: 0.5, similarity_boost: 0.75 } }),
+    })
+    if (!r.ok) return res.status(502).json({ error: 'ElevenLabs error' })
+    res.setHeader('Content-Type', 'audio/mpeg')
+    res.setHeader('Cache-Control', 'no-cache')
+    r.body.pipe(res)
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
 })
 
 module.exports = router;

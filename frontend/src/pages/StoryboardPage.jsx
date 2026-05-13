@@ -208,6 +208,16 @@ ${cardHTML}
   return (
     <div style={{ maxWidth: 1100, margin: '0 auto' }}>
 
+      {/* Pipeline CTA — top of page */}
+      {active?.frames?.length > 0 && (
+        <NextStepBanner
+          title="Shot list ready — go film your footage"
+          subtitle="Once filmed, upload your clips in the Editor to AI-assemble your edit"
+          ctaLabel="Upload footage"
+          ctaRoute="/editor"
+        />
+      )}
+
       {/* Header */}
       <div style={{ marginBottom: 24 }}>
         <h1 style={{ fontSize: 24, fontFamily: "'Syne',sans-serif", fontWeight: 700, color: '#f0ede8', margin: 0 }}>
@@ -448,15 +458,7 @@ function ShotCard({ frame }) {
         </div>
       )}
 
-    {/* Pipeline CTA — after shot list viewed */}
-    {active?.frames?.length > 0 && (
-      <NextStepBanner
-        title="Shot list ready — go film your footage"
-        subtitle="Once filmed, upload your clips in the Editor to AI-assemble your edit"
-        ctaLabel="Upload footage"
-        ctaRoute="/editor"
-      />
-    )}
+
 
     </div>
   )
