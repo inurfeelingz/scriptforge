@@ -5,6 +5,7 @@ import { useState, useEffect, useRef } from 'react'
 import { Upload, FileText, Trash2, CheckCircle, AlertCircle, Users, Zap } from 'lucide-react'
 import { api } from '../lib/api'
 import { useStore } from '../store'
+import InlineEdit from '../components/ui/InlineEdit'
 import PageCTA from '../components/ui/PageCTA'
 
 const CATEGORIES = [

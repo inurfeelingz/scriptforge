@@ -70,7 +70,6 @@ async function assembleContext(userId, categoryId, options = {}) {
     clipIndexData,
     scriptLibrary,
     plannedEpisodes,
-    recentVoiceMemos,
   ] = await Promise.all([
     getCategory(userId, categoryId),
     getRecentEpisodes(userId, categoryId, 5),
@@ -83,7 +82,6 @@ async function assembleContext(userId, categoryId, options = {}) {
     getClipIndexData(userId),
     getScriptLibrary(userId, categoryId),
     getPlannedEpisodes(userId, categoryId),
-    getRecentVoiceMemos(userId, categoryId),
   ]);
 
   if (!category) return buildMinimalContext(mode);
@@ -93,9 +91,9 @@ async function assembleContext(userId, categoryId, options = {}) {
   // ── IDENTITY ──────────────────────────────────────────────
   sections.push(`# WHISPACUTS CONTEXT
 You are the AI creative layer inside WhispaCuts, a content production system for a solo creator.
+Current mode: ${mode.toUpperCase()}
 Creator niche: ${category.niche}
-Category: ${category.name}${episodeCtx?.episodeId ? `
-Active episode ID: ${episodeCtx.episodeId} — you can edit this episode's title, description, VO script, or tags if the creator asks` : ''}${episodeCtx?.targetDurationMinutes ? `
+Category: ${category.name}${episodeCtx?.targetDurationMinutes ? `
 Target episode duration: ${episodeCtx.targetDurationMinutes} minutes (~${Math.round(episodeCtx.targetDurationMinutes * 130)} words VO)` : ''}`);
 
   // ── VOICE PROFILE ─────────────────────────────────────────
@@ -175,12 +173,15 @@ No published episodes with real performance data yet. Do not reference or invent
 
   // ── RECENT VOICE MEMOS (raw ideas from Companion sessions) ──────────
   if (recentVoiceMemos?.length) {
-    sections.push(`## RECENT VOICE MEMOS
-These are unfiltered notes the creator recorded during production sessions — their raw thinking in their own words.
-${recentVoiceMemos.map(m =>
-  `[${new Date(m.created_at).toLocaleDateString()}${m.title ? ` — ${m.title}` : ''}]
-"${(m.voice_memo_text || '').slice(0, 400)}${m.voice_memo_text?.length > 400 ? '...' : ''}"`
-).join('\n\n')}`)
+    sections.push(`## RECENT COMPANION SESSIONS (creator's raw captured ideas)
+These are voice sessions from the Companion app — the creator's unfiltered thinking.
+${recentVoiceMemos.map(m => {
+  const memo = (m.voice_memo_text || '').slice(0, 300)
+  const transcript = (m.transcript || '').slice(0, 400)
+  const moments = (m.key_moments || []).slice(0, 3).map(k => `• ${k}`).join('\n')
+  return `[${new Date(m.created_at).toLocaleDateString()}${m.title ? ` — ${m.title}` : ''}]
+Summary: "${memo}${memo.length >= 300 ? '...' : ''}"${moments ? `\nKey moments:\n${moments}` : ''}${transcript && !memo ? `\nTranscript excerpt: "${transcript.slice(0,200)}"` : ''}`
+}).join('\n\n')}`)
   }
 
   // ── SERIES MEMORY ─────────────────────────────────────────
