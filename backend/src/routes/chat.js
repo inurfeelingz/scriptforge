@@ -469,6 +469,109 @@ router.post('/speak', async (req, res) => {
   }
 })
 
+
+// ── POST /api/chat/onboard — KB voice profile interview ──────────────────────
+// Runs a conversational onboarding. Client sends { categoryId, message, step }
+// KB asks 6 questions one at a time. On final step, extracts and saves voice profile.
+router.post('/onboard', async (req, res) => {
+  const { categoryId, message, history = [], step = 0 } = req.body
+  if (!categoryId) return res.status(400).json({ error: 'categoryId required' })
+
+  res.setHeader('Content-Type', 'text/event-stream')
+  res.setHeader('Cache-Control', 'no-cache')
+  res.setHeader('Connection', 'keep-alive')
+  res.setHeader('X-Accel-Buffering', 'no')
+  res.flushHeaders()
+
+  const send = (event, data) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
+  const keepalive = setInterval(() => res.write(': ping\n\n'), 15000)
+
+  try {
+    const { data: cat } = await supabase.from('categories').select('name, niche').eq('id', categoryId).single()
+
+    const SYSTEM = `You are KB, the AI inside WhispaCuts. You are onboarding a new creator.
+Your job is to learn how they communicate on camera so their scripts sound like them.
+Ask ONE question at a time. Be warm, direct, and brief — like a creative friend, not a form.
+After collecting all answers, output a JSON block wrapped in ===VOICE_PROFILE=== tags.
+
+The 6 questions to work through (adapt naturally based on their answers):
+1. What kind of content do you make? (format, length, style)
+2. Who watches it — who are you talking to?
+3. How do you talk on camera — casual and raw, polished, energetic, calm?
+4. What's a phrase or expression you say a lot? (their verbal fingerprint)
+5. Name a creator whose style you admire and why
+6. How often do you want to post?
+
+When you have all 6 answers, output this exact format:
+===VOICE_PROFILE===
+{"voiceCharacteristics":{"sentenceLengthPattern":"","rhythmNote":"","vocabularyLevel":""},"structuralPatterns":{"hookStyle":"","ctaStyle":""},"languageFingerprint":{"signaturePhrases":[],"avoidPhrases":[],"humourStyle":"","storytellingStyle":""},"audience":"","postingCadence":"","referenceCreators":[]}
+===VOICE_PROFILE===
+
+Keep all responses short — max 2-3 sentences per message. No lists unless you're summarising at the end.
+Show name: ${cat?.name || 'their show'}. Niche: ${cat?.niche || 'content creation'}.`
+
+    const messages = [
+      ...history.map(m => ({ role: m.role, content: m.content })),
+      ...(message ? [{ role: 'user', content: message }] : []),
+    ]
+
+    // First message — KB opens the conversation
+    if (messages.length === 0) {
+      messages.push({ role: 'user', content: 'start' })
+    }
+
+    const stream = await client.messages.stream({
+      model:      process.env.CLAUDE_MODEL || 'claude-sonnet-4-5',
+      max_tokens: 400,
+      system:     SYSTEM,
+      messages,
+    })
+
+    let full = ''
+    for await (const chunk of stream) {
+      if (chunk.type === 'content_block_delta' && chunk.delta.type === 'text_delta') {
+        const text = chunk.delta.text
+        full += text
+
+        // Don't stream the JSON block — handle it silently
+        if (full.includes('===VOICE_PROFILE===')) continue
+        send('chunk', { text })
+      }
+    }
+
+    // Extract and save voice profile if present
+    const vpMatch = full.match(/===VOICE_PROFILE===\s*({[\s\S]*?})\s*===VOICE_PROFILE===/)
+    let voiceProfileSaved = false
+    if (vpMatch) {
+      try {
+        const vp = JSON.parse(vpMatch[1])
+        await supabase.from('categories').update({
+          voice_profile: vp,
+          onboarded_at:  new Date().toISOString(),
+        }).eq('id', categoryId).eq('user_id', req.user.id)
+        voiceProfileSaved = true
+      } catch (e) { console.warn('[onboard] voice profile parse error', e.message) }
+    }
+
+    // Strip the JSON block from the response shown to user
+    const cleanResponse = full.replace(/===VOICE_PROFILE===[\s\S]*?===VOICE_PROFILE===/g, '').trim()
+
+    send('done', {
+      response: cleanResponse,
+      voiceProfileSaved,
+      // Tell client if onboarding is complete
+      onboardingComplete: voiceProfileSaved,
+    })
+
+  } catch (err) {
+    console.error('[chat/onboard]', err.message)
+    send('error', { message: err.message })
+  } finally {
+    clearInterval(keepalive)
+    res.end()
+  }
+})
+
 module.exports = router;
 
 // ── GET /api/chat/sessions ─────────────────────────────────────────────────────

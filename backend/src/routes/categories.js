@@ -72,7 +72,7 @@ router.get('/:id', async (req, res) => {
 // ─── UPDATE ───────────────────────────────────────────────────────────────────
 
 router.patch('/:id', async (req, res) => {
-  const { name, niche, description, color, icon, refreshIntervalHours, autoRefreshEnabled } = req.body;
+  const { name, niche, description, color, icon, refreshIntervalHours, autoRefreshEnabled, voice_profile } = req.body;
 
   const updates = {};
   if (name  !== undefined) updates.name                  = name;
@@ -82,6 +82,7 @@ router.patch('/:id', async (req, res) => {
   if (icon  !== undefined) updates.icon                  = icon;
   if (refreshIntervalHours !== undefined) updates.refresh_interval_hours = refreshIntervalHours;
   if (autoRefreshEnabled   !== undefined) updates.auto_refresh_enabled   = autoRefreshEnabled;
+  if (voice_profile        !== undefined) updates.voice_profile           = voice_profile;
 
   const { data, error } = await supabase
     .from('categories')
