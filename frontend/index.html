@@ -25,6 +25,16 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
   <meta name="apple-mobile-web-app-title" content="WhispaCuts"/>
   <meta name="theme-color" content="#09090f"/>
+  <script>
+    // Switch to companion manifest when on /companion route
+    if (window.location.pathname.startsWith('/companion')) {
+      var link = document.querySelector('link[rel="manifest"]') || document.createElement('link')
+      link.rel = 'manifest'
+      link.href = '/companion-manifest.json'
+      document.head.appendChild(link)
+      document.title = 'Companion — WhispaCuts'
+    }
+  </script>
 
   <!-- Open Graph -->
   <meta property="og:title" content="WhispaCuts"/>

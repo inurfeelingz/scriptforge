@@ -70,6 +70,7 @@ async function assembleContext(userId, categoryId, options = {}) {
     clipIndexData,
     scriptLibrary,
     plannedEpisodes,
+    recentVoiceMemos,
   ] = await Promise.all([
     getCategory(userId, categoryId),
     getRecentEpisodes(userId, categoryId, 5),
@@ -82,6 +83,7 @@ async function assembleContext(userId, categoryId, options = {}) {
     getClipIndexData(userId),
     getScriptLibrary(userId, categoryId),
     getPlannedEpisodes(userId, categoryId),
+    getRecentVoiceMemos(userId, categoryId),
   ]);
 
   if (!category) return buildMinimalContext(mode);
@@ -91,7 +93,6 @@ async function assembleContext(userId, categoryId, options = {}) {
   // ── IDENTITY ──────────────────────────────────────────────
   sections.push(`# WHISPACUTS CONTEXT
 You are the AI creative layer inside WhispaCuts, a content production system for a solo creator.
-Current mode: ${mode.toUpperCase()}
 Creator niche: ${category.niche}
 Category: ${category.name}${episodeCtx?.targetDurationMinutes ? `
 Target episode duration: ${episodeCtx.targetDurationMinutes} minutes (~${Math.round(episodeCtx.targetDurationMinutes * 130)} words VO)` : ''}`);

@@ -13,7 +13,7 @@ import {
   Mic, Music2, Scissors, Settings, LogOut,
   Plus, RefreshCw, BarChart2, Calendar,
   Menu, X, FileText, Film, BookMarked,
-  ChevronRight, Zap, Radio,
+  ChevronRight, Zap, Radio, Settings,
 } from 'lucide-react'
 import KBOrb        from '../chat/KBOrb'
 import ChatPanel    from '../chat/ChatPanel'
@@ -25,10 +25,10 @@ import NewCategoryModal from './NewCategoryModal'
 
 // ── PILL MENU ITEMS ──────────────────────────────────────────────────────────
 const PILL_ITEMS = [
+  { to: '/companion',    icon: Radio,      label: 'Companion',   newTab: true },
   { to: '/teleprompter', icon: Mic,        label: 'Teleprompter' },
   { to: '/storyboard',   icon: Film,       label: 'Shot List'    },
   { to: '/editor',       icon: Scissors,   label: 'Editor'       },
-  { to: '/schedule',     icon: Calendar,   label: 'Schedule'     },
   { to: '/analytics',    icon: BarChart2,  label: 'Analytics'    },
 ]
 
@@ -107,10 +107,11 @@ export default function AppLayout() {
     catch (err) { notify('Refresh failed: ' + err.message, 'error') }
   }
 
-  function PillButton({ to, icon: Icon, label, onClick }) {
+  function PillButton({ to, icon: Icon, label, onClick, newTab }) {
     const active = location.pathname === to
     const handleClick = () => {
       if (onClick) { onClick(); return }
+      if (newTab) { window.open(to, '_blank'); return }
       navigate(to)
       setPillExpanded(false)
     }
@@ -269,24 +270,67 @@ export default function AppLayout() {
           gap:        8,
         }}
       >
-        {/* Expanded more menu */}
+        {/* Expanded more menu — icon grid */}
         {pillExpanded && (
           <div style={{
-            background:     'rgba(8,10,16,0.97)',
-            border:         `1px solid rgba(74,222,128,0.12)`,
+            background:     'rgba(8,10,16,0.98)',
+            border:         '1px solid rgba(74,222,128,0.15)',
             borderRadius:   16,
-            padding:        '8px 4px',
-            display:        'flex',
-            gap:            0,
-            boxShadow:      '0 -8px 40px rgba(0,0,0,0.6), 0 0 0 1px rgba(74,222,128,0.04)',
+            boxShadow:      '0 -8px 40px rgba(0,0,0,0.7), 0 0 0 1px rgba(74,222,128,0.04)',
             backdropFilter: 'blur(20px)',
-            flexWrap:       isMobile ? 'wrap' : 'nowrap',
-            maxWidth:       isMobile ? 340 : 'none',
-            justifyContent: 'center',
+            overflow:       'hidden',
+            width:          isMobile ? 280 : 320,
           }}>
-            {MORE_ITEMS.map(item => (
-              <PillButton key={item.to} {...item}/>
-            ))}
+            <div style={{
+              display:             'grid',
+              gridTemplateColumns: 'repeat(4, 1fr)',
+            }}>
+              {MORE_ITEMS.map((item, i) => {
+                const Icon    = item.icon
+                const active  = location.pathname === item.to
+                const col     = i % 4
+                const row     = Math.floor(i / 4)
+                const isLast  = i === MORE_ITEMS.length - 1
+                return (
+                  <button
+                    key={item.to}
+                    onClick={() => { navigate(item.to); setPillExpanded(false) }}
+                    style={{
+                      display:        'flex',
+                      flexDirection:  'column',
+                      alignItems:     'center',
+                      justifyContent: 'center',
+                      gap:            6,
+                      padding:        '16px 8px',
+                      background:     active ? 'rgba(74,222,128,0.06)' : 'transparent',
+                      border:         'none',
+                      borderRight:    col < 3 ? '1px solid rgba(255,255,255,0.05)' : 'none',
+                      borderBottom:   row === 0 && MORE_ITEMS.length > 4 ? '1px solid rgba(255,255,255,0.05)' : 'none',
+                      color:          active ? GREEN : 'rgba(255,255,255,0.5)',
+                      cursor:         'pointer',
+                      transition:     'background 0.15s',
+                    }}
+                    onMouseEnter={e => { if (!active) e.currentTarget.style.background = 'rgba(255,255,255,0.04)' }}
+                    onMouseLeave={e => { if (!active) e.currentTarget.style.background = 'transparent' }}
+                  >
+                    <Icon size={18}/>
+                    <span style={{ fontSize: 10, letterSpacing: '0.05em', textTransform: 'uppercase', fontFamily: "'Figtree',sans-serif", whiteSpace: 'nowrap' }}>
+                      {item.label}
+                    </span>
+                  </button>
+                )
+              })}
+              {/* Settings in grid */}
+              <button
+                onClick={() => { navigate('/settings'); setPillExpanded(false) }}
+                style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:6, padding:'16px 8px', background:'transparent', border:'none', borderLeft:'1px solid rgba(255,255,255,0.05)', borderTop: MORE_ITEMS.length > 4 ? '1px solid rgba(255,255,255,0.05)' : 'none', color:'rgba(255,255,255,0.35)', cursor:'pointer', transition:'background 0.15s' }}
+                onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.04)'}
+                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+              >
+                <Settings size={18}/>
+                <span style={{ fontSize:10, letterSpacing:'0.05em', textTransform:'uppercase', fontFamily:"'Figtree',sans-serif" }}>Settings</span>
+              </button>
+            </div>
           </div>
         )}
 
@@ -312,28 +356,29 @@ export default function AppLayout() {
 
           <div style={{ width: 1, height: 20, background: 'rgba(255,255,255,0.06)', margin: '0 2px' }}/>
 
-          {/* KB Orb — hidden on home route (KB is already visible there) */}
-          {!isHome && (
-            <div
-              onClick={() => setChatOpen(o => !o)}
-              style={{
-                cursor:     'pointer',
-                flexShrink: 0,
-                display:    'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                transition: 'transform 0.3s cubic-bezier(0.34,1.56,0.64,1)',
-                transform:  chatOpen ? 'scale(1.15)' : 'scale(1)',
-              }}
-            >
-              <KBOrb
-                mood={chatOpen ? 'active' : 'idle'}
-                isOpen={chatOpen}
-                audioLevel={0}
-                size={38}
-              />
-            </div>
-          )}
+          {/* KB Orb — inline in pill, small, grows when open */}
+          <div
+            onClick={() => setChatOpen(o => !o)}
+            style={{
+              width:      chatOpen ? 48 : 36,
+              height:     chatOpen ? 48 : 36,
+              borderRadius: '50%',
+              cursor:     'pointer',
+              flexShrink: 0,
+              transition: 'all 0.3s cubic-bezier(0.34,1.56,0.64,1)',
+              display:    'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              boxShadow:  chatOpen ? '0 0 16px rgba(74,222,128,0.25)' : 'none',
+            }}
+          >
+            <KBOrb
+              mood={chatOpen ? 'active' : 'idle'}
+              isOpen={chatOpen}
+              audioLevel={0}
+              size={chatOpen ? 48 : 34}
+            />
+          </div>
 
           <div style={{ width: 1, height: 20, background: 'rgba(255,255,255,0.06)', margin: '0 2px' }}/>
 

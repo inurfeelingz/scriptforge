@@ -3,13 +3,15 @@
 // otherwise renders ChatPanel full screen.
 
 import { useEffect, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useSearchParams, useNavigate } from 'react-router-dom'
 import ChatPanel     from '../components/chat/ChatPanel'
 import KBOnboarding  from '../components/chat/KBOnboarding'
 import { useStore }  from '../store'
 
 export default function KBHome() {
   const [searchParams, setSearchParams] = useSearchParams()
+  const navigate = useNavigate()
+  const isMobile = window.innerWidth < 768
   const { activeCategory, loadCategories } = useStore()
   const cat = activeCategory?.()
 

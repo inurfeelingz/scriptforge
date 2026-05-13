@@ -217,12 +217,12 @@ export default function SoundPage() {
   return (
     <div className="max-w-4xl mx-auto space-y-6">
 
-      <div className="flex items-center justify-between">
+      <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="text-xl font-serif text-[#f0ede8]">Sound library</h1>
-          <p className="text-xs text-[#444] mt-1">Upload once — KB places your sounds in every episode</p>
+          <h1 className="text-2xl font-serif" style={{color:'var(--text)'}}>Sound library</h1>
+          <p className="text-sm mt-1" style={{color:'var(--text3)'}}>Upload once — KB places your sounds in every episode</p>
         </div>
-        <label className="flex items-center gap-2 px-4 py-2 bg-[#c8b89a] text-[#080808] rounded text-sm font-medium cursor-pointer hover:bg-[#e8c87a] transition-all">
+        <label style={{display:'flex',alignItems:'center',gap:8,padding:'10px 18px',background:'rgba(74,222,128,1)',color:'#080808',borderRadius:10,fontSize:14,fontWeight:600,cursor:'pointer',flexShrink:0,fontFamily:"'Figtree',sans-serif",border:'none'}}>
           <Upload size={14}/>Add sound
           <input type="file" accept="audio/*" className="hidden" onChange={e => {
             const file = e.target.files?.[0]
