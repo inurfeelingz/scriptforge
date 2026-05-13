@@ -2,6 +2,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { TrendingUp, Clock, Copy, X, Download, ChevronRight, FileText, Scissors, Zap } from 'lucide-react'
+import PageCTA from '../components/ui/PageCTA'
 import { useStore } from '../store'
 import { episodes as episodesApi } from '../lib/api'
 
@@ -128,10 +129,15 @@ export default function SeriesPage() {
           ))}
         </div>
       ) : (
-        <div style={{ border: '1px dashed var(--border2)', borderRadius: 'var(--r)', padding: '3rem', textAlign: 'center', color: 'var(--text3)' }}>
-          <div style={{ marginBottom: 8, fontWeight: 500, color: 'var(--text2)' }}>No episodes yet</div>
-          <div style={{ fontSize: '0.875rem' }}>Generate your first episode to start the series</div>
-        </div>
+        <PageCTA
+          icon="✦"
+          title="No episodes yet"
+          subtitle="Ideate with KB, commit your idea, then generate your first episode. It takes about 2 minutes."
+          primaryLabel="Open KB"
+          primaryAction={() => window.dispatchEvent(new CustomEvent('kb:open'))}
+          secondaryLabel="Go to Dashboard"
+          secondaryRoute="/dashboard"
+        />
       )}
 
       {/* Episode content drawer */}

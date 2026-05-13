@@ -10,6 +10,7 @@ import {
   TrendingUp, Clock, Send, ChevronLeft, ChevronRight,
 } from 'lucide-react'
 import { useStore } from '../store'
+import PageCTA from '../components/ui/PageCTA'
 import { episodes as episodesApi } from '../lib/api'
 import {
   requestNotificationPermission,

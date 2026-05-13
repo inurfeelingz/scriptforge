@@ -5,6 +5,7 @@ import { useState, useEffect, useRef } from 'react'
 import { Upload, FileText, Trash2, CheckCircle, AlertCircle, Users, Zap } from 'lucide-react'
 import { api } from '../lib/api'
 import { useStore } from '../store'
+import PageCTA from '../components/ui/PageCTA'
 
 const CATEGORIES = [
   {
@@ -13,7 +14,7 @@ const CATEGORIES = [
     icon:  FileText,
     desc:  'Your own YouTube/podcast scripts — trains your voice and structure',
     tags:  ['uploaded-script'],
-    color: '#c8b89a',
+    color: 'rgba(74,222,128,1)',
     hint:  'Drop your past long-form scripts here',
   },
   {
@@ -126,7 +127,7 @@ export default function ScriptLibraryPage() {
   const Icon = activeCategory.icon
 
   return (
-    <div className="max-w-3xl mx-auto space-y-6">
+    <div className="max-w-4xl mx-auto space-y-6">
       <div>
         <h1 className="text-2xl font-serif text-[#f0ede8]">Script library</h1>
         <p className="text-sm text-[#555] mt-1">
@@ -179,7 +180,7 @@ export default function ScriptLibraryPage() {
             onClick={() => fileRefs.current[activeTab]?.click()}
             className={`flex flex-col items-center justify-center gap-3 border-2 border-dashed rounded p-10 cursor-pointer transition-all ${
               dragOver === activeTab
-                ? 'border-[#c8b89a]/40 bg-[#c8b89a]/5'
+                ? 'border-[rgba(74,222,128,0.40)] bg-[rgba(74,222,128,0.05)]'
                 : 'border-[#1a1a1a] hover:border-[#333]'
             } ${uploading === activeTab ? 'cursor-wait opacity-60' : ''}`}
           >

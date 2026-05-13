@@ -7,9 +7,10 @@ import {
 } from 'lucide-react'
 import { useStore } from '../store'
 import { analytics as analyticsApi } from '../lib/api'
+import { Youtube, RefreshCw, Unlink, CheckCircle } from 'lucide-react'
 
 // ── SVG line chart ────────────────────────────────────────────────────────────
-function LineChart({ data, height = 110, color = '#c8b89a', label = 'v' }) {
+function LineChart({ data, height = 110, color = 'rgba(74,222,128,1)', label = 'v' }) {
   const [hovered, setHovered] = useState(null)
   if (!data || data.length < 2) return null
   const W = 580, H = height, pad = 10
@@ -70,7 +71,7 @@ function ScoreGauge({ value, size = 44 }) {
   const r    = size / 2 - 5
   const circ = 2 * Math.PI * r
   const fill = (value / 100) * circ * 0.75
-  const col  = value >= 70 ? '#6abf7a' : value >= 50 ? '#c8b89a' : '#bf6a6a'
+  const col  = value >= 70 ? '#6abf7a' : value >= 50 ? 'rgba(74,222,128,1)' : '#bf6a6a'
   return (
     <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
       <circle cx={size/2} cy={size/2} r={r} fill="none" stroke="#1a1a1a" strokeWidth={5}
@@ -93,13 +94,67 @@ export default function AnalyticsPage() {
   const [hookStats,      setHookStats]      = useState([])
   const [uploadProgress, setUploadProgress] = useState({ done: 0, total: 0 })
   const [expanded,       setExpanded]       = useState(null)
+  const [ytStatus,       setYtStatus]       = useState(null)   // null | { connected, channelTitle, lastPulledAt }
+  const [ytPulling,      setYtPulling]      = useState(false)
+  const [ytConnecting,   setYtConnecting]   = useState(false)
 
   function loadData() {
     if (!activeCategoryId) return
     analyticsApi.list({ categoryId: activeCategoryId }).then(({ uploads }) => setUploads(uploads || []))
     analyticsApi.hookStats({ categoryId: activeCategoryId }).then(({ breakdown }) => setHookStats(breakdown || [])).catch(() => {})
+    analyticsApi.youtubeStatus(activeCategoryId).then(status => setYtStatus(status)).catch(() => {})
   }
   useEffect(() => { loadData() }, [activeCategoryId])
+
+  // Handle YouTube OAuth callback
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    if (params.get('youtube') === 'connected') {
+      notify('YouTube connected successfully', 'success')
+      loadData()
+      window.history.replaceState({}, '', window.location.pathname)
+    } else if (params.get('error') === 'youtube_denied') {
+      notify('YouTube connection cancelled', 'error')
+      window.history.replaceState({}, '', window.location.pathname)
+    }
+  }, [])
+
+  async function connectYoutube() {
+    if (!activeCategoryId) return
+    setYtConnecting(true)
+    try {
+      const url = await analyticsApi.youtubeConnectUrl(activeCategoryId)
+      window.location.href = url
+    } catch (err) {
+      notify('Failed to start YouTube connection: ' + err.message, 'error')
+      setYtConnecting(false)
+    }
+  }
+
+  async function pullYoutube() {
+    if (!activeCategoryId) return
+    setYtPulling(true)
+    notify('Pulling latest YouTube analytics…', 'info', 4000)
+    try {
+      const result = await analyticsApi.youtubePull(activeCategoryId)
+      notify(`Imported ${result.videoCount || 0} videos from YouTube`, 'success')
+      loadData()
+    } catch (err) {
+      notify('Pull failed: ' + err.message, 'error')
+    }
+    setYtPulling(false)
+  }
+
+  async function disconnectYoutube() {
+    if (!activeCategoryId) return
+    try {
+      await analyticsApi.youtubeDisconnect(activeCategoryId)
+      setYtStatus({ connected: false })
+      notify('YouTube disconnected', 'info')
+    } catch (err) {
+      notify(err.message, 'error')
+    }
+  }
 
   async function handleUpload(e) {
     const files = Array.from(e.target.files || [])
@@ -166,6 +221,56 @@ export default function AnalyticsPage() {
         <p className="text-sm text-[#555] mt-1">Upload your weekly stats CSV to track performance over time</p>
       </div>
 
+      {/* YouTube OAuth section */}
+      <div style={{
+        background: ytStatus?.connected ? 'rgba(74,222,128,0.04)' : 'rgba(255,255,255,0.02)',
+        border: `1px solid ${ytStatus?.connected ? 'rgba(74,222,128,0.15)' : 'rgba(255,255,255,0.07)'}`,
+        borderRadius: 12, padding: '16px 20px',
+        display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap',
+      }}>
+        <div style={{ flex: 1, minWidth: 200 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+            <Youtube size={16} style={{ color: ytStatus?.connected ? 'rgba(74,222,128,1)' : 'rgba(255,255,255,0.3)' }}/>
+            <span style={{ fontSize: 13, fontWeight: 600, color: ytStatus?.connected ? 'rgba(74,222,128,1)' : '#e8eaed', fontFamily: "'Figtree',sans-serif" }}>
+              {ytStatus?.connected ? `Connected — ${ytStatus.channelTitle || 'YouTube'}` : 'Connect YouTube for automatic imports'}
+            </span>
+          </div>
+          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', fontFamily: "'Figtree',sans-serif" }}>
+            {ytStatus?.connected
+              ? `Last pulled: ${ytStatus.lastPulledAt ? new Date(ytStatus.lastPulledAt).toLocaleDateString() : 'never'} — pulls last 90 days of analytics`
+              : 'No more CSV exports — KB gets your analytics automatically on demand'}
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+          {ytStatus?.connected ? (
+            <>
+              <button
+                onClick={pullYoutube}
+                disabled={ytPulling}
+                style={{ display:'flex', alignItems:'center', gap:6, padding:'8px 16px', borderRadius:8, border:'1px solid rgba(74,222,128,0.3)', background:'rgba(74,222,128,0.1)', color:'rgba(74,222,128,1)', cursor:'pointer', fontSize:12, fontFamily:"'Figtree',sans-serif", fontWeight:600 }}
+              >
+                <RefreshCw size={12} style={{ animation: ytPulling ? 'spin 1s linear infinite' : 'none' }}/>
+                {ytPulling ? 'Pulling…' : 'Pull now'}
+              </button>
+              <button
+                onClick={disconnectYoutube}
+                style={{ display:'flex', alignItems:'center', gap:6, padding:'8px 12px', borderRadius:8, border:'1px solid rgba(255,0,0,0.2)', background:'transparent', color:'rgba(255,80,80,0.6)', cursor:'pointer', fontSize:12, fontFamily:"'Figtree',sans-serif" }}
+              >
+                <Unlink size={12}/> Disconnect
+              </button>
+            </>
+          ) : (
+            <button
+              onClick={connectYoutube}
+              disabled={ytConnecting}
+              style={{ display:'flex', alignItems:'center', gap:8, padding:'10px 20px', borderRadius:8, border:'none', background:'rgba(74,222,128,1)', color:'#080808', cursor:'pointer', fontSize:13, fontWeight:600, fontFamily:"'Figtree',sans-serif" }}
+            >
+              <Youtube size={14}/> {ytConnecting ? 'Connecting…' : 'Connect YouTube'}
+            </button>
+          )}
+        </div>
+      </div>
+
       {/* ── Overview stats ── */}
       {uploads.length > 0 && (
         <div className="grid grid-cols-3 gap-3">
@@ -186,7 +291,7 @@ export default function AnalyticsPage() {
             <div key={s.label} className="border border-[#1a1a1a] rounded p-4 space-y-1">
               <div className="text-[10px] text-[#444] uppercase tracking-widest">{s.label}</div>
               <div className="flex items-end gap-2">
-                <span className="text-3xl font-serif text-[#c8b89a]">{s.value}</span>
+                <span className="text-3xl font-serif text-[rgba(74,222,128,1)]">{s.value}</span>
                 {s.unit && <span className="text-sm text-[#555] mb-1">{s.unit}</span>}
               </div>
               <div className="text-xs">{s.sub}</div>
@@ -200,7 +305,7 @@ export default function AnalyticsPage() {
         <div className="border border-[#1a1a1a] rounded p-5 space-y-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <TrendingUp size={13} className="text-[#c8b89a]"/>
+              <TrendingUp size={13} className="text-[rgba(74,222,128,1)]"/>
               <h2 className="text-sm text-[#888]">Retention score over time</h2>
             </div>
             <span className="text-[10px] text-[#444]">avg per upload batch</span>
@@ -230,7 +335,7 @@ export default function AnalyticsPage() {
           <div className="space-y-2">
             {scoreDist.map(b => {
               const max = Math.max(...scoreDist.map(x => x.value), 1)
-              const col = b.min >= 60 ? '#6abf7a' : b.min >= 40 ? '#c8b89a' : '#bf6a6a'
+              const col = b.min >= 60 ? '#6abf7a' : b.min >= 40 ? 'rgba(74,222,128,1)' : '#bf6a6a'
               return (
                 <div key={b.label} className="flex items-center gap-3">
                   <span className="text-xs text-[#555] w-14 shrink-0">{b.label}</span>
@@ -250,12 +355,12 @@ export default function AnalyticsPage() {
       {hookStats.length > 0 && (
         <div className="border border-[#1a1a1a] rounded p-5 space-y-3">
           <div className="flex items-center gap-2">
-            <Zap size={13} className="text-[#c8b89a]"/>
+            <Zap size={13} className="text-[rgba(74,222,128,1)]"/>
             <h2 className="text-sm text-[#888]">Hook type performance</h2>
           </div>
           <div className="space-y-2.5">
             {[...hookStats].sort((a, b) => b.avgScore - a.avgScore).map(h => {
-              const col = h.avgScore >= 70 ? '#6abf7a' : h.avgScore >= 50 ? '#c8b89a' : '#bf6a6a'
+              const col = h.avgScore >= 70 ? '#6abf7a' : h.avgScore >= 50 ? 'rgba(74,222,128,1)' : '#bf6a6a'
               return (
                 <div key={h.hookType} className="flex items-center gap-3">
                   <span className="text-xs text-[#555] w-36 shrink-0 capitalize">{h.hookType.replace(/-/g, ' ')}</span>
@@ -285,7 +390,7 @@ export default function AnalyticsPage() {
                   className="w-full flex items-center gap-3 px-5 py-4 hover:bg-[#0a0a0a] transition-colors text-left"
                 >
                   <div className="flex items-center gap-2 flex-1 flex-wrap">
-                    <span className="text-xs px-2 py-0.5 rounded border border-[#c8b89a]/20 text-[#c8b89a] capitalize">{u.platform}</span>
+                    <span className="text-xs px-2 py-0.5 rounded border border-[rgba(74,222,128,0.20)] text-[rgba(74,222,128,1)] capitalize">{u.platform}</span>
                     <span className="text-xs text-[#555]">{new Date(u.upload_date).toLocaleDateString('en', { month: 'long', day: 'numeric', year: 'numeric' })}</span>
                     <span className="text-xs text-[#444]">{u.video_count} videos</span>
                   </div>
@@ -304,7 +409,7 @@ export default function AnalyticsPage() {
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2">
                             <span className="text-xs text-[#888] truncate flex-1">{v.title}</span>
-                            <span className="text-xs text-[#c8b89a] shrink-0 font-mono">{v.retentionScore}%</span>
+                            <span className="text-xs text-[rgba(74,222,128,1)] shrink-0 font-mono">{v.retentionScore}%</span>
                             {v.views > 0 && (
                               <span className="text-[10px] text-[#444] shrink-0">
                                 {v.views >= 1000 ? `${(v.views / 1000).toFixed(1)}k` : v.views}v
@@ -313,7 +418,7 @@ export default function AnalyticsPage() {
                             {v.ctr > 0 && <span className="text-[10px] text-[#444] shrink-0">{v.ctr.toFixed(1)}% CTR</span>}
                             {v.episodeId && (
                               <Link to={`/analytics/review/${v.episodeId}`} onClick={e => e.stopPropagation()}
-                                className="flex items-center gap-1 text-[10px] text-[#444] hover:text-[#c8b89a] transition-colors shrink-0">
+                                className="flex items-center gap-1 text-[10px] text-[#444] hover:text-[rgba(74,222,128,1)] transition-colors shrink-0">
                                 <FileText size={9}/> Review
                               </Link>
                             )}
@@ -321,7 +426,7 @@ export default function AnalyticsPage() {
                           <div className="h-1 bg-[#111] rounded overflow-hidden mt-1">
                             <div className="h-full rounded transition-all duration-500" style={{
                               width: `${v.retentionScore}%`,
-                              background: v.retentionScore >= 70 ? '#6abf7a' : v.retentionScore >= 50 ? '#c8b89a' : '#bf6a6a',
+                              background: v.retentionScore >= 70 ? '#6abf7a' : v.retentionScore >= 50 ? 'rgba(74,222,128,1)' : '#bf6a6a',
                             }}/>
                           </div>
                         </div>
@@ -342,16 +447,16 @@ export default function AnalyticsPage() {
           {['youtube', 'tiktok'].map(p => (
             <button key={p} onClick={() => setPlatform(p)}
               className={`px-4 py-2 rounded border text-sm capitalize transition-all ${
-                platform === p ? 'border-[#c8b89a]/40 text-[#c8b89a] bg-[#c8b89a]/5' : 'border-[#1a1a1a] text-[#555] hover:border-[#333]'
+                platform === p ? 'border-[rgba(74,222,128,0.40)] text-[rgba(74,222,128,1)] bg-[rgba(74,222,128,0.05)]' : 'border-[#1a1a1a] text-[#555] hover:border-[#333]'
               }`}>{p}</button>
           ))}
         </div>
         <label className={`flex items-center justify-center gap-3 border-2 border-dashed rounded px-8 py-8 cursor-pointer transition-colors ${
-          uploading ? 'border-[#c8b89a]/30 cursor-wait' : 'border-[#1a1a1a] hover:border-[#333]'
+          uploading ? 'border-[rgba(74,222,128,0.30)] cursor-wait' : 'border-[#1a1a1a] hover:border-[#333]'
         }`}>
           {uploading ? (
             <div className="space-y-1 text-center">
-              <div className="text-sm text-[#c8b89a]">KB is thinking…</div>
+              <div className="text-sm text-[rgba(74,222,128,1)]">KB is thinking…</div>
               {uploadProgress.total > 1 && <div className="text-xs text-[#555]">{uploadProgress.done} / {uploadProgress.total}</div>}
             </div>
           ) : (

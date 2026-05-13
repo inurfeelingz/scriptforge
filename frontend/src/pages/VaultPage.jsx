@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react'
 import { BookMarked, Star, Search, Filter, Trash2 } from 'lucide-react'
 import { useStore } from '../store'
+import PageCTA from '../components/ui/PageCTA'
 import { vault as vaultApi } from '../lib/api'
 
 const TYPES = ['all','hook','script','trending','shortform','concept','successful']
