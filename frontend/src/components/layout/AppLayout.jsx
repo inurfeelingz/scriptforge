@@ -13,7 +13,7 @@ import {
   Mic, Music2, Scissors, Settings, LogOut,
   Plus, RefreshCw, BarChart2, Calendar,
   Menu, X, FileText, Film, BookMarked,
-  ChevronRight, Zap, Radio, Settings,
+  ChevronRight, Zap, Radio,
 } from 'lucide-react'
 import KBOrb        from '../chat/KBOrb'
 import ChatPanel    from '../chat/ChatPanel'
