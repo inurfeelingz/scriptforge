@@ -95,9 +95,10 @@ router.post('/message', async (req, res) => {
       })))
       .slice(-4)
 
-    // Auto-commit detection
-    const commitTriggers = ['commit', 'save this', 'lock it in', 'lock this in', 'commit this', "let's commit", 'save episode']
-    const isCommitCommand = commitTriggers.some(t => message.toLowerCase().includes(t))
+    // ── Auto-commit detection ────────────────────────────────────────────────────
+    const COMMIT_TRIGGERS = ['commit', 'save this', 'lock it in', 'lock this in',
+      'commit this', "let's commit", 'save episode', 'finalise', 'finalize', 'done planning']
+    const isCommitCmd = COMMIT_TRIGGERS.some(t => message.toLowerCase().includes(t))
 
     // Assemble system context
     const ctxKey = episodeCtx ? null : `${req.user.id}:${categoryId}:${mode}`
@@ -123,33 +124,52 @@ router.post('/message', async (req, res) => {
         ).join('\n')
     }
 
-    // Auto-commit if triggered
-    if (isCommitCommand) {
+    // ── Auto-commit if triggered ─────────────────────────────────────────────────
+    if (isCommitCmd) {
       try {
         const { messages: h } = await loadHistory(req.user.id, categoryId, mode)
         if (h.length >= 2) {
-          const extraction = await client.messages.create({
-            model: process.env.CLAUDE_MODEL || 'claude-sonnet-4-5',
-            max_tokens: 400,
-            system: 'Extract episode plan as JSON only. No preamble. Return: {"track_name":string,"summary":string,"themes":string[]}',
-            messages: [{ role: 'user', content: h.slice(-10).map(m => `${m.role}: ${m.content}`).join('\n') + '\nExtract the episode plan.' }],
+          const extractRes = await client.messages.create({
+            model:      process.env.CLAUDE_MODEL || 'claude-sonnet-4-5',
+            max_tokens: 300,
+            system:     'Extract the episode plan from this conversation as compact JSON only. No preamble, no markdown. Fields: {"track_name":string,"summary":string,"themes":string[],"mood":string}. If no clear plan exists return {}.',
+            messages:   [{ role: 'user', content: h.slice(-12).map(m => `${m.role}: ${m.content}`).join('\n') }],
           })
-          const plan = JSON.parse((extraction.content[0]?.text || '{}').replace(/```json|```/g, '').trim())
+          const raw  = (extractRes.content[0]?.text || '{}').replace(/```json|```/g, '').trim()
+          const plan = JSON.parse(raw)
+
           if (plan.track_name) {
             await supabase.from('kb_planned_episodes').insert({
-              user_id: req.user.id, category_id: categoryId,
-              track_name: plan.track_name, summary: plan.summary || '',
-              themes: plan.themes || [], status: 'planned',
-              chat_session: mode, updated_at: new Date().toISOString(),
+              user_id:      req.user.id,
+              category_id:  categoryId,
+              track_name:   plan.track_name,
+              summary:      plan.summary || '',
+              themes:       plan.themes  || [],
+              track_context: { mood: plan.mood || '' },
+              status:       'planned',
+              chat_session: mode,
+              updated_at:   new Date().toISOString(),
             })
-            const ack = `"${plan.track_name}" is locked in. Head to Generate whenever you're ready.`
+
+            const ack = `"${plan.track_name}" is locked in. Head to Generate whenever you're ready — your plan is saved.`
             send('chunk', { text: ack })
-            send('done', { response: ack })
+            send('done',  { response: ack })
+
+            // Save to history
+            const updatedHistory = [
+              ...h,
+              { role: 'user',      content: message,   timestamp: new Date().toISOString() },
+              { role: 'assistant', content: ack,        timestamp: new Date().toISOString() },
+            ]
+            await saveHistory(req.user.id, categoryId, mode, updatedHistory)
             clearInterval(keepalive)
             return res.end()
           }
         }
-      } catch (e) { console.warn('[auto-commit]', e.message) }
+      } catch (commitErr) {
+        console.warn('[auto-commit]', commitErr.message)
+        // Fall through to normal response
+      }
     }
 
     // Build message list — current mode history + cross-mode context
@@ -382,20 +402,70 @@ router.delete('/sessions/:id', async (req, res) => {
 router.post('/speak', async (req, res) => {
   const { text } = req.body
   if (!text?.trim()) return res.status(400).json({ error: 'text required' })
-  if (!process.env.ELEVENLABS_API_KEY) return res.status(503).json({ error: 'TTS not configured' })
+
+  if (!process.env.ELEVENLABS_API_KEY) {
+    return res.status(503).json({ error: 'TTS not configured — add ELEVENLABS_API_KEY to Railway' })
+  }
+
   try {
-    const voiceId = process.env.ELEVENLABS_VOICE_ID || 'EXAVITQu4vr4xnSDxMaL'
-    const r = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}/stream`, {
-      method: 'POST',
-      headers: { 'Accept': 'audio/mpeg', 'Content-Type': 'application/json', 'xi-api-key': process.env.ELEVENLABS_API_KEY },
-      body: JSON.stringify({ text: text.slice(0, 500), model_id: 'eleven_turbo_v2', voice_settings: { stability: 0.5, similarity_boost: 0.75 } }),
-    })
-    if (!r.ok) return res.status(502).json({ error: 'ElevenLabs error' })
+    const voiceId = process.env.ELEVENLABS_VOICE_ID || 'EXAVITQu4vr4xnSDxMaL' // default: Bella
+    const clean   = text
+      .replace(/#+\s*/g, '')        // remove markdown headers
+      .replace(/\*+/g, '')          // remove bold/italic
+      .replace(/`[^`]*`/g, '')      // remove code
+      .replace(/\[[^\]]*\]/g, '')   // remove links
+      .slice(0, 500)                // cap at 500 chars per call
+
+    const response = await fetch(
+      `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}/stream`,
+      {
+        method:  'POST',
+        headers: {
+          'Accept':       'audio/mpeg',
+          'Content-Type': 'application/json',
+          'xi-api-key':   process.env.ELEVENLABS_API_KEY,
+        },
+        body: JSON.stringify({
+          text:           clean,
+          model_id:       'eleven_turbo_v2',
+          voice_settings: {
+            stability:        0.45,
+            similarity_boost: 0.80,
+            style:            0.0,
+            use_speaker_boost: true,
+          },
+        }),
+      }
+    )
+
+    if (!response.ok) {
+      const errText = await response.text()
+      console.error('[speak] ElevenLabs error:', response.status, errText.slice(0, 200))
+      return res.status(response.status).json({ error: 'ElevenLabs error: ' + errText.slice(0, 100) })
+    }
+
     res.setHeader('Content-Type', 'audio/mpeg')
     res.setHeader('Cache-Control', 'no-cache')
-    r.body.pipe(res)
+    res.setHeader('Transfer-Encoding', 'chunked')
+
+    // Stream audio directly to client
+    const reader = response.body.getReader()
+    const pump   = async () => {
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        res.write(Buffer.from(value))
+      }
+      res.end()
+    }
+    pump().catch(err => {
+      console.error('[speak] stream error:', err.message)
+      if (!res.writableEnded) res.end()
+    })
+
   } catch (err) {
-    res.status(500).json({ error: err.message })
+    console.error('[speak]', err.message)
+    if (!res.headersSent) res.status(500).json({ error: err.message })
   }
 })
 
