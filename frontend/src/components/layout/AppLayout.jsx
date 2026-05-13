@@ -189,7 +189,6 @@ export default function AppLayout() {
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', borderBottom:'1px solid rgba(255,255,255,0.05)' }}>
             {[
               { icon: <RefreshCw size={15}/>, label:'Refresh trends', action: () => { handleManualRefresh(); setGearOpen(false) } },
-              { icon: <Radio size={15}/>,     label:'Companion',      action: () => { window.open('/companion','_blank'); setGearOpen(false) } },
               { icon: <Settings size={15}/>,  label:'Settings',       action: () => { navigate('/settings'); setGearOpen(false) } },
               { icon: <ChevronRight size={15}/>, label:'Plan & billing', action: () => { navigate('/billing'); setGearOpen(false) } },
             ].map((item, i) => (
