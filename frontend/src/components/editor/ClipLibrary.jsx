@@ -7,7 +7,7 @@ import { Search, Clock, Zap, RefreshCw } from 'lucide-react'
 import { useStore } from '../../store'
 import { api } from '../../lib/api'
 
-export default function ClipLibrary({ project, computeSearchVectors }) {
+export default function ClipLibrary({ project, computeSearchVectors, onAddClip }) {
   const { activeCategoryId } = useStore()
   const [clips,    setClips]    = useState([])
   const [query,    setQuery]    = useState('')
@@ -131,7 +131,14 @@ export default function ClipLibrary({ project, computeSearchVectors }) {
       ) : filtered.length ? (
         <div className="grid grid-cols-4 gap-3">
           {filtered.map(clip => (
-            <ClipCard key={clip.id} clip={clip} />
+            <ClipCard
+              key={clip.id}
+              clip={clip}
+              selected={selectedClip?.id === clip.id}
+              onSelect={() => setSelectedClip(s => s?.id === clip.id ? null : clip)}
+              onPreview={() => setPreviewClip(clip)}
+              onAddToTimeline={onAddClip ? () => onAddClip(clip) : null}
+            />
           ))}
         </div>
       ) : (
@@ -139,15 +146,64 @@ export default function ClipLibrary({ project, computeSearchVectors }) {
           {clips.length ? 'No clips match your search' : 'No clips indexed — run indexing first'}
         </div>
       )}
+
+      {/* Preview modal */}
+      {previewClip && (
+        <div
+          style={{position:'fixed',inset:0,zIndex:200,background:'rgba(0,0,0,0.85)',display:'flex',alignItems:'center',justifyContent:'center',backdropFilter:'blur(4px)'}}
+          onClick={() => setPreviewClip(null)}
+        >
+          <div
+            style={{background:'#0a0a0a',border:'1px solid #1a1a1a',borderRadius:12,padding:20,maxWidth:600,width:'90%'}}
+            onClick={e => e.stopPropagation()}
+          >
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}}>
+              <div style={{fontSize:13,color:'#888',fontFamily:'monospace'}}>{previewClip.filename}</div>
+              <button onClick={() => setPreviewClip(null)} style={{background:'none',border:'none',color:'#444',cursor:'pointer',fontSize:18,lineHeight:1}}>×</button>
+            </div>
+            {previewClip.thumbnail_b64 && (
+              <img src={`data:image/png;base64,${previewClip.thumbnail_b64}`} style={{width:'100%',borderRadius:6,marginBottom:12,display:'block'}} alt={previewClip.filename}/>
+            )}
+            <div style={{display:'flex',flexWrap:'wrap',gap:8,marginBottom:12}}>
+              {previewClip.clip_type && <span style={{fontSize:10,fontFamily:'monospace',padding:'2px 6px',borderRadius:4,border:'1px solid rgba(200,184,154,0.3)',color:'#c8b89a'}}>{previewClip.clip_type.toUpperCase()}</span>}
+              {previewClip.duration_ms && <span style={{fontSize:10,color:'#555'}}>{Math.round(previewClip.duration_ms/1000)}s</span>}
+              {previewClip.width && <span style={{fontSize:10,color:'#555'}}>{previewClip.width}×{previewClip.height}</span>}
+            </div>
+            {previewClip.transcript && (
+              <div style={{fontSize:12,color:'#555',lineHeight:1.6,marginBottom:12,padding:'8px 12px',background:'#0d0d0d',borderRadius:6,maxHeight:100,overflowY:'auto'}}>
+                "{previewClip.transcript}"
+              </div>
+            )}
+            {previewClip.visual_tags?.length > 0 && (
+              <div style={{display:'flex',gap:4,flexWrap:'wrap',marginBottom:12}}>
+                {previewClip.visual_tags.map(t => <span key={t} style={{fontSize:10,color:'#444',background:'#111',padding:'2px 6px',borderRadius:4}}>{t}</span>)}
+              </div>
+            )}
+            {onAddClip && (
+              <button
+                onClick={() => { onAddClip(previewClip); setPreviewClip(null) }}
+                style={{width:'100%',padding:'8px',background:'rgba(200,184,154,0.1)',border:'1px solid rgba(200,184,154,0.2)',borderRadius:6,color:'#c8b89a',fontSize:12,cursor:'pointer'}}
+              >
+                + Add to timeline
+              </button>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
 
-function ClipCard({ clip }) {
+function ClipCard({ clip, selected, onSelect, onPreview, onAddToTimeline }) {
   const durationSec = clip.duration_ms ? Math.round(clip.duration_ms / 1000) : null
 
   return (
-    <div className="group border border-[#111] rounded overflow-hidden hover:border-[#222] transition-all cursor-pointer">
+    <div
+      onClick={onSelect}
+      className={`group border rounded overflow-hidden transition-all cursor-pointer relative ${
+        selected ? 'border-[#c8b89a]/50 bg-[#c8b89a]/03' : 'border-[#111] hover:border-[#222]'
+      }`}
+    >
       {/* Thumbnail */}
       <div className="aspect-video bg-[#0a0a0a] flex items-center justify-center relative">
         {clip.thumbnail_b64 ? (
@@ -166,6 +222,27 @@ function ClipCard({ clip }) {
           <div className="absolute top-1 right-1">
             <Zap size={10} className={clip.audio_energy > 0.6 ? 'text-[#c8b89a]' : 'text-[#333]'}/>
           </div>
+        )}
+        {/* Hover overlay */}
+        <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+          <button
+            onClick={e => { e.stopPropagation(); onPreview?.() }}
+            style={{fontSize:10,padding:'4px 8px',borderRadius:4,background:'rgba(255,255,255,0.1)',border:'1px solid rgba(255,255,255,0.2)',color:'#fff',cursor:'pointer'}}
+          >
+            Preview
+          </button>
+          {onAddToTimeline && (
+            <button
+              onClick={e => { e.stopPropagation(); onAddToTimeline() }}
+              style={{fontSize:10,padding:'4px 8px',borderRadius:4,background:'rgba(200,184,154,0.2)',border:'1px solid rgba(200,184,154,0.4)',color:'#c8b89a',cursor:'pointer'}}
+            >
+              + Add
+            </button>
+          )}
+        </div>
+        {/* Selected indicator */}
+        {selected && (
+          <div style={{position:'absolute',top:4,left:4,width:16,height:16,borderRadius:'50%',background:'#c8b89a',display:'flex',alignItems:'center',justifyContent:'center',fontSize:10,color:'#000',fontWeight:700}}>✓</div>
         )}
       </div>
 

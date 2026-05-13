@@ -110,7 +110,7 @@ export default function AnalyticsPage() {
     let matched = 0
     const skipInsights = files.length > 1
     const results = await Promise.allSettled(
-      files.map(f => analyticsApi.upload(f, activeCategoryId, platform, skipInsights))
+      files.map(f => activeCategoryId ? analyticsApi.upload(f, activeCategoryId, platform, skipInsights) : Promise.reject(new Error('No workspace selected')))
     )
     results.forEach((r, i) => {
       if (r.status === 'fulfilled') matched += r.value.episodesMatched || 0
