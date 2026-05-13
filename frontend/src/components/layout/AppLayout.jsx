@@ -234,7 +234,7 @@ export default function AppLayout() {
         ref={pillRef}
         style={{
           position:   'fixed',
-          bottom:     chatOpen ? 'calc(72vh + 16px)' : '24px',
+          bottom:     '24px',
           left:       '50%',
           transform:  'translateX(-50%)',
           zIndex:     44,
