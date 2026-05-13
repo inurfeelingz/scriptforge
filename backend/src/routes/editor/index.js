@@ -602,14 +602,19 @@ router.post('/clips/search', async (req, res) => {
  * STATUS: WORKING
  */
 router.get('/projects', async (req, res) => {
-  const { categoryId } = req.query
+  const { categoryId, episodeId, limit } = req.query
 
-  const { data, error } = await supabase
+  let query = supabase
     .from('editor_projects')
     .select('id, name, status, duration_ms, ai_confidence, last_exported_at, created_at, episode_id')
     .eq('user_id', req.user.id)
-    .eq('category_id', categoryId)
     .order('created_at', { ascending: false })
+
+  if (categoryId) query = query.eq('category_id', categoryId)
+  if (episodeId)  query = query.eq('episode_id', episodeId)
+  if (limit)      query = query.limit(parseInt(limit))
+
+  const { data, error } = await query
 
   if (error) return res.status(500).json({ error: error.message })
   res.json({ projects: data })
@@ -850,6 +855,67 @@ router.post('/projects/:id/export', async (req, res) => {
 
   } catch (err) {
     console.error('[editor/export]', err.message)
+    res.status(500).json({ error: err.message })
+  }
+})
+
+
+// ─── GET /api/editor/projects/:id/export-shorts ──────────────────────────────
+// Exports a multi-sequence Shorts EDL from the project timeline + episode shorts scripts.
+// One sequence per short (3 total). Import into DaVinci as one EDL, export per sequence.
+
+router.get('/projects/:id/export-shorts', async (req, res) => {
+  try {
+    const { data: project, error } = await supabase
+      .from('editor_projects')
+      .select('*')
+      .eq('id', req.params.id)
+      .eq('user_id', req.user.id)
+      .single()
+
+    if (error || !project) return res.status(404).json({ error: 'Project not found' })
+
+    const timeline = project.timeline || { clips: [] }
+
+    // Fetch episode's shorts scripts
+    let shortsScripts = []
+    if (project.episode_id) {
+      const { data: episode } = await supabase
+        .from('episodes')
+        .select('shorts_scripts, track_name, episode_number')
+        .eq('id', project.episode_id)
+        .eq('user_id', req.user.id)
+        .single()
+
+      if (episode?.shorts_scripts?.length) {
+        shortsScripts = episode.shorts_scripts
+      }
+    }
+
+    // If no shorts scripts yet, return helpful error
+    if (!shortsScripts.length) {
+      return res.status(400).json({
+        error: 'No Shorts scripts found for this episode.',
+        tip: 'Go to the Shorts page and generate shorts for this episode first.',
+      })
+    }
+
+    const { exportShortsEDL } = require('../../services/vision/timelineBuilder')
+    const content  = exportShortsEDL(shortsScripts, timeline, project.name)
+    const filename = `${project.name.replace(/\s+/g, '-')}-SHORTS.edl`
+
+    // Log export
+    await supabase.from('editor_projects').update({
+      last_exported_at: new Date().toISOString(),
+      export_format:    'shorts_edl',
+    }).eq('id', project.id)
+
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8')
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`)
+    res.send(content)
+
+  } catch (err) {
+    console.error('[editor/export-shorts]', err.message)
     res.status(500).json({ error: err.message })
   }
 })

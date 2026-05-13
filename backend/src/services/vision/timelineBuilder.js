@@ -402,10 +402,121 @@ function escXml(str) {
     .replace(/'/g, '&apos;')
 }
 
+
+// ─── EXPORT: SHORTS EDL ──────────────────────────────────────────────────────
+// Generates a single EDL file containing one sequence per short.
+// Each sequence is a 45-60s cut using clips from the long-form timeline
+// that fall within the short's source timecode window.
+// DaVinci imports this as multiple sequences — export each one individually.
+//
+// shorts: array of { id, title, hookStrategy, script, sourceTimecode, wordCount }
+// timeline: the long-form timeline object (clips with recIn/recOut/srcIn/srcOut)
+
+function exportShortsEDL(shorts, timeline, episodeTitle) {
+  const fps = 25
+  let output = ''
+
+  for (let si = 0; si < shorts.length; si++) {
+    const short = shorts[si]
+    const shortNum = si + 1
+
+    // Parse source timecode to seconds (e.g. "3:45" → 225)
+    function tcToSec(tc) {
+      if (!tc) return 0
+      const parts = String(tc).replace(/[^0-9:]/g, '').split(':').map(Number)
+      if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2]
+      if (parts.length === 2) return parts[0] * 60 + parts[1]
+      return parts[0] || 0
+    }
+
+    const sourceSec  = tcToSec(short.sourceTimecode)
+    const windowSec  = 35 // ±35s window around the source timecode
+
+    // Find clips from long-form timeline within the source window
+    // recIn is the record timecode — convert to seconds for comparison
+    function tcToMs(tc) {
+      if (!tc) return 0
+      const parts = String(tc).split(':').map(Number)
+      if (parts.length === 4) return ((parts[0]*3600 + parts[1]*60 + parts[2]) * 1000) + Math.round(parts[3] * 1000/fps)
+      if (parts.length === 3) return (parts[0]*3600 + parts[1]*60 + parts[2]) * 1000
+      return 0
+    }
+
+    const sourceWindowStart = (sourceSec - windowSec) * 1000
+    const sourceWindowEnd   = (sourceSec + windowSec) * 1000
+
+    const windowClips = (timeline?.clips || []).filter(clip => {
+      const recInMs = tcToMs(clip.recIn)
+      return recInMs >= sourceWindowStart && recInMs <= sourceWindowEnd
+    })
+
+    // Build sequence header
+    const seqTitle = sanitiseTitle(`${episodeTitle} — SHORT ${shortNum} — ${short.title || short.hookStrategy || ''}`)
+    output += `TITLE: ${seqTitle}\n`
+    output += `FCM: NON-DROP FRAME\n`
+    output += `* SHORT ${shortNum} of ${shorts.length}\n`
+    output += `* Hook: ${short.hookStrategy || 'N/A'}\n`
+    output += `* Source: ~${short.sourceTimecode || 'see script'} of long-form\n`
+    output += `* Word count: ~${short.wordCount || 110} words (~${Math.round((short.wordCount || 110) / 130 * 60)}s)\n`
+    output += `* CTA: ${short.cta || 'N/A'}\n`
+    output += `\n`
+
+    if (windowClips.length === 0) {
+      // No matched clips — write placeholder sequence
+      output += `001  PLACEHOLDER_S${shortNum}_HOOK   V   C        00:00:00:00 00:00:05:00 00:00:00:00 00:00:05:00\n`
+      output += `* FROM CLIP NAME: [NO CLIPS IN WINDOW] Source: ${short.sourceTimecode}\n`
+      output += `* LOC: 00:00:00:00 RED    ASSIGN CLIPS from long-form ~${short.sourceTimecode}\n`
+      output += `* COMMENT: Find clips near ${short.sourceTimecode} in your long-form and assign here\n\n`
+
+      // Add script as comments so creator knows what to cut to
+      const scriptLines = (short.script || '').split('\n').filter(Boolean).slice(0, 8)
+      scriptLines.forEach((line, i) => {
+        output += `* SCRIPT: ${line.slice(0, 80)}\n`
+      })
+      output += `\n`
+    } else {
+      // Write clips from the window, re-indexed from 001
+      let recMs = 0
+      windowClips.forEach((clip, ci) => {
+        const n    = String(ci + 1).padStart(3, '0')
+        const durMs = tcToMs(clip.recOut) - tcToMs(clip.recIn)
+        const recIn  = msToTC(recMs, fps)
+        const recOut = msToTC(recMs + durMs, fps)
+        recMs += durMs
+
+        if (clip.isPlaceholder) {
+          const reel = `PLACEHOLDER_S${shortNum}_${String(ci+1).padStart(2,'0')}`.padEnd(32)
+          output += `${n}  ${reel} V   C        00:00:00:00 ${msToTC(durMs, fps)} ${recIn} ${recOut}\n`
+          output += `* FROM CLIP NAME: [UNMATCHED] ${clip.intentTag || 'assign clip'}\n`
+          output += `* LOC: ${recIn} RED    ASSIGN CLIP\n\n`
+        } else {
+          const reel = sanitiseReel(clip.filename)
+          output += `${n}  ${reel} V   C        ${clip.srcIn} ${clip.srcOut} ${recIn} ${recOut}\n`
+          output += `* FROM CLIP NAME: ${clip.filename}\n`
+          if (clip.filepath)  output += `* SOURCE FILE: ${clip.filepath}\n`
+          if (clip.intentTag) output += `* LOC: ${recIn} WHITE  ${clip.intentTag}\n`
+          output += `\n`
+        }
+      })
+    }
+
+    // Separator between sequences (except last)
+    if (si < shorts.length - 1) {
+      output += `\n`
+      output += `* ════════════════════════════════════════════════════\n`
+      output += `* END OF SHORT ${shortNum} — SHORT ${shortNum + 1} BEGINS BELOW\n`
+      output += `* ════════════════════════════════════════════════════\n\n`
+    }
+  }
+
+  return output
+}
+
 module.exports = {
   buildTimeline,
   saveTimeline,
   exportEDL,
+  exportShortsEDL,
   exportFCPXML,
   exportOTIO,
   msToTC,

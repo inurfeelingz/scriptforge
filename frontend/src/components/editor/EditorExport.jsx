@@ -172,6 +172,59 @@ export default function EditorExport({ project }) {
 
       {/* Import instructions per format */}
       <div className="border border-[#1a1a1a] rounded p-4 space-y-4">
+        {/* Shorts EDL */}
+        <div className="border border-dashed border-[#1a1a1a] rounded p-5 space-y-3">
+          <div>
+            <div className="text-sm text-[#f0ede8] font-medium">Shorts EDL</div>
+            <div className="text-xs text-[#555] mt-1">
+              3 separate sequences — one per Short. Import into DaVinci, export each sequence individually.
+              Requires Shorts scripts to be generated first (Shorts page).
+            </div>
+          </div>
+          <button
+            onClick={async () => {
+              if (!project?.id) return
+              setExporting('shorts')
+              try {
+                const apiUrl = import.meta.env.VITE_API_URL || '/api'
+                const { getSession } = await import('../../lib/supabase')
+                const session = await getSession()
+                const res = await fetch(`${apiUrl}/editor/projects/${project.id}/export-shorts`, {
+                  headers: { Authorization: `Bearer ${session?.access_token}` }
+                })
+                if (!res.ok) {
+                  const err = await res.json()
+                  alert(err.tip || err.error || 'Export failed')
+                  return
+                }
+                const blob = await res.blob()
+                const url  = URL.createObjectURL(blob)
+                const a    = document.createElement('a')
+                a.href     = url
+                a.download = `${project.name.replace(/\s+/g,'-')}-SHORTS.edl`
+                a.click()
+                URL.revokeObjectURL(url)
+                setExported('shorts')
+              } catch (err) {
+                alert(err.message)
+              } finally {
+                setExporting(null)
+              }
+            }}
+            disabled={exporting === 'shorts' || !timeline?.length}
+            style={{
+              padding: '8px 20px', borderRadius: 8, border: '1px solid rgba(74,222,128,0.25)',
+              background: exported === 'shorts' ? 'rgba(74,222,128,0.1)' : 'rgba(74,222,128,0.06)',
+              color: exported === 'shorts' ? 'rgba(74,222,128,1)' : 'rgba(74,222,128,0.7)',
+              cursor: exporting === 'shorts' || !timeline?.length ? 'default' : 'pointer',
+              fontSize: 13, fontFamily: "'Figtree', sans-serif",
+              opacity: !timeline?.length ? 0.4 : 1,
+            }}
+          >
+            {exporting === 'shorts' ? 'Generating…' : exported === 'shorts' ? '✓ Downloaded' : '↓ Export Shorts EDL'}
+          </button>
+        </div>
+
         <h3 className="text-xs text-[#666] uppercase tracking-wide">After export — import into your NLE</h3>
         <div className="space-y-3 text-xs text-[#444]">
           <div>
