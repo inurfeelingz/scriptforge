@@ -258,7 +258,7 @@ export default function AppLayout() {
         ref={pillRef}
         style={{
           position:   'fixed',
-          bottom:     chatOpen ? 'calc(75vh + 12px)' : '24px',
+          bottom:     chatOpen ? 'calc(72vh + 16px)' : '24px',
           left:       '50%',
           transform:  'translateX(-50%)',
           zIndex:     44,
@@ -309,6 +309,32 @@ export default function AppLayout() {
           >
             <Menu size={15}/>
           </button>
+
+          <div style={{ width: 1, height: 20, background: 'rgba(255,255,255,0.06)', margin: '0 2px' }}/>
+
+          {/* KB Orb — inline in pill, small, grows when open */}
+          <div
+            onClick={() => setChatOpen(o => !o)}
+            style={{
+              width:      chatOpen ? 48 : 36,
+              height:     chatOpen ? 48 : 36,
+              borderRadius: '50%',
+              cursor:     'pointer',
+              flexShrink: 0,
+              transition: 'all 0.3s cubic-bezier(0.34,1.56,0.64,1)',
+              display:    'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              boxShadow:  chatOpen ? '0 0 16px rgba(74,222,128,0.25)' : 'none',
+            }}
+          >
+            <KBOrb
+              mood={chatOpen ? 'active' : 'idle'}
+              isOpen={chatOpen}
+              audioLevel={0}
+              size={chatOpen ? 48 : 34}
+            />
+          </div>
 
           <div style={{ width: 1, height: 20, background: 'rgba(255,255,255,0.06)', margin: '0 2px' }}/>
 
@@ -421,7 +447,7 @@ export default function AppLayout() {
       </main>
 
       {/* KB backdrop */}
-      {!isCompanion && !isHome && chatOpen && (
+      {!isCompanion && chatOpen && (
         <div
           onClick={() => setChatOpen(false)}
           style={{
@@ -434,7 +460,7 @@ export default function AppLayout() {
       )}
 
       {/* KB chat sheet */}
-      {!isCompanion && !isHome && (
+      {!isCompanion && (
         <div style={{
           position:   'fixed',
           left:       isMobile ? 12 : '50%',
@@ -457,26 +483,7 @@ export default function AppLayout() {
         </div>
       )}
 
-      {/* KB Orb — hidden on home */}
-      {!isCompanion && !isHome && (
-        <div style={{
-          position:   'fixed',
-          bottom:     chatOpen
-            ? (isMobile ? 'calc(82vh - 44px)' : 'calc(75vh - 44px)')
-            : (isMobile ? 86 : 86),
-          left:       '50%',
-          marginLeft: -44,
-          zIndex:     45,
-          transition: 'bottom 0.4s cubic-bezier(0.32,0.72,0,1)',
-        }}>
-          <KBOrb
-            mood={chatOpen ? 'active' : 'idle'}
-            onClick={() => setChatOpen(o => !o)}
-            isOpen={chatOpen}
-            audioLevel={0}
-          />
-        </div>
-      )}
+
 
       {/* Pill toolbar */}
       <PillToolbar/>
