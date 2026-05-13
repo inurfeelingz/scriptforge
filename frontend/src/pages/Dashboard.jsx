@@ -201,17 +201,6 @@ function DirectiveCard({ brief, loading, onRefresh }) {
 
 // ── Main Dashboard ────────────────────────────────────────────────────────────
 export default function Dashboard() {
-  // KB is the home screen — auto-open chat on first visit
-  useEffect(() => {
-    const hasOpened = sessionStorage.getItem('kb_opened')
-    if (!hasOpened) {
-      setTimeout(() => {
-        window.dispatchEvent(new CustomEvent('kb:open'))
-        sessionStorage.setItem('kb_opened', '1')
-      }, 600)
-    }
-  }, [])
-
   const { activeCategoryId, activeCategory, notify } = useStore()
   const cat = activeCategory?.()
   const navigate = useNavigate()

@@ -216,6 +216,12 @@ export default function AppLayout() {
         {/* Advanced / Settings */}
         <div style={{ padding: '12px 20px', borderTop: '1px solid rgba(255,255,255,0.04)', display: 'flex', flexDirection: 'column', gap: 2 }}>
           <button
+            onClick={() => { navigate('/dashboard'); setSidebarOpen(false) }}
+            style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 8, border: 'none', background: 'transparent', color: 'rgba(255,255,255,0.3)', cursor: 'pointer', fontSize: 12, fontFamily: "'Figtree', sans-serif", textAlign: 'left' }}
+          >
+            <ChevronRight size={13}/> Dashboard
+          </button>
+          <button
             onClick={() => { navigate('/settings'); setSidebarOpen(false) }}
             style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 8, border: 'none', background: 'transparent', color: 'rgba(255,255,255,0.3)', cursor: 'pointer', fontSize: 12, fontFamily: "'Figtree', sans-serif", textAlign: 'left' }}
           >
@@ -251,7 +257,7 @@ export default function AppLayout() {
 
   // ── PILL TOOLBAR ───────────────────────────────────────────────────────────
   function PillToolbar() {
-    if (isCompanion) return null
+    if (isCompanion || isHome) return null
 
     return (
       <div
@@ -420,8 +426,8 @@ export default function AppLayout() {
         </div>
       </main>
 
-      {/* KB backdrop */}
-      {!isCompanion && chatOpen && (
+      {/* KB backdrop — hidden on home (KB is inline there) */}
+      {!isCompanion && !isHome && chatOpen && (
         <div
           onClick={() => setChatOpen(false)}
           style={{
@@ -433,8 +439,8 @@ export default function AppLayout() {
         />
       )}
 
-      {/* KB chat sheet */}
-      {!isCompanion && (
+      {/* KB chat sheet — hidden on home (KB is inline there) */}
+      {!isCompanion && !isHome && (
         <div style={{
           position:   'fixed',
           left:       isMobile ? 12 : '50%',
@@ -457,13 +463,13 @@ export default function AppLayout() {
         </div>
       )}
 
-      {/* KB Orb — sits above pill */}
-      {!isCompanion && (
+      {/* KB Orb — hidden on home (KB is full screen there) */}
+      {!isCompanion && !isHome && (
         <div style={{
           position:   'fixed',
           bottom:     chatOpen
             ? (isMobile ? 'calc(82vh - 44px)' : 'calc(75vh - 44px)')
-            : (isMobile ? 86 : 86),
+            : isMobile ? 100 : 100,
           left:       '50%',
           marginLeft: -44,
           zIndex:     45,

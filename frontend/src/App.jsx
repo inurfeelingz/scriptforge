@@ -29,6 +29,7 @@ const SoundPage           = lazy(() => import('./pages/SoundPage'))
 const SettingsPage        = lazy(() => import('./pages/SettingsPage'))
 const EditorPage          = lazy(() => import('./pages/EditorPage'))
 const Companion           = lazy(() => import('./pages/Companion'))
+const KBHome              = lazy(() => import('./pages/KBHome'))
 
 // Keep Railway backend warm — ping every 4 minutes to prevent cold starts
 function useKeepAlive() {
@@ -88,7 +89,8 @@ export default function App() {
         <Route path="/auth"     element={<AuthPage />} />
         <Route path="/onboard"  element={<AuthGuard><OnboardPage /></AuthGuard>} />
         <Route path="/" element={<AuthGuard><AppLayout /></AuthGuard>}>
-          <Route index                element={<Dashboard />} />
+          <Route index                element={<KBHome />} />
+          <Route path="dashboard"         element={<Dashboard />} />
           <Route path="generate"      element={<Generate />} />
           <Route path="series"        element={<SeriesPage />} />
           <Route path="shorts"        element={<ShortsPage />} />
