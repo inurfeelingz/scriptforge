@@ -365,9 +365,14 @@ export default function AppLayout() {
           {/* Logo — click to go home */}
           <button
             onClick={() => navigate('/')}
-            style={{ background:'none', border:'none', cursor:'pointer', padding:'0 8px 0 0', color: isHome ? GREEN : 'rgba(255,255,255,0.4)', fontFamily:"'Syne',sans-serif", fontWeight:800, fontSize:14, letterSpacing:'-0.3px', flexShrink:0, transition:'color 0.15s' }}
+            style={{ background:'none', border:'none', cursor:'pointer', padding:'0 8px 0 0', flexShrink:0, display:'flex', alignItems:'center', opacity: isHome ? 1 : 0.5, transition:'opacity 0.15s' }}
+            title="Home"
           >
-            Wc
+            <svg width="28" height="28" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <rect width="64" height="64" rx="14" fill="#0a0f14"/>
+              <polyline points="10,16 18,46 32,24 46,46 54,16"
+                stroke="#4ade80" strokeWidth="5.5" strokeLinecap="round" strokeLinejoin="round" fill="none"/>
+            </svg>
           </button>
 
           {activeCategory_ && (
