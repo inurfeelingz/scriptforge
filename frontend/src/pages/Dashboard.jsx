@@ -11,7 +11,6 @@ import {
   Upload, Globe, Zap, BookOpen,
 } from 'lucide-react'
 import { useStore } from '../store'
-import { useEffect } from 'react'
 import { episodes as episodesApi, vault as vaultApi, analytics as analyticsApi, dashboard as dashboardApi } from '../lib/api'
 
 // ── Status lane config ────────────────────────────────────────────────────────
