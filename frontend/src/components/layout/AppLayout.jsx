@@ -251,7 +251,7 @@ export default function AppLayout() {
 
   // ── PILL TOOLBAR ───────────────────────────────────────────────────────────
   function PillToolbar() {
-    if (isCompanion || isHome) return null
+    if (isCompanion) return null
 
     return (
       <div
