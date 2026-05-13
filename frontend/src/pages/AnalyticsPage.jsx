@@ -4,10 +4,10 @@ import { useEffect, useState, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import {
   Upload, TrendingUp, Zap, FileText, ChevronDown, ChevronUp,
+  Youtube, RefreshCw, Unlink,
 } from 'lucide-react'
 import { useStore } from '../store'
 import { analytics as analyticsApi } from '../lib/api'
-import { Youtube, RefreshCw, Unlink, CheckCircle } from 'lucide-react'
 
 // ── SVG line chart ────────────────────────────────────────────────────────────
 function LineChart({ data, height = 110, color = 'rgba(74,222,128,1)', label = 'v' }) {
@@ -94,7 +94,7 @@ export default function AnalyticsPage() {
   const [hookStats,      setHookStats]      = useState([])
   const [uploadProgress, setUploadProgress] = useState({ done: 0, total: 0 })
   const [expanded,       setExpanded]       = useState(null)
-  const [ytStatus,       setYtStatus]       = useState(null)   // null | { connected, channelTitle, lastPulledAt }
+  const [ytStatus,       setYtStatus]       = useState(null)
   const [ytPulling,      setYtPulling]      = useState(false)
   const [ytConnecting,   setYtConnecting]   = useState(false)
 
@@ -102,18 +102,18 @@ export default function AnalyticsPage() {
     if (!activeCategoryId) return
     analyticsApi.list({ categoryId: activeCategoryId }).then(({ uploads }) => setUploads(uploads || []))
     analyticsApi.hookStats({ categoryId: activeCategoryId }).then(({ breakdown }) => setHookStats(breakdown || [])).catch(() => {})
-    analyticsApi.youtubeStatus(activeCategoryId).then(status => setYtStatus(status)).catch(() => {})
+    analyticsApi.youtubeStatus(activeCategoryId).then(s => setYtStatus(s)).catch(() => {})
   }
   useEffect(() => { loadData() }, [activeCategoryId])
 
-  // Handle YouTube OAuth callback
+  // Handle OAuth callback
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search)
-    if (params.get('youtube') === 'connected') {
-      notify('YouTube connected successfully', 'success')
+    const p = new URLSearchParams(window.location.search)
+    if (p.get('youtube') === 'connected') {
+      notify('YouTube connected!', 'success')
       loadData()
       window.history.replaceState({}, '', window.location.pathname)
-    } else if (params.get('error') === 'youtube_denied') {
+    } else if (p.get('error') === 'youtube_denied') {
       notify('YouTube connection cancelled', 'error')
       window.history.replaceState({}, '', window.location.pathname)
     }
@@ -125,35 +125,24 @@ export default function AnalyticsPage() {
     try {
       const url = await analyticsApi.youtubeConnectUrl(activeCategoryId)
       window.location.href = url
-    } catch (err) {
-      notify('Failed to start YouTube connection: ' + err.message, 'error')
-      setYtConnecting(false)
-    }
+    } catch (err) { notify(err.message, 'error'); setYtConnecting(false) }
   }
 
   async function pullYoutube() {
-    if (!activeCategoryId) return
     setYtPulling(true)
-    notify('Pulling latest YouTube analytics…', 'info', 4000)
+    notify('Pulling YouTube analytics…', 'info', 4000)
     try {
-      const result = await analyticsApi.youtubePull(activeCategoryId)
-      notify(`Imported ${result.videoCount || 0} videos from YouTube`, 'success')
+      const r = await analyticsApi.youtubePull(activeCategoryId)
+      notify(`Imported ${r.videoCount || 0} videos`, 'success')
       loadData()
-    } catch (err) {
-      notify('Pull failed: ' + err.message, 'error')
-    }
+    } catch (err) { notify(err.message, 'error') }
     setYtPulling(false)
   }
 
   async function disconnectYoutube() {
-    if (!activeCategoryId) return
-    try {
-      await analyticsApi.youtubeDisconnect(activeCategoryId)
-      setYtStatus({ connected: false })
-      notify('YouTube disconnected', 'info')
-    } catch (err) {
-      notify(err.message, 'error')
-    }
+    await analyticsApi.youtubeDisconnect(activeCategoryId)
+    setYtStatus({ connected: false })
+    notify('YouTube disconnected', 'info')
   }
 
   async function handleUpload(e) {
@@ -218,56 +207,65 @@ export default function AnalyticsPage() {
 
       <div>
         <h1 className="text-2xl font-serif text-[#f0ede8]">Analytics</h1>
-        <p className="text-sm text-[#555] mt-1">Upload your weekly stats CSV to track performance over time</p>
       </div>
 
-      {/* YouTube OAuth section */}
-      <div style={{
-        background: ytStatus?.connected ? 'rgba(74,222,128,0.04)' : 'rgba(255,255,255,0.02)',
-        border: `1px solid ${ytStatus?.connected ? 'rgba(74,222,128,0.15)' : 'rgba(255,255,255,0.07)'}`,
-        borderRadius: 12, padding: '16px 20px',
-        display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap',
-      }}>
-        <div style={{ flex: 1, minWidth: 200 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-            <Youtube size={16} style={{ color: ytStatus?.connected ? 'rgba(74,222,128,1)' : 'rgba(255,255,255,0.3)' }}/>
-            <span style={{ fontSize: 13, fontWeight: 600, color: ytStatus?.connected ? 'rgba(74,222,128,1)' : '#e8eaed', fontFamily: "'Figtree',sans-serif" }}>
-              {ytStatus?.connected ? `Connected — ${ytStatus.channelTitle || 'YouTube'}` : 'Connect YouTube for automatic imports'}
+      {/* ── YouTube OAuth ── */}
+      <div style={{ background: ytStatus?.connected ? 'rgba(74,222,128,0.04)' : 'rgba(255,255,255,0.02)', border: `1px solid ${ytStatus?.connected ? 'rgba(74,222,128,0.2)' : 'rgba(255,255,255,0.07)'}`, borderRadius:12, padding:'14px 18px', display:'flex', alignItems:'center', gap:16, flexWrap:'wrap' }}>
+        <div style={{ flex:1, minWidth:180 }}>
+          <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:3 }}>
+            <Youtube size={15} style={{ color: ytStatus?.connected ? 'rgba(74,222,128,1)' : 'rgba(255,255,255,0.25)' }}/>
+            <span style={{ fontSize:13, fontWeight:600, color: ytStatus?.connected ? 'rgba(74,222,128,1)' : '#e8eaed', fontFamily:"'Figtree',sans-serif" }}>
+              {ytStatus?.connected ? `YouTube connected — ${ytStatus.channelTitle || 'your channel'}` : 'Connect YouTube for automatic imports'}
             </span>
           </div>
-          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', fontFamily: "'Figtree',sans-serif" }}>
-            {ytStatus?.connected
-              ? `Last pulled: ${ytStatus.lastPulledAt ? new Date(ytStatus.lastPulledAt).toLocaleDateString() : 'never'} — pulls last 90 days of analytics`
-              : 'No more CSV exports — KB gets your analytics automatically on demand'}
+          <div style={{ fontSize:11, color:'rgba(255,255,255,0.3)', fontFamily:"'Figtree',sans-serif" }}>
+            {ytStatus?.connected ? `Last pulled: ${ytStatus.lastPulledAt ? new Date(ytStatus.lastPulledAt).toLocaleDateString() : 'never'}` : 'No more CSV exports — pull your analytics on demand'}
           </div>
         </div>
-        <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+        <div style={{ display:'flex', gap:8 }}>
           {ytStatus?.connected ? (
             <>
-              <button
-                onClick={pullYoutube}
-                disabled={ytPulling}
-                style={{ display:'flex', alignItems:'center', gap:6, padding:'8px 16px', borderRadius:8, border:'1px solid rgba(74,222,128,0.3)', background:'rgba(74,222,128,0.1)', color:'rgba(74,222,128,1)', cursor:'pointer', fontSize:12, fontFamily:"'Figtree',sans-serif", fontWeight:600 }}
-              >
+              <button onClick={pullYoutube} disabled={ytPulling}
+                style={{ display:'flex', alignItems:'center', gap:6, padding:'8px 16px', borderRadius:8, border:'1px solid rgba(74,222,128,0.3)', background:'rgba(74,222,128,0.1)', color:'rgba(74,222,128,1)', cursor:'pointer', fontSize:12, fontWeight:600, fontFamily:"'Figtree',sans-serif" }}>
                 <RefreshCw size={12} style={{ animation: ytPulling ? 'spin 1s linear infinite' : 'none' }}/>
                 {ytPulling ? 'Pulling…' : 'Pull now'}
               </button>
-              <button
-                onClick={disconnectYoutube}
-                style={{ display:'flex', alignItems:'center', gap:6, padding:'8px 12px', borderRadius:8, border:'1px solid rgba(255,0,0,0.2)', background:'transparent', color:'rgba(255,80,80,0.6)', cursor:'pointer', fontSize:12, fontFamily:"'Figtree',sans-serif" }}
-              >
+              <button onClick={disconnectYoutube}
+                style={{ display:'flex', alignItems:'center', gap:6, padding:'8px 12px', borderRadius:8, border:'1px solid rgba(255,0,0,0.2)', background:'transparent', color:'rgba(255,80,80,0.6)', cursor:'pointer', fontSize:12, fontFamily:"'Figtree',sans-serif" }}>
                 <Unlink size={12}/> Disconnect
               </button>
             </>
           ) : (
-            <button
-              onClick={connectYoutube}
-              disabled={ytConnecting}
-              style={{ display:'flex', alignItems:'center', gap:8, padding:'10px 20px', borderRadius:8, border:'none', background:'rgba(74,222,128,1)', color:'#080808', cursor:'pointer', fontSize:13, fontWeight:600, fontFamily:"'Figtree',sans-serif" }}
-            >
+            <button onClick={connectYoutube} disabled={ytConnecting}
+              style={{ display:'flex', alignItems:'center', gap:8, padding:'10px 20px', borderRadius:8, border:'none', background:'rgba(74,222,128,1)', color:'#080808', cursor:'pointer', fontSize:13, fontWeight:600, fontFamily:"'Figtree',sans-serif" }}>
               <Youtube size={14}/> {ytConnecting ? 'Connecting…' : 'Connect YouTube'}
             </button>
           )}
+        </div>
+      </div>
+
+      {/* ── CSV Upload ── */}
+      <div style={{ border:'1px solid rgba(255,255,255,0.07)', borderRadius:12, padding:'16px 18px', display:'flex', alignItems:'center', gap:16, flexWrap:'wrap' }}>
+        <div style={{ flex:1, minWidth:180 }}>
+          <div style={{ fontSize:13, fontWeight:600, color:'#e8eaed', marginBottom:3, fontFamily:"'Figtree',sans-serif" }}>
+            {uploads.length ? `${uploads.length} batch${uploads.length>1?'es':''} uploaded · ${uploads.reduce((s,u)=>s+(u.video_count||0),0).toLocaleString()} videos tracked` : 'Upload YouTube Studio CSV'}
+          </div>
+          <div style={{ fontSize:11, color:'rgba(255,255,255,0.3)', fontFamily:"'Figtree',sans-serif" }}>
+            YouTube Studio → Analytics → Advanced Mode → Export current view
+          </div>
+        </div>
+        <div style={{ display:'flex', gap:8, alignItems:'center', flexWrap:'wrap' }}>
+          {['youtube','tiktok'].map(p => (
+            <button key={p} onClick={() => setPlatform(p)}
+              style={{ padding:'6px 12px', borderRadius:7, border:`1px solid ${platform===p ? 'rgba(74,222,128,0.4)' : 'rgba(255,255,255,0.08)'}`, background: platform===p ? 'rgba(74,222,128,0.08)' : 'transparent', color: platform===p ? 'rgba(74,222,128,1)' : 'rgba(255,255,255,0.4)', cursor:'pointer', fontSize:12, fontFamily:"'Figtree',sans-serif", textTransform:'capitalize' }}>
+              {p === 'youtube' ? 'YouTube' : 'TikTok'}
+            </button>
+          ))}
+          <label style={{ display:'flex', alignItems:'center', gap:8, padding:'9px 18px', borderRadius:8, background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.1)', color:'rgba(255,255,255,0.6)', cursor: uploading ? 'wait' : 'pointer', fontSize:13, fontFamily:"'Figtree',sans-serif" }}>
+            <Upload size={13}/>
+            {uploading ? `${uploadProgress.done}/${uploadProgress.total} uploading…` : 'Upload CSV'}
+            <input type="file" accept=".csv" multiple onChange={handleUpload} disabled={uploading} className="hidden"/>
+          </label>
         </div>
       </div>
 
@@ -440,35 +438,7 @@ export default function AnalyticsPage() {
         </div>
       )}
 
-      {/* ── Upload ── */}
-      <div className="border border-[#1a1a1a] rounded p-6 space-y-4">
-        <h2 className="text-sm text-[#888]">Upload weekly stats</h2>
-        <div className="flex gap-3">
-          {['youtube', 'tiktok'].map(p => (
-            <button key={p} onClick={() => setPlatform(p)}
-              className={`px-4 py-2 rounded border text-sm capitalize transition-all ${
-                platform === p ? 'border-[rgba(74,222,128,0.40)] text-[rgba(74,222,128,1)] bg-[rgba(74,222,128,0.05)]' : 'border-[#1a1a1a] text-[#555] hover:border-[#333]'
-              }`}>{p}</button>
-          ))}
-        </div>
-        <label className={`flex items-center justify-center gap-3 border-2 border-dashed rounded px-8 py-8 cursor-pointer transition-colors ${
-          uploading ? 'border-[rgba(74,222,128,0.30)] cursor-wait' : 'border-[#1a1a1a] hover:border-[#333]'
-        }`}>
-          {uploading ? (
-            <div className="space-y-1 text-center">
-              <div className="text-sm text-[rgba(74,222,128,1)]">KB is thinking…</div>
-              {uploadProgress.total > 1 && <div className="text-xs text-[#555]">{uploadProgress.done} / {uploadProgress.total}</div>}
-            </div>
-          ) : (
-            <>
-              <Upload size={16} className="text-[#444]"/>
-              <div className="text-sm text-[#444]">Drop {platform === 'youtube' ? 'YouTube Studio' : 'TikTok Creator Center'} CSV here</div>
-            </>
-          )}
-          <input type="file" accept=".csv" multiple onChange={handleUpload} disabled={uploading} className="hidden"/>
-        </label>
-        <p className="text-[10px] text-[#444]">YouTube Studio → Analytics → Advanced Mode → Export current view</p>
-      </div>
+
 
     </div>
   )
