@@ -71,8 +71,8 @@ export default function SessionJournal({ onSelectMemo, onGenerateNow }) {
                 <div className="space-y-1">
                   {session.key_moments.slice(0, 3).map((m, i) => (
                     <div key={i} className="flex gap-2 text-xs">
-                      <Flag size={10} className="text-[#c8b89a] mt-0.5 shrink-0"/>
-                      <span className="text-[#c8b89a] font-mono">{m.timestampFmt}</span>
+                      <Flag size={10} className="text-[rgba(74,222,128,1)] mt-0.5 shrink-0"/>
+                      <span className="text-[rgba(74,222,128,1)] font-mono">{m.timestampFmt}</span>
                       <span className="text-[#444]">{m.description}</span>
                     </div>
                   ))}
@@ -84,7 +84,7 @@ export default function SessionJournal({ onSelectMemo, onGenerateNow }) {
                   {onSelectMemo && (
                     <button
                       onClick={() => onSelectMemo(session.voice_memo_text, session)}
-                      className="flex-1 py-2 bg-[#c8b89a]/5 border border-[#c8b89a]/15 text-[#c8b89a]/70 rounded text-xs hover:bg-[#c8b89a]/10 transition-all"
+                      className="flex-1 py-2 bg-[rgba(74,222,128,0.05)] border border-[rgba(74,222,128,0.15)] text-[rgba(74,222,128,0.70)] rounded text-xs hover:bg-[rgba(74,222,128,0.10)] transition-all"
                     >
                       Load memo
                     </button>
@@ -92,7 +92,7 @@ export default function SessionJournal({ onSelectMemo, onGenerateNow }) {
                   {onGenerateNow && (
                     <button
                       onClick={() => onGenerateNow(session.voice_memo_text, session)}
-                      className="flex-1 py-2 bg-[#c8b89a]/10 border border-[#c8b89a]/30 text-[#c8b89a] rounded text-xs hover:bg-[#c8b89a]/20 transition-all flex items-center justify-center gap-1.5 font-medium"
+                      className="flex-1 py-2 bg-[rgba(74,222,128,0.10)] border border-[rgba(74,222,128,0.30)] text-[rgba(74,222,128,1)] rounded text-xs hover:bg-[rgba(74,222,128,0.20)] transition-all flex items-center justify-center gap-1.5 font-medium"
                     >
                       <Sparkles size={10}/> Generate now →
                     </button>

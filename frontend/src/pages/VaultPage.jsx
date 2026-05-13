@@ -65,7 +65,7 @@ export default function VaultPage() {
 
   const TYPE_COLORS = {
     hook: 'var(--accent)', script: '#6366f1', trending: '#40a060',
-    shortform: '#e8c87a', concept: '#888', successful: 'var(--accent)'
+    shortform: 'rgba(74,222,128,0.85)', concept: '#888', successful: 'var(--accent)'
   }
 
   return (

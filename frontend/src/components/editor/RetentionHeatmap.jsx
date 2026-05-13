@@ -98,7 +98,7 @@ export default function RetentionHeatmap({ projectDurationMs = 600000 }) {
             <div key={i} className="flex items-start gap-2 text-xs">
               <TrendingUp size={11} className="text-[#40a060] mt-0.5 shrink-0"/>
               <div>
-                <span className="text-[#c8b89a] font-mono">~{r.timeSeconds}s</span>
+                <span className="text-[rgba(74,222,128,1)] font-mono">~{r.timeSeconds}s</span>
                 <span className="text-[#555] ml-2">{r.action}</span>
                 <div className="text-[#444] mt-0.5">{r.reason}</div>
               </div>

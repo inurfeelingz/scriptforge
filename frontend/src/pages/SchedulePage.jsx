@@ -319,7 +319,7 @@ export default function SchedulePage() {
   const inFlight = episodes.filter(e => ['recorded','edited'].includes(e.status))
 
   return (
-    <div className="max-w-3xl mx-auto space-y-6">
+    <div className="max-w-4xl mx-auto space-y-6">
 
       <div>
         <h1 className="text-2xl font-serif text-[#f0ede8]">Schedule</h1>
@@ -354,7 +354,7 @@ export default function SchedulePage() {
                   label: 'Consistency',
                   value: `${cadenceInfo.consistency}%`,
                   sub:   cadenceInfo.consistency >= 80 ? 'Very consistent' : cadenceInfo.consistency >= 60 ? 'Mostly regular' : 'Irregular',
-                  color: cadenceInfo.consistency >= 70 ? '#40a060' : '#d4a853',
+                  color: cadenceInfo.consistency >= 70 ? '#40a060' : 'rgba(74,222,128,1)',
                 },
               ].map(({ label, value, sub, color }) => (
                 <div key={label} className="bg-[var(--surface)] border border-[var(--border)] rounded p-4">

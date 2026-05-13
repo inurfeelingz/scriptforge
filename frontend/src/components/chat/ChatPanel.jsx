@@ -407,7 +407,10 @@ let stylesInjected = false
 export default function ChatPanel() {
   const { activeCategoryId, notify } = useStore()
   const location = useLocation()
-  const mode     = MODE_MAP[location.pathname] || 'generate'
+  const mode       = MODE_MAP[location.pathname] || 'generate'
+  // Pick up episodeId from URL so KB can edit the current episode
+  const urlParams  = new URLSearchParams(location.search)
+  const urlEpId    = urlParams.get('episodeId') || urlParams.get('episode')
   const meta     = MODE_META[mode] || MODE_META.generate
 
   // Inject styles once
@@ -501,13 +504,17 @@ export default function ChatPanel() {
 
     try {
       await chatApi.send(
-        { categoryId: activeCategoryId, mode, message: text, messages: [] },
+        { categoryId: activeCategoryId, mode, message: text, messages: [], episodeId: urlEpId || undefined },
         {
           chunk: ({ text: t }) => setStreamText(prev => prev + t),
-          done:  ({ response }) => {
+          done:  ({ response, episodeEdited, field }) => {
             setMessages(prev => [...prev, { role: 'assistant', content: response, timestamp: new Date().toISOString() }])
             setStreamText('')
             setStreaming(false)
+            // If KB edited an episode, dispatch event so the page can refresh
+            if (episodeEdited) {
+              window.dispatchEvent(new CustomEvent('kb:episode-edited', { detail: { field } }))
+            }
             if (voiceUsedRef.current) { voiceUsedRef.current = false; speak(response) }
           },
           error: ({ message: e }) => {
@@ -791,7 +798,7 @@ export default function ChatPanel() {
               <span style={{fontSize:10,color:'rgba(255,255,255,0.3)'}}>{Math.round(genPct)}%</span>
             </div>
             <div style={{height:2,background:'rgba(255,255,255,0.06)',borderRadius:2,overflow:'hidden'}}>
-              <div style={{height:'100%',width:`${genPct}%`,background:'linear-gradient(90deg,#c8b89a,#e8c46a)',borderRadius:2,transition:'width 0.3s ease'}}/>
+              <div style={{height:'100%',width:`${genPct}%`,background:'linear-gradient(90deg,rgba(74,222,128,1),rgba(74,222,128,0.6))',borderRadius:2,transition:'width 0.3s ease'}}/>
             </div>
           </div>
         )}
@@ -799,9 +806,9 @@ export default function ChatPanel() {
         {generated && (
           <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'10px 14px',borderRadius:8,background:'rgba(212,168,83,0.07)',border:'1px solid rgba(212,168,83,0.2)'}}>
             <div style={{display:'flex',alignItems:'center',gap:8}}>
-              <Check size={12} style={{color:'#d4a853',flexShrink:0}}/>
+              <Check size={12} style={{color:'rgba(74,222,128,1)',flexShrink:0}}/>
               <div>
-                <div style={{fontSize:12,fontWeight:600,color:'#d4a853'}}>Episode ready</div>
+                <div style={{fontSize:12,fontWeight:600,color:'rgba(74,222,128,1)'}}>Episode ready</div>
                 <div style={{fontSize:10,color:'rgba(212,168,83,0.5)',marginTop:1}}>"{generated}" — check your episodes</div>
               </div>
             </div>

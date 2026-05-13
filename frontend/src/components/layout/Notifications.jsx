@@ -9,7 +9,7 @@ export default function Notifications() {
   const COLORS = {
     success: 'border-[#40a060]/30 bg-[#40a060]/5 text-[#40a060]',
     error:   'border-red-800/30 bg-red-950/20 text-red-400',
-    info:    'border-[#c8b89a]/20 bg-[#c8b89a]/5 text-[#c8b89a]',
+    info:    'border-[rgba(74,222,128,0.20)] bg-[rgba(74,222,128,0.05)] text-[rgba(74,222,128,1)]',
   }
 
   if (!notifications.length) return null

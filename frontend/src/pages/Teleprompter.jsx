@@ -298,7 +298,7 @@ export default function Teleprompter() {
             <select
               value={selectedEpId}
               onChange={e => setSelectedEpId(e.target.value)}
-              className="w-full bg-[#0d0d0d] border border-[#1e1e1e] rounded px-3 py-2.5 text-sm text-[#f0ede8] outline-none focus:border-[#c8b89a]/40 appearance-none pr-8"
+              className="w-full bg-[#0d0d0d] border border-[#1e1e1e] rounded px-3 py-2.5 text-sm text-[#f0ede8] outline-none focus:border-[rgba(74,222,128,0.40)] appearance-none pr-8"
             >
               <option value="">— paste script manually —</option>
               {episodes.map(ep => (
@@ -332,7 +332,7 @@ export default function Teleprompter() {
           onChange={e => { setScript(e.target.value); setScriptDirty(true) }}
           placeholder={"Paste your voiceover script here...\n\n[CAM-001 ~0:00] Lines with clip hints will be dimmed automatically."}
           rows={10}
-          className="w-full bg-[#0d0d0d] border border-[#1e1e1e] rounded px-4 py-3 text-sm text-[#f0ede8] placeholder-[#333] outline-none focus:border-[#c8b89a]/40 resize-none font-mono"
+          className="w-full bg-[#0d0d0d] border border-[#1e1e1e] rounded px-4 py-3 text-sm text-[#f0ede8] placeholder-[#333] outline-none focus:border-[rgba(74,222,128,0.40)] resize-none font-mono"
         />
         {scriptDirty && selectedEpId && (
           <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
@@ -363,7 +363,7 @@ export default function Teleprompter() {
           <input
             type="range" min={20} max={72} value={fontSize}
             onChange={e => setFontSize(+e.target.value)}
-            className="w-full accent-[#c8b89a]"
+            className="w-full accent-[rgba(74,222,128,1)]"
           />
         </div>
       </div>
@@ -371,7 +371,7 @@ export default function Teleprompter() {
       <button
         onClick={() => setStarted(true)}
         disabled={!script.trim()}
-        className="w-full py-3 bg-[#c8b89a] text-[#080808] font-medium rounded hover:bg-[#e8c87a] disabled:opacity-40 transition-all flex items-center justify-center gap-2"
+        className="w-full py-3 bg-[rgba(74,222,128,1)] text-[#080808] font-medium rounded hover:bg-[rgba(74,222,128,0.85)] disabled:opacity-40 transition-all flex items-center justify-center gap-2"
       >
         <BookOpen size={15}/> Start session
       </button>
@@ -409,7 +409,7 @@ export default function Teleprompter() {
       )}
       {/* Progress bar */}
       <div className="h-0.5 bg-[#111] shrink-0">
-        <div className="h-full transition-all" style={{ width: `${pct}%`, background: '#d4a853' }}/>
+        <div className="h-full transition-all" style={{ width: `${pct}%`, background: 'rgba(74,222,128,1)' }}/>
       </div>
 
       {/* Script area — fills all space, controls overlay at bottom */}
@@ -458,7 +458,7 @@ export default function Teleprompter() {
             )}
             {(recState === 'stopping' || recState === 'uploading') && (
               <>
-                <RefreshCw size={11} className="animate-spin text-[#c8b89a] shrink-0"/>
+                <RefreshCw size={11} className="animate-spin text-[rgba(74,222,128,1)] shrink-0"/>
                 <span className="text-[#555]">
                   {recState === 'stopping' ? 'Finalising recording…' : 'Transcribing with Whisper…'}
                 </span>
@@ -466,7 +466,7 @@ export default function Teleprompter() {
             )}
             {recState === 'aligning' && (
               <>
-                <AlignCenter size={11} className="text-[#c8b89a] shrink-0"/>
+                <AlignCenter size={11} className="text-[rgba(74,222,128,1)] shrink-0"/>
                 <span className="text-[#555]">Aligning timeline to VO words…</span>
               </>
             )}
@@ -522,7 +522,7 @@ export default function Teleprompter() {
             onClick={() => setPlaying(p => !p)}
             className={`w-10 h-10 rounded-full border flex items-center justify-center transition-all ${
               playing
-                ? 'border-[#c8b89a] text-[#c8b89a] bg-[#c8b89a]/10'
+                ? 'border-[rgba(74,222,128,0.4)] text-[rgba(74,222,128,1)] bg-[rgba(74,222,128,0.10)]'
                 : 'border-[#333] text-[#666] hover:border-[#666]'
             }`}
           >
@@ -535,9 +535,9 @@ export default function Teleprompter() {
             <input
               type="range" min={1} max={10} step={0.1} value={speed}
               onChange={e => setSpeed(+e.target.value)}
-              className="flex-1 accent-[#c8b89a]"
+              className="flex-1 accent-[rgba(74,222,128,1)]"
             />
-            <span className="text-xs text-[#c8b89a] w-6">{speed.toFixed(1)}</span>
+            <span className="text-xs text-[rgba(74,222,128,1)] w-6">{speed.toFixed(1)}</span>
           </div>
 
           <span className="text-xs text-[#444]">{Math.round(pct)}%</span>
@@ -546,7 +546,7 @@ export default function Teleprompter() {
           <button
             onClick={() => setMirrored(m => !m)}
             className={`text-xs px-2 py-1 rounded border transition-all ${
-              mirrored ? 'border-[#c8b89a]/40 text-[#c8b89a]' : 'border-[#222] text-[#444]'
+              mirrored ? 'border-[rgba(74,222,128,0.40)] text-[rgba(74,222,128,1)]' : 'border-[#222] text-[#444]'
             }`}
           >⇔</button>
 
@@ -557,7 +557,7 @@ export default function Teleprompter() {
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded border text-xs transition-all disabled:opacity-40 ${
               recState === 'recording'
                 ? 'border-red-700/60 text-red-400 bg-red-900/15 hover:bg-red-900/25'
-                : 'border-[#333] text-[#555] hover:border-[#c8b89a]/30 hover:text-[#c8b89a]'
+                : 'border-[#333] text-[#555] hover:border-[rgba(74,222,128,0.30)] hover:text-[rgba(74,222,128,1)]'
             }`}
             title={recState === 'recording' ? 'Stop recording and align' : 'Record VO and auto-align timeline'}
           >

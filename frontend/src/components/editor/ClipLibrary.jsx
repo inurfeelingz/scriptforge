@@ -96,20 +96,20 @@ export default function ClipLibrary({ project, computeSearchVectors, onAddClip }
 
       {/* Search + filter */}
       <div className="flex gap-3">
-        <form onSubmit={handleSearch} className="flex-1 flex items-center gap-2 bg-[#0d0d0d] border border-[#1e1e1e] rounded px-3 py-2 focus-within:border-[#c8b89a]/40 transition-colors">
+        <form onSubmit={handleSearch} className="flex-1 flex items-center gap-2 bg-[#0d0d0d] border border-[#1e1e1e] rounded px-3 py-2 focus-within:border-[rgba(74,222,128,0.40)] transition-colors">
           <Search size={12} className="text-[#444] shrink-0"/>
           <input
             value={query} onChange={e => setQuery(e.target.value)}
             placeholder="Search clips by meaning: close-up, smiling, quiet"
             className="bg-transparent text-sm text-[#ddd] placeholder-[#333] outline-none flex-1"
           />
-          {searching && <div className="w-3 h-3 border border-[#c8b89a] border-t-transparent rounded-full animate-spin shrink-0"/>}
+          {searching && <div className="w-3 h-3 border border-[rgba(74,222,128,0.4)] border-t-transparent rounded-full animate-spin shrink-0"/>}
         </form>
         <div className="flex gap-1">
           {['all','cam','daw','broll'].map(t => (
             <button key={t} onClick={() => setType(t)}
               className={`px-3 py-2 rounded text-xs transition-all capitalize ${
-                typeFilter === t ? 'bg-[#c8b89a]/10 text-[#c8b89a]' : 'text-[#444] hover:text-[#888]'
+                typeFilter === t ? 'bg-[rgba(74,222,128,0.10)] text-[rgba(74,222,128,1)]' : 'text-[#444] hover:text-[#888]'
               }`}
             >{t}</button>
           ))}
@@ -165,7 +165,7 @@ export default function ClipLibrary({ project, computeSearchVectors, onAddClip }
               <img src={`data:image/png;base64,${previewClip.thumbnail_b64}`} style={{width:'100%',borderRadius:6,marginBottom:12,display:'block'}} alt={previewClip.filename}/>
             )}
             <div style={{display:'flex',flexWrap:'wrap',gap:8,marginBottom:12}}>
-              {previewClip.clip_type && <span style={{fontSize:10,fontFamily:'monospace',padding:'2px 6px',borderRadius:4,border:'1px solid rgba(200,184,154,0.3)',color:'#c8b89a'}}>{previewClip.clip_type.toUpperCase()}</span>}
+              {previewClip.clip_type && <span style={{fontSize:10,fontFamily:'monospace',padding:'2px 6px',borderRadius:4,border:'1px solid rgba(74,222,128,0.3)',color:'rgba(74,222,128,1)'}}>{previewClip.clip_type.toUpperCase()}</span>}
               {previewClip.duration_ms && <span style={{fontSize:10,color:'#555'}}>{Math.round(previewClip.duration_ms/1000)}s</span>}
               {previewClip.width && <span style={{fontSize:10,color:'#555'}}>{previewClip.width}×{previewClip.height}</span>}
             </div>
@@ -182,7 +182,7 @@ export default function ClipLibrary({ project, computeSearchVectors, onAddClip }
             {onAddClip && (
               <button
                 onClick={() => { onAddClip(previewClip); setPreviewClip(null) }}
-                style={{width:'100%',padding:'8px',background:'rgba(200,184,154,0.1)',border:'1px solid rgba(200,184,154,0.2)',borderRadius:6,color:'#c8b89a',fontSize:12,cursor:'pointer'}}
+                style={{width:'100%',padding:'8px',background:'rgba(74,222,128,0.1)',border:'1px solid rgba(74,222,128,0.2)',borderRadius:6,color:'rgba(74,222,128,1)',fontSize:12,cursor:'pointer'}}
               >
                 + Add to timeline
               </button>
@@ -201,7 +201,7 @@ function ClipCard({ clip, selected, onSelect, onPreview, onAddToTimeline }) {
     <div
       onClick={onSelect}
       className={`group border rounded overflow-hidden transition-all cursor-pointer relative ${
-        selected ? 'border-[#c8b89a]/50 bg-[#c8b89a]/03' : 'border-[#111] hover:border-[#222]'
+        selected ? 'border-[rgba(74,222,128,0.50)] bg-[rgba(74,222,128,0.03)]' : 'border-[#111] hover:border-[#222]'
       }`}
     >
       {/* Thumbnail */}
@@ -220,7 +220,7 @@ function ClipCard({ clip, selected, onSelect, onPreview, onAddToTimeline }) {
         {/* Energy indicator */}
         {clip.audio_energy != null && (
           <div className="absolute top-1 right-1">
-            <Zap size={10} className={clip.audio_energy > 0.6 ? 'text-[#c8b89a]' : 'text-[#333]'}/>
+            <Zap size={10} className={clip.audio_energy > 0.6 ? 'text-[rgba(74,222,128,1)]' : 'text-[#333]'}/>
           </div>
         )}
         {/* Hover overlay */}
@@ -234,7 +234,7 @@ function ClipCard({ clip, selected, onSelect, onPreview, onAddToTimeline }) {
           {onAddToTimeline && (
             <button
               onClick={e => { e.stopPropagation(); onAddToTimeline() }}
-              style={{fontSize:10,padding:'4px 8px',borderRadius:4,background:'rgba(200,184,154,0.2)',border:'1px solid rgba(200,184,154,0.4)',color:'#c8b89a',cursor:'pointer'}}
+              style={{fontSize:10,padding:'4px 8px',borderRadius:4,background:'rgba(74,222,128,0.2)',border:'1px solid rgba(74,222,128,0.4)',color:'rgba(74,222,128,1)',cursor:'pointer'}}
             >
               + Add
             </button>
@@ -242,7 +242,7 @@ function ClipCard({ clip, selected, onSelect, onPreview, onAddToTimeline }) {
         </div>
         {/* Selected indicator */}
         {selected && (
-          <div style={{position:'absolute',top:4,left:4,width:16,height:16,borderRadius:'50%',background:'#c8b89a',display:'flex',alignItems:'center',justifyContent:'center',fontSize:10,color:'#000',fontWeight:700}}>✓</div>
+          <div style={{position:'absolute',top:4,left:4,width:16,height:16,borderRadius:'50%',background:'rgba(74,222,128,1)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:10,color:'#000',fontWeight:700}}>✓</div>
         )}
       </div>
 

@@ -172,6 +172,63 @@ router.post('/message', async (req, res) => {
       }
     }
 
+
+    // ── Episode edit detection ────────────────────────────────────────────────────
+    // Detects phrases like "change the title to X", "update the VO script", "rename episode X to Y"
+    const EDIT_TRIGGERS = [
+      'change the title', 'rename this episode', 'rename episode', 'update the title',
+      'update the vo script', 'edit the script', 'change the script', 'update the script',
+      'rewrite the script', 'change the description', 'update the description',
+      'set the title to', 'change it to', 'rename it to',
+    ]
+    const isEditCmd = EDIT_TRIGGERS.some(t => message.toLowerCase().includes(t))
+
+    if (isEditCmd && episodeCtx?.episodeId) {
+      try {
+        const extractRes = await client.messages.create({
+          model:      process.env.CLAUDE_MODEL || 'claude-sonnet-4-5',
+          max_tokens: 300,
+          system:     `Extract what field to update from this episode edit request.
+Return ONLY compact JSON. No preamble, no markdown.
+Fields allowed: track_name, description, vo_script, tags
+Example: {"field":"track_name","value":"New Episode Title"}
+If you cannot extract a clear field+value, return {}`,
+          messages: [{ role: 'user', content: message }],
+        })
+
+        const raw    = (extractRes.content[0]?.text || '{}').replace(/```json|```/g, '').trim()
+        const edit   = JSON.parse(raw)
+
+        if (edit.field && edit.value !== undefined) {
+          const ALLOWED = ['track_name', 'description', 'vo_script', 'tags']
+          if (ALLOWED.includes(edit.field)) {
+            const { error } = await supabase
+              .from('episodes')
+              .update({ [edit.field]: edit.value, updated_at: new Date().toISOString() })
+              .eq('id', episodeCtx.episodeId)
+              .eq('user_id', req.user.id)
+
+            if (!error) {
+              const fieldLabels = {
+                track_name:  'title',
+                description: 'description',
+                vo_script:   'VO script',
+                tags:        'tags',
+              }
+              const ack = `Done — ${fieldLabels[edit.field] || edit.field} updated${edit.field === 'track_name' ? ` to "${edit.value}"` : ''}.`
+              send('chunk', { text: ack })
+              send('done', { response: ack, episodeEdited: true, field: edit.field })
+              clearInterval(keepalive)
+              return res.end()
+            }
+          }
+        }
+      } catch (editErr) {
+        console.warn('[kb-edit]', editErr.message)
+        // Fall through to normal response
+      }
+    }
+
     // Build message list — current mode history + cross-mode context
     const historyForClaude = [
       ...crossContext,
@@ -522,25 +579,19 @@ Show name: ${cat?.name || 'their show'}. Niche: ${cat?.niche || 'content creatio
 
     const stream = await client.messages.stream({
       model:      process.env.CLAUDE_MODEL || 'claude-sonnet-4-5',
-      max_tokens: 1200,
+      max_tokens: 400,
       system:     SYSTEM,
       messages,
     })
 
     let full = ''
-    let inJsonBlock = false
     for await (const chunk of stream) {
       if (chunk.type === 'content_block_delta' && chunk.delta.type === 'text_delta') {
         const text = chunk.delta.text
         full += text
 
-        // Track whether we are inside the JSON block
-        if (text.includes('===VOICE_PROFILE===')) {
-          inJsonBlock = !inJsonBlock
-          continue // skip the marker line itself
-        }
-        if (inJsonBlock) continue // suppress JSON content
-
+        // Don't stream the JSON block — handle it silently
+        if (full.includes('===VOICE_PROFILE===')) continue
         send('chunk', { text })
       }
     }

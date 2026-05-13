@@ -262,49 +262,6 @@ export default function ShortsPage() {
     setGeneratingThumbs(false)
   }
 
-  async function downloadShortsEDL() {
-    if (!selectedEpId) return
-    notify('Building Shorts EDL…', 'info', 3000)
-    try {
-      const apiUrl  = import.meta.env.VITE_API_URL || '/api'
-      const { getSession } = await import('../lib/supabase')
-      const session = await getSession()
-
-      // Find editor project for this episode
-      const projRes = await fetch(`${apiUrl}/editor/projects?episodeId=${selectedEpId}&limit=1`, {
-        headers: { Authorization: `Bearer ${session?.access_token}` }
-      })
-      const projData = await projRes.json()
-      const project  = projData.projects?.[0]
-
-      if (!project) {
-        notify('No editor project found — open the Editor and create a project for this episode first', 'error')
-        return
-      }
-
-      const res = await fetch(`${apiUrl}/editor/projects/${project.id}/export-shorts`, {
-        headers: { Authorization: `Bearer ${session?.access_token}` }
-      })
-
-      if (!res.ok) {
-        const err = await res.json()
-        notify(err.tip || err.error || 'Export failed', 'error')
-        return
-      }
-
-      const blob = await res.blob()
-      const url  = URL.createObjectURL(blob)
-      const a    = document.createElement('a')
-      a.href     = url
-      a.download = `ep${selectedEp?.episode_number || 0}-SHORTS.edl`
-      a.click()
-      URL.revokeObjectURL(url)
-      notify('Shorts EDL downloaded', 'success')
-    } catch (err) {
-      notify('EDL export failed: ' + err.message, 'error')
-    }
-  }
-
   function downloadAllShorts() {
     const text = shorts.map((s, i) =>
       `SHORT ${i + 1}: ${s.title}\nHook strategy: ${s.hookStrategy}\nSource: ${s.sourceTimecode}\n\n${s.script}\n\nCTA: ${s.cta}\n\n${'─'.repeat(60)}`
@@ -317,7 +274,7 @@ export default function ShortsPage() {
   }
 
   return (
-    <div className="max-w-3xl mx-auto space-y-6">
+    <div className="max-w-4xl mx-auto space-y-6">
 
       {/* Header */}
       <div>
@@ -382,20 +339,12 @@ export default function ShortsPage() {
                 </div>
                 <div className="flex gap-2">
                   {shorts.length > 0 && (
-                    <>
-                      <button
-                        onClick={downloadAllShorts}
-                        className="flex items-center gap-1.5 px-3 py-1.5 border border-[var(--border)] text-[var(--text3)] rounded text-xs hover:border-[var(--border2)] hover:text-[var(--text2)] transition-all"
-                      >
-                        <Download size={11}/> Scripts
-                      </button>
-                      <button
-                        onClick={downloadShortsEDL}
-                        style={{ display:'flex', alignItems:'center', gap:6, padding:'6px 12px', borderRadius:6, border:'1px solid rgba(74,222,128,0.25)', background:'rgba(74,222,128,0.06)', color:'rgba(74,222,128,0.8)', cursor:'pointer', fontSize:12, fontFamily:"'Figtree',sans-serif" }}
-                      >
-                        <Download size={11}/> Shorts EDL
-                      </button>
-                    </>
+                    <button
+                      onClick={downloadAllShorts}
+                      className="flex items-center gap-1.5 px-3 py-1.5 border border-[var(--border)] text-[var(--text3)] rounded text-xs hover:border-[var(--border2)] hover:text-[var(--text2)] transition-all"
+                    >
+                      <Download size={11}/> All scripts
+                    </button>
                   )}
                   <button
                     onClick={generateShorts}

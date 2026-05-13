@@ -8,7 +8,7 @@ import { api } from '../lib/api'
 const SHOT_META = {
   ecu:   { label: 'Extreme Close-Up', abbr: 'ECU',  crop: 'Eyes to chin',          color: '#e05580' },
   cu:    { label: 'Close-Up',         abbr: 'CU',   crop: 'Head & shoulders',       color: '#e07840' },
-  mcu:   { label: 'Medium Close-Up',  abbr: 'MCU',  crop: 'Chest up',              color: '#d4a853' },
+  mcu:   { label: 'Medium Close-Up',  abbr: 'MCU',  crop: 'Chest up',              color: 'rgba(74,222,128,1)' },
   ms:    { label: 'Medium Shot',      abbr: 'MS',   crop: 'Waist up',              color: '#6ab87a' },
   mws:   { label: 'Medium Wide',      abbr: 'MWS',  crop: 'Knees up',              color: '#5ab0d4' },
   ws:    { label: 'Wide Shot',        abbr: 'WS',   crop: 'Full body',             color: '#7878d8' },
@@ -19,7 +19,7 @@ const SHOT_META = {
   high:  { label: 'High Angle',       abbr: 'HIGH', crop: 'Camera above eyeline',  color: '#60a8d8' },
   dutch: { label: 'Dutch Angle',      abbr: 'DTH',  crop: 'Tilted frame',          color: '#d8b040' },
   pov:   { label: 'Point of View',    abbr: 'POV',  crop: 'First person',          color: '#80c870' },
-  th:    { label: 'Talking Head',     abbr: 'TH',   crop: 'Presenter, ⅓ offset',  color: '#d4a853' },
+  th:    { label: 'Talking Head',     abbr: 'TH',   crop: 'Presenter, ⅓ offset',  color: 'rgba(74,222,128,1)' },
 }
 
 export default function ShotListPage() {
@@ -198,7 +198,7 @@ ${cardHTML}
       display: 'flex', alignItems: 'center', gap: 7,
       padding: '8px 16px', borderRadius: 9, cursor: disabled ? 'not-allowed' : 'pointer',
       border: `1px solid ${gold ? 'rgba(212,168,83,0.3)' : 'rgba(255,255,255,0.1)'}`,
-      color: gold ? '#d4a853' : '#888',
+      color: gold ? 'rgba(74,222,128,1)' : '#888',
       background: gold ? 'rgba(212,168,83,0.1)' : 'rgba(255,255,255,0.04)',
       fontSize: 12, fontWeight: 500, opacity: disabled ? 0.4 : 1, transition: 'all 0.15s',
       boxShadow: gold && !disabled ? '0 2px 12px rgba(212,168,83,0.12)' : 'none',
@@ -275,7 +275,7 @@ ${cardHTML}
                   background: 'rgba(212,168,83,0.08)', border: '1px solid rgba(212,168,83,0.15)',
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                 }}>
-                  <Film size={14} style={{ color: '#d4a853' }}/>
+                  <Film size={14} style={{ color: 'rgba(74,222,128,1)' }}/>
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 13, color: '#e8eaed', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -337,7 +337,7 @@ ${cardHTML}
               <div style={{
                 display:'flex', alignItems:'center', gap:10, marginBottom:14,
               }}>
-                <div style={{ fontSize:10, color:'#d4a853', textTransform:'uppercase', letterSpacing:'0.14em', fontFamily:'monospace', opacity:0.75 }}>
+                <div style={{ fontSize:10, color:'rgba(74,222,128,1)', textTransform:'uppercase', letterSpacing:'0.14em', fontFamily:'monospace', opacity:0.75 }}>
                   {group.section}
                 </div>
                 <div style={{ flex:1, height:1, background:'rgba(212,168,83,0.12)' }}/>

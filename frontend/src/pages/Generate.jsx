@@ -29,15 +29,15 @@ function HookCard({ variant, selected, onSelect }) {
       onClick={() => onSelect(variant)}
       className={`w-full text-left p-4 rounded border transition-all space-y-2 ${
         selected
-          ? 'border-[#c8b89a]/50 bg-[#c8b89a]/8'
+          ? 'border-[rgba(74,222,128,0.50)] bg-[rgba(74,222,128,0.08)]'
           : 'border-[#1a1a1a] hover:border-[#333] bg-[#0a0a0a]'
       }`}
     >
       <div className="flex items-center justify-between">
-        <span className="text-[10px] font-medium uppercase tracking-wider text-[#c8b89a]/70">
+        <span className="text-[10px] font-medium uppercase tracking-wider text-[rgba(74,222,128,0.70)]">
           {variant.label}
         </span>
-        {selected && <Check size={12} className="text-[#c8b89a]"/>}
+        {selected && <Check size={12} className="text-[rgba(74,222,128,1)]"/>}
       </div>
       <p className="text-sm text-[#ccc] leading-relaxed">{variant.hook}</p>
     </button>
@@ -72,7 +72,7 @@ function RegenButton({ label, section, episodeId, onDone, disabled }) {
     <button
       onClick={run}
       disabled={disabled || loading || !episodeId}
-      className="flex items-center gap-1.5 text-[10px] px-2 py-1 rounded border border-[#1a1a1a] text-[#555] hover:border-[#c8b89a]/30 hover:text-[#c8b89a] disabled:opacity-30 transition-all"
+      className="flex items-center gap-1.5 text-[10px] px-2 py-1 rounded border border-[#1a1a1a] text-[#555] hover:border-[rgba(74,222,128,0.30)] hover:text-[rgba(74,222,128,1)] disabled:opacity-30 transition-all"
     >
       {loading ? <RefreshCw size={9} className="animate-spin"/> : <Zap size={9}/>}
       {loading ? 'Regenerating…' : `Regen ${label}`}
@@ -561,7 +561,7 @@ export default function Generate() {
 
   const wordPct    = targetWords > 0 ? Math.min(100, Math.round(wordCount / targetWords * 100)) : 0
   const wordStatus = wordPct >= 95 ? 'good' : wordPct >= 75 ? 'ok' : 'low'
-  const wordColor  = { good: '#40a060', ok: '#c8a030', low: '#c8b89a' }[wordStatus]
+  const wordColor  = { good: '#40a060', ok: '#c8a030', low: 'rgba(74,222,128,1)' }[wordStatus]
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
@@ -592,10 +592,10 @@ export default function Generate() {
 
       {/* Session source banner — shown when a session was loaded */}
       {sessionSource && (
-        <div className="flex items-center gap-3 px-4 py-3 bg-[#c8b89a]/5 border border-[#c8b89a]/20 rounded">
-          <Mic size={13} className="text-[#c8b89a] shrink-0"/>
+        <div className="flex items-center gap-3 px-4 py-3 bg-[rgba(74,222,128,0.05)] border border-[rgba(74,222,128,0.20)] rounded">
+          <Mic size={13} className="text-[rgba(74,222,128,1)] shrink-0"/>
           <div className="flex-1 min-w-0">
-            <span className="text-sm text-[#c8b89a]">Session loaded: </span>
+            <span className="text-sm text-[rgba(74,222,128,1)]">Session loaded: </span>
             <span className="text-sm text-[#aaa]">{sessionSource.title}</span>
           </div>
           <button onClick={() => { setSessionSource(null); setField('voiceMemoText', '') }}
@@ -611,7 +611,7 @@ export default function Generate() {
             value={form.trackName}
             onChange={e => setField('trackName', e.target.value)}
             placeholder={nicheConfig.subjectPlaceholder}
-            className="w-full bg-[#0d0d0d] border border-[#1e1e1e] rounded px-3 py-2.5 text-sm text-[#f0ede8] placeholder-[#333] outline-none focus:border-[#c8b89a]/40 transition-colors"
+            className="w-full bg-[#0d0d0d] border border-[#1e1e1e] rounded px-3 py-2.5 text-sm text-[#f0ede8] placeholder-[#333] outline-none focus:border-[rgba(74,222,128,0.40)] transition-colors"
           />
         </div>
 
@@ -626,7 +626,7 @@ export default function Generate() {
               value={form[key]}
               onChange={e => setField(key, e.target.value)}
               placeholder={placeholder}
-              className="w-full bg-[#0d0d0d] border border-[#1e1e1e] rounded px-3 py-2.5 text-sm text-[#f0ede8] placeholder-[#333] outline-none focus:border-[#c8b89a]/40 transition-colors"
+              className="w-full bg-[#0d0d0d] border border-[#1e1e1e] rounded px-3 py-2.5 text-sm text-[#f0ede8] placeholder-[#333] outline-none focus:border-[rgba(74,222,128,0.40)] transition-colors"
             />
           </div>
         ))}
@@ -637,7 +637,7 @@ export default function Generate() {
             value={form.platformLink}
             onChange={e => setField('platformLink', e.target.value)}
             placeholder={nicheConfig.platformPlaceholder}
-            className="w-full bg-[#0d0d0d] border border-[#1e1e1e] rounded px-3 py-2.5 text-sm text-[#f0ede8] placeholder-[#333] outline-none focus:border-[#c8b89a]/40 transition-colors"
+            className="w-full bg-[#0d0d0d] border border-[#1e1e1e] rounded px-3 py-2.5 text-sm text-[#f0ede8] placeholder-[#333] outline-none focus:border-[rgba(74,222,128,0.40)] transition-colors"
           />
         </div>
 
@@ -648,7 +648,7 @@ export default function Generate() {
             <button
               type="button"
               onClick={() => setShowSessions(s => !s)}
-              className="text-xs text-[#c8b89a] hover:underline"
+              className="text-xs text-[rgba(74,222,128,1)] hover:underline"
             >
               {showSessions ? 'Hide sessions' : 'Load from session journal'}
             </button>
@@ -664,14 +664,14 @@ export default function Generate() {
             onChange={e => setField('voiceMemoText', e.target.value)}
             placeholder="Found the chord progression by accident at 2am. Tried 12 different bass sounds before the 808 locked in..."
             rows={4}
-            className="w-full bg-[#0d0d0d] border border-[#1e1e1e] rounded px-3 py-2.5 text-sm text-[#f0ede8] placeholder-[#333] outline-none focus:border-[#c8b89a]/40 transition-colors resize-none"
+            className="w-full bg-[#0d0d0d] border border-[#1e1e1e] rounded px-3 py-2.5 text-sm text-[#f0ede8] placeholder-[#333] outline-none focus:border-[rgba(74,222,128,0.40)] transition-colors resize-none"
           />
         </div>
 
         {/* Clip upload */}
         <div className="col-span-2 space-y-1">
           <label className="text-xs text-[#666] uppercase tracking-wide">Footage inventory (optional)</label>
-          <label className="flex items-center gap-3 border border-dashed border-[#222] rounded px-4 py-3 cursor-pointer hover:border-[#c8b89a]/30 transition-colors">
+          <label className="flex items-center gap-3 border border-dashed border-[#222] rounded px-4 py-3 cursor-pointer hover:border-[rgba(74,222,128,0.30)] transition-colors">
             <Upload size={14} className="text-[#444]"/>
             <span className="text-sm text-[#444]">
               {clips.length ? `${clips.length} clips selected` : 'Select cam-*.mp4 and daw-*.mp4 files'}
@@ -682,7 +682,7 @@ export default function Generate() {
             <div className="flex flex-wrap gap-2 mt-2">
               {clips.map((c, i) => (
                 <span key={i} className={`text-xs px-2 py-1 rounded border ${
-                  c.type === 'daw' ? 'border-blue-800/40 text-blue-400/70' : 'border-[#c8b89a]/20 text-[#c8b89a]/70'
+                  c.type === 'daw' ? 'border-blue-800/40 text-blue-400/70' : 'border-[rgba(74,222,128,0.20)] text-[rgba(74,222,128,0.70)]'
                 }`}>{c.type.toUpperCase()} · {c.filename}</span>
               ))}
             </div>
@@ -696,7 +696,7 @@ export default function Generate() {
           <button
             onClick={fetchHookVariants}
             disabled={loadingVariants || generating || !form.trackName.trim()}
-            className="flex items-center gap-2 px-4 py-2 border border-[#1a1a1a] rounded text-sm text-[#666] hover:border-[#c8b89a]/30 hover:text-[#c8b89a] disabled:opacity-40 transition-all"
+            className="flex items-center gap-2 px-4 py-2 border border-[#1a1a1a] rounded text-sm text-[#666] hover:border-[rgba(74,222,128,0.30)] hover:text-[rgba(74,222,128,1)] disabled:opacity-40 transition-all"
           >
             {loadingVariants ? <RefreshCw size={13} className="animate-spin"/> : <Zap size={13}/>}
             {loadingVariants ? 'Generating hooks…' : 'Pick opening hook (optional)'}
@@ -746,7 +746,7 @@ export default function Generate() {
       <button
         onClick={generate}
         disabled={generating || !form.trackName.trim()}
-        className="w-full py-3 bg-[#c8b89a] text-[#080808] font-medium rounded hover:bg-[#e8c87a] disabled:opacity-40 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2"
+        className="w-full py-3 bg-[rgba(74,222,128,1)] text-[#080808] font-medium rounded hover:bg-[rgba(74,222,128,0.85)] disabled:opacity-40 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2"
       >
         <Sparkles size={16}/>
         {generating ? phase : 'Generate episode package'}
@@ -755,7 +755,7 @@ export default function Generate() {
       {/* Progress bar */}
       {generating && (
         <div className="h-0.5 bg-[#111] rounded overflow-hidden">
-          <div className="h-full bg-[#c8b89a] transition-all duration-500" style={{ width: `${pct}%` }}/>
+          <div className="h-full bg-[rgba(74,222,128,1)] transition-all duration-500" style={{ width: `${pct}%` }}/>
         </div>
       )}
 
@@ -788,7 +788,7 @@ export default function Generate() {
             className="w-full flex items-center justify-between px-4 py-2.5 text-xs text-[#666] hover:text-[#888] transition-colors bg-[#0a0a0a]"
           >
             <span className="flex items-center gap-2">
-              <span className="w-1.5 h-1.5 rounded-full bg-[#c8b89a]/60 animate-pulse"/>
+              <span className="w-1.5 h-1.5 rounded-full bg-[rgba(74,222,128,0.60)] animate-pulse"/>
               KP's reasoning
             </span>
             {showReasoning ? <ChevronUp size={12}/> : <ChevronDown size={12}/>}
@@ -848,18 +848,18 @@ export default function Generate() {
             className="px-4 py-3 text-xs text-[#888] leading-relaxed max-h-64 overflow-y-auto font-mono whitespace-pre-wrap bg-[#060606]"
           >
             {scriptStream}
-            {generating && <span className="inline-block w-1 h-3 bg-[#c8b89a]/60 ml-0.5 animate-pulse align-middle"/>}
+            {generating && <span className="inline-block w-1 h-3 bg-[rgba(74,222,128,0.60)] ml-0.5 animate-pulse align-middle"/>}
           </div>
         </div>
       )}
 
       {/* Result package */}
       {result && (
-        <div id="episode-result" className="border border-[#c8b89a]/20 rounded overflow-hidden">
-          <div className="px-4 py-3 bg-[#c8b89a]/5 border-b border-[#c8b89a]/10 flex items-center justify-between">
+        <div id="episode-result" className="border border-[rgba(74,222,128,0.20)] rounded overflow-hidden">
+          <div className="px-4 py-3 bg-[rgba(74,222,128,0.05)] border-b border-[rgba(74,222,128,0.10)] flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <Check size={14} className="text-[#c8b89a]"/>
-              <span className="text-sm text-[#c8b89a]">Episode package ready</span>
+              <Check size={14} className="text-[rgba(74,222,128,1)]"/>
+              <span className="text-sm text-[rgba(74,222,128,1)]">Episode package ready</span>
             </div>
             {/* 03 — All section regen buttons in results */}
             {episodeId && (
@@ -909,8 +909,8 @@ export default function Generate() {
 function DownloadCard({ label, icon, onClick }) {
   return (
     <button onClick={onClick}
-      className="flex items-center gap-3 px-4 py-3 border border-[#1a1a1a] rounded hover:border-[#c8b89a]/30 hover:bg-[#c8b89a]/5 transition-all text-left">
-      <span className="text-[#c8b89a]/60">{icon}</span>
+      className="flex items-center gap-3 px-4 py-3 border border-[#1a1a1a] rounded hover:border-[rgba(74,222,128,0.30)] hover:bg-[rgba(74,222,128,0.05)] transition-all text-left">
+      <span className="text-[rgba(74,222,128,0.60)]">{icon}</span>
       <span className="text-sm text-[#888]">{label}</span>
       <Download size={12} className="ml-auto text-[#333]"/>
     </button>

@@ -102,7 +102,7 @@ export default function SeriesPage() {
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0 }}>
                 {ep.yt_retention_score && (
-                  <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: '0.8125rem', color: '#d4a853' }}>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: '0.8125rem', color: 'rgba(74,222,128,1)' }}>
                     <TrendingUp size={11}/> {ep.yt_retention_score}%
                   </span>
                 )}

@@ -94,7 +94,8 @@ async function assembleContext(userId, categoryId, options = {}) {
   sections.push(`# WHISPACUTS CONTEXT
 You are the AI creative layer inside WhispaCuts, a content production system for a solo creator.
 Creator niche: ${category.niche}
-Category: ${category.name}${episodeCtx?.targetDurationMinutes ? `
+Category: ${category.name}${episodeCtx?.episodeId ? `
+Active episode ID: ${episodeCtx.episodeId} — you can edit this episode's title, description, VO script, or tags if the creator asks` : ''}${episodeCtx?.targetDurationMinutes ? `
 Target episode duration: ${episodeCtx.targetDurationMinutes} minutes (~${Math.round(episodeCtx.targetDurationMinutes * 130)} words VO)` : ''}`);
 
   // ── VOICE PROFILE ─────────────────────────────────────────

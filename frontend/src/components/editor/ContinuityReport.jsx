@@ -22,7 +22,7 @@ export default function ContinuityReport({ report, onSwapRequest }) {
       {/* Header with score */}
       <div className="flex items-center gap-4 px-4 py-3 bg-[#0a0a0a] border-b border-[#1a1a1a]">
         <div className="flex items-center gap-2">
-          <Sparkles size={13} className="text-[#c8b89a]"/>
+          <Sparkles size={13} className="text-[rgba(74,222,128,1)]"/>
           <span className="text-xs text-[#888]">Continuity score</span>
         </div>
         <div className="flex items-center gap-2 ml-auto">
@@ -79,12 +79,12 @@ export default function ContinuityReport({ report, onSwapRequest }) {
                 </div>
                 <div className="text-[#666]">{issue.description}</div>
                 {issue.suggestion && (
-                  <div className="text-[#888] border-l-2 border-[#c8b89a]/30 pl-2">{issue.suggestion}</div>
+                  <div className="text-[#888] border-l-2 border-[rgba(74,222,128,0.30)] pl-2">{issue.suggestion}</div>
                 )}
                 {onSwapRequest && issue.clipIndex !== undefined && (
                   <button
                     onClick={() => onSwapRequest(issue.clipIndex)}
-                    className="text-[10px] text-[#c8b89a] hover:underline mt-1"
+                    className="text-[10px] text-[rgba(74,222,128,1)] hover:underline mt-1"
                   >
                     → Find replacement clip
                   </button>

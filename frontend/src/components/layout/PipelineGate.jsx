@@ -62,7 +62,7 @@ export default function PipelineGate({ stage, episode, children }) {
       </div>
       <button
         onClick={() => navigate(required?.route || '/')}
-        className="px-6 py-2.5 bg-[#c8b89a]/10 border border-[#c8b89a]/20 text-[#c8b89a] rounded text-sm hover:bg-[#c8b89a]/20 transition-all"
+        className="px-6 py-2.5 bg-[rgba(74,222,128,0.10)] border border-[rgba(74,222,128,0.20)] text-[rgba(74,222,128,1)] rounded text-sm hover:bg-[rgba(74,222,128,0.20)] transition-all"
       >
         {required?.cta} →
       </button>
