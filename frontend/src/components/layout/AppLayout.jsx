@@ -270,8 +270,8 @@ export default function AppLayout() {
         <div style={{
           background:     'rgba(8,10,16,0.96)',
           border:         `1px solid rgba(74,222,128,0.15)`,
-          borderRadius:   50,
-          padding:        '4px 8px',
+          borderRadius:   999,
+          padding:        '6px 10px',
           display:        'flex',
           alignItems:     'center',
           gap:            0,
@@ -292,23 +292,21 @@ export default function AppLayout() {
           {!isHome && <div
             onClick={() => setChatOpen(o => !o)}
             style={{
-              width:      chatOpen ? 48 : 36,
-              height:     chatOpen ? 48 : 36,
-              borderRadius: '50%',
               cursor:     'pointer',
               flexShrink: 0,
-              transition: 'all 0.3s cubic-bezier(0.34,1.56,0.64,1)',
               display:    'flex',
               alignItems: 'center',
               justifyContent: 'center',
               boxShadow:  chatOpen ? '0 0 16px rgba(74,222,128,0.25)' : 'none',
+              borderRadius: '50%',
+              transition: 'box-shadow 0.3s ease',
             }}
           >
             <KBOrb
               mood={chatOpen ? 'active' : 'idle'}
               isOpen={chatOpen}
               audioLevel={0}
-              size={chatOpen ? 48 : 34}
+              size={38}
             />
           </div>}
 
