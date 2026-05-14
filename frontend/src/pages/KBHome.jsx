@@ -40,6 +40,7 @@ export default function KBHome() {
   }, [])
 
   useEffect(() => {
+    console.log('[KBHome] cat:', cat, 'onboarded_at:', cat?.onboarded_at)
     if (!cat) return
     const fromOnboard = searchParams.get('onboarding') === '1'
     const needsOnboard = !cat.onboarded_at
