@@ -843,6 +843,7 @@ export default function ChatPanel() {
               </button>
             )}
             <button
+              type="button"
               onClick={sendMessage}
               disabled={!input.trim() || streaming}
               className="kb-send"

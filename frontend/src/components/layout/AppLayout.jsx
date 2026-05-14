@@ -429,9 +429,11 @@ export default function AppLayout() {
           gap:          12,
           flexShrink:   0,
           background:   'rgba(8,10,16,0.95)',
-          position:     'sticky',
+          position:     'fixed',
           top:          0,
-          zIndex:       30,
+          left:         0,
+          right:        0,
+          zIndex:       50,
           backdropFilter: 'blur(16px)',
         }}>
           {/* Logo — click to go home */}
@@ -487,7 +489,7 @@ export default function AppLayout() {
         display:  'flex',
         flexDirection: 'column',
         minWidth: 0,
-        // Extra bottom padding so content isn't hidden behind the pill
+        paddingTop:    isCompanion ? 0 : 52,
         paddingBottom: isCompanion ? 0 : 100,
       }}>
         <div style={{

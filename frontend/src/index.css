@@ -54,6 +54,14 @@
     -webkit-text-size-adjust: 100%;
   }
 
+  html {
+    height: 100%;
+    overflow: hidden;
+    /* Prevent the whole page scrolling on mobile when keyboard opens */
+    position: fixed;
+    width: 100%;
+  }
+
   body {
     margin: 0;
     background: var(--bg);
@@ -63,6 +71,20 @@
     line-height: 1.6;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    height: 100%;
+    overflow: hidden;
+    /* Let #root handle scrolling instead */
+    position: fixed;
+    width: 100%;
+  }
+
+  #root {
+    height: 100%;
+    overflow-y: auto;
+    overflow-x: hidden;
+    /* Enable momentum scrolling on iOS */
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: none;
   }
 
   h1, h2, h3, h4, h5, h6 {
@@ -394,6 +416,8 @@ input:focus, textarea:focus, select:focus {
 /* Smooth transitions on interactive elements */
 button, a, [role="button"] {
   transition: opacity 0.15s, transform 0.1s, box-shadow 0.15s, background 0.15s;
+  /* Prevent 300ms tap delay and scroll-gesture misfire on mobile */
+  touch-action: manipulation;
 }
 button:active, [role="button"]:active {
   transform: scale(0.98);

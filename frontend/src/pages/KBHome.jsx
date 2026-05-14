@@ -19,7 +19,17 @@ export default function KBHome() {
   const [checked,    setChecked]    = useState(false)
 
   useEffect(() => {
-    if (!cat) return
+    // No category at all — user needs to create their first workspace
+    if (!cat) {
+      // Wait briefly to let loadCategories finish on first render
+      const timer = setTimeout(() => {
+        // Re-check after delay — if still no cat, send to onboard
+        const { activeCategory: ac } = useStore.getState?.() || {}
+        const stillNoCat = !ac?.()
+        if (stillNoCat) navigate('/onboard')
+      }, 800)
+      return () => clearTimeout(timer)
+    }
     const fromOnboard = searchParams.get('onboarding') === '1'
     const needsOnboard = !cat.onboarded_at
     setOnboarding(fromOnboard || needsOnboard)
@@ -33,7 +43,11 @@ export default function KBHome() {
     setOnboarding(false)
   }
 
-  if (!checked) return null
+  if (!checked) return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(8,10,16,0.99)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div style={{ width: 8, height: 8, borderRadius: '50%', background: 'rgba(74,222,128,0.5)', animation: 'pulse 1.5s ease-in-out infinite' }}/>
+    </div>
+  )
 
   return (
     <div style={{
