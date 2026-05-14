@@ -132,8 +132,13 @@ app.use('/api/push',       authMiddleware, pushRoutes)
 app.use('/api/categories', authMiddleware, categoryRoutes)
 app.use('/api/episodes',   authMiddleware, episodeRoutes)
 app.use('/api/vault',      authMiddleware, vaultRoutes)
-// YouTube connect needs token via query param (browser redirect) — auth handled inside route
-app.use('/api/analytics',  authMiddleware, analyticsRoutes)
+// YouTube OAuth routes are browser redirects — no Authorization header is present.
+// /youtube/connect handles its own token via query param.
+// /youtube/callback uses the state param (encodes userId from connect step).
+// All other analytics routes still require auth.
+app.use('/api/analytics/youtube/callback', analyticsRoutes)
+app.use('/api/analytics/youtube/connect',  analyticsRoutes)
+app.use('/api/analytics',                  authMiddleware, analyticsRoutes)
 app.use('/api/billing/webhook', billingRoutes)  // webhook before auth — PayPal sends no token
 app.use('/api/billing',    authMiddleware, billingRoutes)
 app.use('/api/series',     authMiddleware, seriesRoutes)
