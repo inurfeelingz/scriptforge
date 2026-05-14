@@ -58,6 +58,7 @@ export default function KBHome() {
     setOnboarding(false)
   }
 
+  console.log('[KBHome] render — checked:', checked, 'onboarding:', onboarding)
   if (!checked) return null
 
   return (
