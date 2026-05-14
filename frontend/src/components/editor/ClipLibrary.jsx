@@ -18,6 +18,7 @@ export default function ClipLibrary({ project, computeSearchVectors, onAddClip }
 
   const [total,       setTotal]       = useState(0)
   const [lastIndexed, setLastIndexed] = useState(null)
+  const [previewClip, setPreviewClip] = useState(null)
 
   useEffect(() => {
     if (!activeCategoryId) return
