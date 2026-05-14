@@ -40,11 +40,9 @@ export default function KBHome() {
   }, [])
 
   useEffect(() => {
-    console.log('[KBHome] cat:', cat, 'onboarded_at:', cat?.onboarded_at)
     if (!cat) return
     const fromOnboard = searchParams.get('onboarding') === '1'
     const needsOnboard = !cat.onboarded_at
-    console.log('[KBHome] needsOnboard:', needsOnboard, 'fromOnboard:', fromOnboard, 'setting onboarding:', fromOnboard || needsOnboard)
     setOnboarding(fromOnboard || needsOnboard)
     setChecked(true)
     if (fromOnboard) setSearchParams({}, { replace: true })
@@ -58,7 +56,6 @@ export default function KBHome() {
     setOnboarding(false)
   }
 
-  console.log('[KBHome] render — checked:', checked, 'onboarding:', onboarding)
   if (!checked) return null
 
   return (
