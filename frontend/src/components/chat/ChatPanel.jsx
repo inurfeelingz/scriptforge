@@ -917,7 +917,7 @@ export default function ChatPanel() {
             )}
             <button
               type="button"
-              onClick={sendMessage}
+              onClick={() => sendMessage()}
               disabled={!input.trim() || streaming}
               className="kb-send"
               style={{ background: input.trim() && !streaming ? meta.color : 'rgba(255,255,255,0.04)', color: input.trim() && !streaming ? '#080808' : 'rgba(255,255,255,0.2)' }}
