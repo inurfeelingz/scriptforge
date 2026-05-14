@@ -98,6 +98,13 @@ function UsageBar({ used, max, label }) {
 
 export default function SettingsPage() {
   const { profile, setProfile, activeCategoryId, activeCategory, notify, theme, setTheme } = useStore()
+  const [isMobile, setIsMobile] = useState(typeof window !== 'undefined' && window.innerWidth < 768)
+  // Update on resize
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < 768)
+    window.addEventListener('resize', check)
+    return () => window.removeEventListener('resize', check)
+  }, [])
   const navigate = useNavigate()
   const cat = activeCategory?.()
 
@@ -402,7 +409,7 @@ export default function SettingsPage() {
         {usage && (
           <div style={{
             display: 'grid',
-            gridTemplateColumns: 'repeat(3, 1fr)',
+            gridTemplateColumns: isMobile ? '1fr' : 'repeat(3, 1fr)',
             gap: '0.75rem',
             marginTop: '1.25rem',
           }}>
@@ -474,7 +481,7 @@ export default function SettingsPage() {
           ) : tokenUsage ? (
             <>
               {/* Totals row */}
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 10, marginBottom: 16 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2,1fr)' : 'repeat(4,1fr)', gap: 10, marginBottom: 16 }}>
                 {[
                   { label: 'Total cost', value: `$${parseFloat(tokenUsage.totals?.cost_usd || 0).toFixed(4)}`, color: '#d4a853' },
                   { label: 'Total calls', value: (tokenUsage.totals?.calls || 0).toLocaleString(), color: '#c8b89a' },
@@ -529,11 +536,11 @@ export default function SettingsPage() {
                     Recent calls ({tokenUsage.recent.length})
                   </summary>
                   <div style={{ marginTop: 8, maxHeight: 220, overflowY: 'auto' }}>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 90px 80px 80px 70px', gap: '6px 10px', fontSize: 10, color: '#444', padding: '4px 0', textTransform: 'uppercase', letterSpacing: '0.08em', borderBottom: '1px solid rgba(255,255,255,0.04)', marginBottom: 4 }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 60px 50px 50px' : '1fr 90px 80px 80px 70px', gap: '6px 10px', fontSize: 10, color: '#444', padding: '4px 0', textTransform: 'uppercase', letterSpacing: '0.08em', borderBottom: '1px solid rgba(255,255,255,0.04)', marginBottom: 4 }}>
                       <span>Action</span><span>Model</span><span>Input</span><span>Output</span><span>Cost</span>
                     </div>
                     {tokenUsage.recent.map((row, i) => (
-                      <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 90px 80px 80px 70px', gap: '4px 10px', fontSize: 11, color: '#666', padding: '3px 0', borderBottom: '1px solid rgba(255,255,255,0.02)', fontFamily: 'monospace' }}>
+                      <div key={i} style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 60px 50px 50px' : '1fr 90px 80px 80px 70px', gap: '4px 10px', fontSize: 11, color: '#666', padding: '3px 0', borderBottom: '1px solid rgba(255,255,255,0.02)', fontFamily: 'monospace' }}>
                         <span style={{ color: '#888', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.action}</span>
                         <span style={{ color: '#555', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{(row.model || '').replace('claude-','')}</span>
                         <span>{(row.input_tokens || 0).toLocaleString()}</span>
@@ -682,7 +689,7 @@ export default function SettingsPage() {
               color: 'var(--accent)',
               marginBottom: '0.75rem',
             }}>Sentence patterns</div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.875rem' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '0.875rem' }}>
               <Field label="Length pattern"   value={voice.sentenceLengthPattern} onChange={setV('sentenceLengthPattern')} placeholder="short punchy bursts then longer reflective ones" />
               <Field label="Typical length"   value={voice.typicalSentenceLength} onChange={setV('typicalSentenceLength')} placeholder="8–12 words" />
               <Field label="Rhythm"           value={voice.rhythmNote}            onChange={setV('rhythmNote')}            placeholder="builds slowly then releases with a short punchy line" />
@@ -697,7 +704,7 @@ export default function SettingsPage() {
               fontSize: '0.75rem', fontWeight: 600, letterSpacing: '0.08em',
               textTransform: 'uppercase', color: 'var(--accent)', marginBottom: '0.75rem',
             }}>Structure</div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.875rem' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '0.875rem' }}>
               <Field label="Hook style"       value={voice.hookStyle}          onChange={setV('hookStyle')}          placeholder="drops straight into the action" />
               <Field label="Build to reveal"  value={voice.revealBuildPattern} onChange={setV('revealBuildPattern')} placeholder="plants a detail early, pays off two minutes later" />
               <Field label="Open loop"        value={voice.openLoopStyle}      onChange={setV('openLoopStyle')}      placeholder="asks a question, answers it halfway through" />
@@ -712,7 +719,7 @@ export default function SettingsPage() {
               fontSize: '0.75rem', fontWeight: 600, letterSpacing: '0.08em',
               textTransform: 'uppercase', color: 'var(--accent)', marginBottom: '0.75rem',
             }}>Language fingerprint <span style={{ color: 'var(--text3)', fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>— comma-separated</span></div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.875rem' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '0.875rem' }}>
               <Field label="Signature phrases"       wide value={voice.signaturePhrases}  onChange={setV('signaturePhrases')}  placeholder="and that's when it clicked, I wasn't expecting that" hint="Phrases that sound unmistakably like you" />
               <Field label="Characteristic openers"  wide value={voice.sentenceOpeners}   onChange={setV('sentenceOpeners')}   placeholder="So, The thing is, Which meant that, And then" hint="How you tend to start sentences" />
               <Field label="Rhetorical devices"      wide value={voice.rhetoricalDevices} onChange={setV('rhetoricalDevices')} placeholder="rhetorical questions, callbacks, rule of three" />

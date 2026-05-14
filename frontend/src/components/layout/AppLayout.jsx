@@ -76,26 +76,40 @@ export default function AppLayout() {
     return () => window.removeEventListener('resize', check)
   }, [])
 
-  // FIX: Visual Viewport API — tracks when the soft keyboard opens/closes on
-  // mobile and adjusts kbOffset so the pill lifts to sit above the keyboard.
-  // Without this, the pill sits behind the keyboard and the chat input is
-  // unreachable unless the user scrolls.
+  // Keyboard detection: dual approach for maximum device compatibility.
+  // Primary: visualViewport API (most accurate — gives exact keyboard height).
+  // Fallback: window resize (older Android WebViews shrink the window when
+  // the keyboard opens, so comparing to the initial height works reliably).
   useEffect(() => {
-    const vv = window.visualViewport
-    if (!vv) return
+    const initialHeight = window.innerHeight
 
-    const handleResize = () => {
-      // The gap between the bottom of the visual viewport and the bottom of
-      // the layout viewport is the keyboard height.
-      const keyboardHeight = window.innerHeight - vv.height - vv.offsetTop
-      setKbOffset(Math.max(0, keyboardHeight))
+    const update = () => {
+      const vv = window.visualViewport
+      if (vv) {
+        // visualViewport.height shrinks when keyboard is open
+        const kb = window.innerHeight - vv.height - vv.offsetTop
+        setKbOffset(Math.max(0, Math.round(kb)))
+      } else {
+        // Fallback: window.innerHeight shrinks on some Android browsers
+        const kb = initialHeight - window.innerHeight
+        setKbOffset(Math.max(0, kb))
+      }
     }
 
-    vv.addEventListener('resize', handleResize)
-    vv.addEventListener('scroll', handleResize)
+    const vv = window.visualViewport
+    if (vv) {
+      vv.addEventListener('resize', update)
+      vv.addEventListener('scroll', update)
+    }
+    // Always also listen to window resize as belt-and-braces
+    window.addEventListener('resize', update)
+
     return () => {
-      vv.removeEventListener('resize', handleResize)
-      vv.removeEventListener('scroll', handleResize)
+      if (vv) {
+        vv.removeEventListener('resize', update)
+        vv.removeEventListener('scroll', update)
+      }
+      window.removeEventListener('resize', update)
     }
   }, [])
 
