@@ -1,540 +1,500 @@
-// frontend/src/components/layout/AppLayout.jsx
-// New unified layout:
-// - KB chat IS the main screen (replaces Dashboard as home)
-// - Sidebar hidden by default, opens on hamburger
-// - Floating pill toolbar bottom-center (desktop) / bottom (mobile)
-// - Green as primary accent throughout
-// - Orb sits above the pill, centered
-// - Companion accessible via pill
+// backend/src/services/contextAssembler.js
+// Builds the persistent Claude system context for a user + category.
 
-import { Outlet, useNavigate, useLocation } from 'react-router-dom'
-import { useState, useEffect, useRef } from 'react'
-import {
-  Mic, Music2, Scissors, Settings, LogOut,
-  Plus, RefreshCw, BarChart2, Calendar,
-  Menu, X, FileText, Film, BookMarked,
-  ChevronRight, Zap, Radio,
-} from 'lucide-react'
-import KBOrb        from '../chat/KBOrb'
-import ChatPanel    from '../chat/ChatPanel'
-import { useStore } from '../../store'
-import { categories as catApi } from '../../lib/api'
-import { signOut }  from '../../lib/supabase'
-import Notifications    from './Notifications'
-import NewCategoryModal from './NewCategoryModal'
+// ── In-memory TTL cache ───────────────────────────────────────────────────────
+// 8 parallel DB queries per Claude interaction adds up fast.
+// Cache assembled context for 60s per user+category+mode combo.
+// Invalidated by category switch or explicit context refresh.
+const contextCache = new Map()
+const CACHE_TTL_MS = 60 * 1000  // 60 seconds
 
-// ── PILL MENU ITEMS ──────────────────────────────────────────────────────────
-const PILL_ITEMS = [
-  { to: '/teleprompter', icon: Mic,        label: 'Teleprompter' },
-  { to: '/storyboard',   icon: Film,       label: 'Shot List'    },
-  { to: '/editor',       icon: Scissors,   label: 'Editor'       },
-  { to: '/schedule',     icon: Calendar,   label: 'Schedule'     },
-  { to: '/analytics',    icon: BarChart2,  label: 'Analytics'    },
-]
-
-const MORE_ITEMS = [
-  { to: '/series',       icon: Film,       label: 'Series'       },
-  { to: '/scripts',      icon: FileText,   label: 'Scripts'      },
-  { to: '/series-bible', icon: BookMarked, label: 'Series Bible' },
-  { to: '/vault',        icon: BookMarked, label: 'Vault'        },
-  { to: '/journals',     icon: Mic,        label: 'Journals'     },
-  { to: '/sound',        icon: Music2,     label: 'Sound'        },
-  { to: '/shorts',       icon: Zap,        label: 'Shorts'       },
-]
-
-const GREEN     = 'rgba(74,222,128,1)'
-const GREEN_DIM = 'rgba(74,222,128,0.7)'
-const GREEN_LOW = 'rgba(74,222,128,0.08)'
-const GREEN_MID = 'rgba(74,222,128,0.2)'
-
-export default function AppLayout() {
-  const { profile, activeCategoryId, activeCategory, categories,
-          loadCategories, setActiveCategory, notify } = useStore()
-
-  const [chatOpen,     setChatOpen]     = useState(false)
-  const [gearOpen,     setGearOpen]     = useState(false)
-  const [pillExpanded, setPillExpanded] = useState(false)
-  const [isMobile,     setIsMobile]     = useState(false)
-  const [showNewCat,   setShowNewCat]   = useState(false)
-  const [catLoading,   setCatLoading]   = useState(false)
-  const [scrolled,     setScrolled]     = useState(false)
-  // FIX: track keyboard height so pill stays pinned above keyboard on mobile
-  const [kbOffset,     setKbOffset]     = useState(0)
-
-  const location    = useLocation()
-  const navigate    = useNavigate()
-  const isCompanion = location.pathname === '/companion'
-  const isHome      = location.pathname === '/';
-  const activeCategory_ = activeCategory?.()
-  const pillRef     = useRef(null)
-
-  // Detect mobile
-  useEffect(() => {
-    const check = () => setIsMobile(window.innerWidth < 768)
-    check()
-    window.addEventListener('resize', check)
-    return () => window.removeEventListener('resize', check)
-  }, [])
-
-  // FIX: Visual Viewport API — tracks when the soft keyboard opens/closes on
-  // mobile and adjusts kbOffset so the pill lifts to sit above the keyboard.
-  // Without this, the pill sits behind the keyboard and the chat input is
-  // unreachable unless the user scrolls.
-  useEffect(() => {
-    const vv = window.visualViewport
-    if (!vv) return
-
-    const handleResize = () => {
-      // The gap between the bottom of the visual viewport and the bottom of
-      // the layout viewport is the keyboard height.
-      const keyboardHeight = window.innerHeight - vv.height - vv.offsetTop
-      setKbOffset(Math.max(0, keyboardHeight))
-    }
-
-    vv.addEventListener('resize', handleResize)
-    vv.addEventListener('scroll', handleResize)
-    return () => {
-      vv.removeEventListener('resize', handleResize)
-      vv.removeEventListener('scroll', handleResize)
-    }
-  }, [])
-
-  // Close pill on outside click
-  useEffect(() => {
-    if (!pillExpanded) return
-    const handler = (e) => {
-      if (pillRef.current && !pillRef.current.contains(e.target)) setPillExpanded(false)
-    }
-    document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
-  }, [pillExpanded])
-
-  // Close pill on route change
-  useEffect(() => { setPillExpanded(false); setGearOpen(false) }, [location.pathname])
-
-  // Listen for kb:open event
-  useEffect(() => {
-    const handler = () => setChatOpen(true)
-    window.addEventListener('kb:open', handler)
-    return () => window.removeEventListener('kb:open', handler)
-  }, [])
-
-  async function loadCategories_() {
-    setCatLoading(true)
-    try { await loadCategories() } catch {}
-    setCatLoading(false)
-  }
-
-  async function handleManualRefresh() {
-    if (!activeCategoryId) return
-    notify('Refreshing trends...', 'info', 2000)
-    try { await catApi.refresh(activeCategoryId); await loadCategories_(); notify('Updated', 'success') }
-    catch (err) { notify('Refresh failed: ' + err.message, 'error') }
-  }
-
-  function PillButton({ to, icon: Icon, label, onClick }) {
-    const active = location.pathname === to
-    const handleClick = () => {
-      if (onClick) { onClick(); return }
-      navigate(to)
-      setPillExpanded(false)
-    }
-    return (
-      <button
-        onClick={handleClick}
-        style={{
-          display:        'flex',
-          flexDirection:  'column',
-          alignItems:     'center',
-          gap:            4,
-          padding:        isMobile ? '8px 12px' : '6px 14px',
-          borderRadius:   10,
-          border:         'none',
-          background:     active ? GREEN_LOW : 'transparent',
-          color:          active ? GREEN : 'rgba(255,255,255,0.45)',
-          cursor:         'pointer',
-          transition:     'all 0.15s',
-          whiteSpace:     'nowrap',
-          flexShrink:     0,
-        }}
-        onMouseEnter={e => { if (!active) e.currentTarget.style.color = 'rgba(255,255,255,0.8)' }}
-        onMouseLeave={e => { if (!active) e.currentTarget.style.color = 'rgba(255,255,255,0.45)' }}
-      >
-        <Icon size={isMobile ? 16 : 14}/>
-        <span style={{ fontSize: 9, letterSpacing: '0.06em', textTransform: 'uppercase', fontFamily: "'Figtree', sans-serif" }}>
-          {label}
-        </span>
-      </button>
-    )
-  }
-
-  // ── GEAR PANEL ────────────────────────────────────────────────────────────
-  function GearPanel() {
-    if (!gearOpen) return null
-    return (
-      <>
-        {/* Backdrop */}
-        <div
-          onClick={() => setGearOpen(false)}
-          style={{ position:'fixed', inset:0, zIndex:58, background:'rgba(0,0,0,0.5)', backdropFilter:'blur(4px)' }}
-        />
-        {/* Panel — floats above pill */}
-        <div style={{
-          position:'fixed', bottom: 80 + kbOffset, left:'50%', transform:'translateX(-50%)',
-          width:'min(340px, calc(100vw - 32px))',
-          background:'rgba(8,10,16,0.98)', border:'1px solid rgba(74,222,128,0.12)',
-          borderRadius:16, zIndex:59, overflow:'hidden',
-          boxShadow:'0 -8px 40px rgba(0,0,0,0.7)',
-          backdropFilter:'blur(20px)',
-        }}>
-          {/* Workspace selector */}
-          <div style={{ padding:'16px 16px 12px', borderBottom:'1px solid rgba(255,255,255,0.05)' }}>
-            <div style={{ fontSize:10, color:'rgba(255,255,255,0.25)', textTransform:'uppercase', letterSpacing:'0.1em', marginBottom:8, fontFamily:"'Figtree',sans-serif" }}>Workspace</div>
-            <div style={{ display:'flex', flexDirection:'column', gap:3 }}>
-              {(categories || []).map(cat => (
-                <button key={cat.id}
-                  onClick={() => { setActiveCategory(cat.id); setGearOpen(false) }}
-                  style={{ display:'flex', alignItems:'center', gap:8, padding:'8px 10px', borderRadius:8, border:'none', cursor:'pointer', background: cat.id === activeCategoryId ? GREEN_LOW : 'transparent', color: cat.id === activeCategoryId ? GREEN : 'rgba(255,255,255,0.55)', textAlign:'left', transition:'all 0.15s', fontFamily:"'Figtree',sans-serif", fontSize:13 }}
-                >
-                  <span style={{ width:6, height:6, borderRadius:'50%', background: cat.id === activeCategoryId ? GREEN : '#333', flexShrink:0 }}/>
-                  {cat.name}
-                  {cat.id === activeCategoryId && <span style={{ fontSize:9, color:'rgba(74,222,128,0.5)', marginLeft:'auto' }}>active</span>}
-                </button>
-              ))}
-              <button
-                onClick={() => { setShowNewCat(true); setGearOpen(false) }}
-                style={{ display:'flex', alignItems:'center', gap:8, padding:'6px 10px', borderRadius:8, border:'1px dashed rgba(255,255,255,0.08)', background:'transparent', color:'rgba(255,255,255,0.25)', cursor:'pointer', fontSize:12, fontFamily:"'Figtree',sans-serif" }}
-              >
-                <Plus size={12}/> New workspace
-              </button>
-            </div>
-          </div>
-
-          {/* Actions grid */}
-          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', borderBottom:'1px solid rgba(255,255,255,0.05)' }}>
-            {[
-              { icon: <RefreshCw size={15}/>, label:'Refresh trends', action: () => { handleManualRefresh(); setGearOpen(false) } },
-              { icon: <Settings size={15}/>,  label:'Settings',       action: () => { navigate('/settings'); setGearOpen(false) } },
-              { icon: <ChevronRight size={15}/>, label:'Plan & billing', action: () => { navigate('/billing'); setGearOpen(false) } },
-            ].map((item, i) => (
-              <button key={i} onClick={item.action}
-                style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:6, padding:'14px 8px', background:'transparent', border:'none', borderRight: i%2===0 ? '1px solid rgba(255,255,255,0.05)' : 'none', borderBottom: i<2 ? '1px solid rgba(255,255,255,0.05)' : 'none', color:'rgba(255,255,255,0.5)', cursor:'pointer', transition:'background 0.15s', fontFamily:"'Figtree',sans-serif", fontSize:11 }}
-                onMouseEnter={e => e.currentTarget.style.background='rgba(255,255,255,0.04)'}
-                onMouseLeave={e => e.currentTarget.style.background='transparent'}
-              >
-                {item.icon}
-                <span style={{ textTransform:'uppercase', letterSpacing:'0.05em' }}>{item.label}</span>
-              </button>
-            ))}
-          </div>
-
-          {/* Profile + sign out */}
-          <div style={{ padding:'12px 16px', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
-            <div style={{ display:'flex', alignItems:'center', gap:10 }}>
-              <div style={{ width:28, height:28, borderRadius:'50%', background:GREEN_LOW, border:`1px solid ${GREEN_MID}`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:11, color:GREEN, fontWeight:600 }}>
-                {(profile?.display_name||'U')[0].toUpperCase()}
-              </div>
-              <div>
-                <div style={{ fontSize:12, color:'#e8eaed', fontFamily:"'Figtree',sans-serif" }}>{profile?.display_name||'Creator'}</div>
-                <div style={{ fontSize:10, color:GREEN, fontFamily:"'Figtree',sans-serif" }}>{profile?.tier||'free'}</div>
-              </div>
-            </div>
-            <button onClick={signOut}
-              style={{ display:'flex', alignItems:'center', gap:6, padding:'6px 12px', borderRadius:7, border:'1px solid rgba(255,0,0,0.2)', background:'transparent', color:'rgba(255,80,80,0.7)', cursor:'pointer', fontSize:12, fontFamily:"'Figtree',sans-serif" }}
-            >
-              <LogOut size={12}/> Sign out
-            </button>
-          </div>
-        </div>
-      </>
-    )
-  }
-
-  // ── PILL TOOLBAR ───────────────────────────────────────────────────────────
-  function PillToolbar() {
-    if (isCompanion) return null
-
-    // FIX: pill bottom tracks keyboard height so it always sits above the
-    // keyboard on mobile. On desktop kbOffset is always 0 so no change there.
-    const pillBottom = 24 + kbOffset
-
-    return (
-      <div
-        ref={pillRef}
-        style={{
-          position:   'fixed',
-          bottom:     pillBottom,
-          left:       '50%',
-          transform:  'translateX(-50%)',
-          zIndex:     44,
-          // Smooth transition when keyboard opens/closes, but instant when
-          // kbOffset is 0 (keyboard closed) so it snaps back cleanly
-          transition: kbOffset > 0 ? 'bottom 0.15s ease-out' : 'bottom 0.3s ease-in',
-          display:    'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          gap:        8,
-        }}
-      >
-        {/* Expanded more menu */}
-        {pillExpanded && (
-          <div style={{
-            background:     'rgba(8,10,16,0.97)',
-            border:         `1px solid rgba(74,222,128,0.12)`,
-            borderRadius:   16,
-            padding:        '8px 4px',
-            display:        'flex',
-            gap:            0,
-            boxShadow:      '0 -8px 40px rgba(0,0,0,0.6), 0 0 0 1px rgba(74,222,128,0.04)',
-            backdropFilter: 'blur(20px)',
-            flexWrap:       isMobile ? 'wrap' : 'nowrap',
-            maxWidth:       isMobile ? 340 : 'none',
-            justifyContent: 'center',
-          }}>
-            {MORE_ITEMS.map(item => (
-              <PillButton key={item.to} {...item}/>
-            ))}
-          </div>
-        )}
-
-        {/* Main pill */}
-        <div style={{
-          background:     'rgba(8,10,16,0.96)',
-          border:         `1px solid rgba(74,222,128,0.15)`,
-          borderRadius:   999,
-          padding:        '6px 10px',
-          display:        'flex',
-          alignItems:     'center',
-          gap:            0,
-          boxShadow:      '0 4px 32px rgba(0,0,0,0.5), 0 0 0 1px rgba(74,222,128,0.04), 0 0 20px rgba(74,222,128,0.04)',
-          backdropFilter: 'blur(20px)',
-        }}>
-          {/* Gear icon → opens gear panel */}
-          <button
-            onClick={() => setGearOpen(o => !o)}
-            style={{ width: 36, height: 36, borderRadius: 50, background: gearOpen ? GREEN_LOW : 'none', border: 'none', color: gearOpen ? GREEN : 'rgba(255,255,255,0.35)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.15s' }}
-          >
-            <Settings size={15}/>
-          </button>
-
-          <div style={{ width: 1, height: 20, background: 'rgba(255,255,255,0.06)', margin: '0 2px' }}/>
-
-          {/* KB Orb — hidden on home (KB is already full screen there) */}
-          {!isHome && <div
-            onClick={() => setChatOpen(o => !o)}
-            style={{
-              cursor:     'pointer',
-              flexShrink: 0,
-              display:    'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              boxShadow:  chatOpen ? '0 0 16px rgba(74,222,128,0.25)' : 'none',
-              borderRadius: '50%',
-              transition: 'box-shadow 0.3s ease',
-            }}
-          >
-            <KBOrb
-              mood={chatOpen ? 'active' : 'idle'}
-              isOpen={chatOpen}
-              audioLevel={0}
-              size={38}
-            />
-          </div>}
-
-          <div style={{ width: 1, height: 20, background: 'rgba(255,255,255,0.06)', margin: '0 2px' }}/>
-
-          {/* FIX: Companion button — visible in the pill on mobile where the
-              pipeline items are hidden. Uses Radio icon (already imported).
-              On desktop it stays in the MORE_ITEMS expanded menu as before. */}
-          {isMobile && (
-            <>
-              <button
-                onClick={() => navigate('/companion')}
-                style={{
-                  width:          36,
-                  height:         36,
-                  borderRadius:   50,
-                  background:     location.pathname === '/companion' ? GREEN_LOW : 'none',
-                  border:         'none',
-                  color:          location.pathname === '/companion' ? GREEN : 'rgba(255,255,255,0.35)',
-                  cursor:         'pointer',
-                  display:        'flex',
-                  flexDirection:  'column',
-                  alignItems:     'center',
-                  justifyContent: 'center',
-                  gap:            3,
-                  transition:     'all 0.15s',
-                }}
-              >
-                <Radio size={15}/>
-                <span style={{ fontSize: 8, letterSpacing: '0.06em', textTransform: 'uppercase', fontFamily: "'Figtree', sans-serif", lineHeight: 1 }}>
-                  Live
-                </span>
-              </button>
-              <div style={{ width: 1, height: 20, background: 'rgba(255,255,255,0.06)', margin: '0 2px' }}/>
-            </>
-          )}
-
-          {/* Pipeline items — hidden on mobile, shown on desktop */}
-          {!isMobile && PILL_ITEMS.map(item => (
-            <PillButton key={item.to} {...item}/>
-          ))}
-
-          {!isMobile && <div style={{ width: 1, height: 20, background: 'rgba(255,255,255,0.06)', margin: '0 2px' }}/>}
-
-          {/* + more */}
-          <button
-            onClick={() => setPillExpanded(o => !o)}
-            style={{
-              width: 36, height: 36, borderRadius: 50,
-              background: pillExpanded ? GREEN_LOW : 'none',
-              border: pillExpanded ? `1px solid ${GREEN_MID}` : 'none',
-              color: pillExpanded ? GREEN : 'rgba(255,255,255,0.35)',
-              cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.15s',
-            }}
-          >
-            <Plus size={15} style={{ transform: pillExpanded ? 'rotate(45deg)' : 'none', transition: 'transform 0.2s' }}/>
-          </button>
-        </div>
-      </div>
-    )
-  }
-
-  // ── RENDER ─────────────────────────────────────────────────────────────────
-  return (
-    <div style={{ minHeight: '100vh', background: 'var(--bg)', color: 'var(--text)', display: 'flex', flexDirection: 'column' }}>
-
-      {/* Top bar — minimal */}
-      {!isCompanion && (
-        <header style={{
-          height:       52,
-          borderBottom: `1px solid rgba(74,222,128,0.06)`,
-          display:      'flex',
-          alignItems:   'center',
-          padding:      '0 20px',
-          gap:          12,
-          flexShrink:   0,
-          background:   'rgba(8,10,16,0.95)',
-          position:     'sticky',
-          top:          0,
-          zIndex:       30,
-          backdropFilter: 'blur(16px)',
-        }}>
-          {/* Logo — click to go home */}
-          <button
-            onClick={() => navigate('/')}
-            style={{ background:'none', border:'none', cursor:'pointer', padding:'0 8px 0 0', flexShrink:0, display:'flex', alignItems:'center', opacity: isHome ? 1 : 0.5, transition:'opacity 0.15s' }}
-            title="Home"
-          >
-            <svg width="28" height="28" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <rect width="64" height="64" rx="14" fill="#0a0f14"/>
-              <polyline points="10,16 18,46 32,24 46,46 54,16"
-                stroke="#4ade80" strokeWidth="5.5" strokeLinecap="round" strokeLinejoin="round" fill="none"/>
-            </svg>
-          </button>
-
-          {activeCategory_ && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: 1, minWidth: 0, overflow: 'hidden' }}>
-              <span style={{ width: 6, height: 6, borderRadius: '50%', background: GREEN, flexShrink: 0, boxShadow: `0 0 6px ${GREEN}` }}/>
-              <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.6)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontFamily: "'Figtree', sans-serif" }}>
-                {activeCategory_.name}
-              </span>
-              {!isMobile && activeCategory_.niche && (
-                <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.25)', flexShrink: 0, fontFamily: "'Figtree', sans-serif" }}>
-                  · {activeCategory_.niche}
-                </span>
-              )}
-            </div>
-          )}
-
-          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
-            {/* Profile name — desktop */}
-            {!isMobile && (
-              <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.35)', fontFamily: "'Figtree', sans-serif" }}>
-                {profile?.display_name}
-              </span>
-            )}
-            {/* Tier badge */}
-            <span style={{
-              fontSize: 11, padding: '2px 8px', borderRadius: 99,
-              border: `1px solid rgba(74,222,128,0.25)`,
-              color: GREEN, fontFamily: "'Figtree', sans-serif",
-              background: GREEN_LOW,
-            }}>
-              {profile?.tier || 'free'}
-            </span>
-          </div>
-        </header>
-      )}
-
-      {/* Main content */}
-      <main style={{
-        flex:     1,
-        display:  'flex',
-        flexDirection: 'column',
-        minWidth: 0,
-        // Extra bottom padding so content isn't hidden behind the pill
-        paddingBottom: isCompanion ? 0 : 100,
-      }}>
-        <div style={{
-          flex:      1,
-          overflowY: 'auto',
-          padding:   isCompanion ? 0 : isMobile ? '20px 16px' : '28px 32px',
-        }}>
-          <Outlet/>
-        </div>
-      </main>
-
-      {/* KB backdrop */}
-      {!isCompanion && chatOpen && (
-        <div
-          onClick={() => setChatOpen(false)}
-          style={{
-            position: 'fixed', inset: 0, zIndex: 39,
-            background: 'rgba(6,8,14,0.55)',
-            backdropFilter: 'blur(6px)',
-            WebkitBackdropFilter: 'blur(6px)',
-          }}
-        />
-      )}
-
-      {/* KB chat sheet */}
-      {!isCompanion && (
-        <div style={{
-          position:   'fixed',
-          left:       isMobile ? 12 : '50%',
-          right:      isMobile ? 12 : 'auto',
-          width:      isMobile ? 'auto' : 'min(860px, calc(100vw - 64px))',
-          transform:  isMobile ? 'none' : 'translateX(-50%)',
-          // FIX: chat sheet bottom also tracks kbOffset so when the keyboard
-          // opens the sheet lifts with it, keeping the input above the keyboard.
-          bottom:     130 + kbOffset,
-          height:     chatOpen ? (isMobile ? '82vh' : '75vh') : 0,
-          overflow:   'hidden',
-          transition: kbOffset > 0 ? 'bottom 0.15s ease-out, height 0.4s cubic-bezier(0.32,0.72,0,1)' : 'bottom 0.3s ease-in, height 0.4s cubic-bezier(0.32,0.72,0,1)',
-          zIndex:     40,
-          background: 'rgba(8,10,16,0.98)',
-          borderRadius: '20px 20px 0 0',
-          boxShadow: chatOpen
-            ? `0 -2px 0 ${GREEN_MID}, 0 -1px 0 rgba(74,222,128,0.5), -8px 0 40px rgba(0,0,0,0.5), 8px 0 40px rgba(0,0,0,0.5), 0 -40px 80px rgba(0,0,0,0.7)`
-            : 'none',
-          backdropFilter: 'blur(20px)',
-        }}>
-          {chatOpen && <ChatPanel/>}
-        </div>
-      )}
-
-      {/* Pill toolbar */}
-      <PillToolbar/>
-
-      <GearPanel/>
-      <Notifications/>
-      {showNewCat && (
-        <NewCategoryModal
-          onClose={() => setShowNewCat(false)}
-          onCreated={async () => { await loadCategories_(); setShowNewCat(false) }}
-        />
-      )}
-    </div>
-  )
+function getCached(key) {
+  const entry = contextCache.get(key)
+  if (!entry) return null
+  if (Date.now() - entry.ts > CACHE_TTL_MS) { contextCache.delete(key); return null }
+  return entry.value
 }
+
+function setCached(key, value) {
+  contextCache.set(key, { value, ts: Date.now() })
+  // Prevent unbounded growth — evict oldest entries if cache > 100 entries
+  if (contextCache.size > 100) {
+    const oldest = [...contextCache.entries()].sort((a,b) => a[1].ts - b[1].ts)[0]
+    contextCache.delete(oldest[0])
+  }
+}
+
+/** Call this when a category is updated or switched to bust the cache */
+function invalidateContext(userId, categoryId) {
+  for (const key of contextCache.keys()) {
+    if (key.startsWith(`${userId}:${categoryId}`)) contextCache.delete(key)
+  }
+}
+// Called before every Claude interaction across all modes.
+// Weights context by relevance — most impactful data front-loaded.
+
+const { supabase } = require('../utils/supabase');
+
+/**
+ * Assemble the full Claude system context for a user + category.
+ * Returns a string ready to use as the system prompt prefix.
+ *
+ * @param {string} userId
+ * @param {string} categoryId
+ * @param {object} options
+ * @param {string} options.mode        — 'generate' | 'vault' | 'series' | 'analytics' | 'sound' | 'teleprompter'
+ * @param {object} options.episodeCtx  — current episode being worked on (optional)
+ * @param {string} options.chatHistory — compressed prior conversation (optional)
+ */
+async function assembleContext(userId, categoryId, options = {}) {
+  const { mode = 'generate', episodeCtx, chatHistory } = options;
+
+  // Skip cache for generation (episode context changes) — cache chat/vault/series
+  const cacheable = !episodeCtx && mode !== 'generate'
+  const cacheKey  = `${userId}:${categoryId}:${mode}`
+  if (cacheable) {
+    const cached = getCached(cacheKey)
+    if (cached) return cached
+  }
+
+  // FIX: recentVoiceMemos was referenced in the sections below but was NEVER
+  // fetched — it was missing from the Promise.all entirely. Every assembleContext
+  // call was hitting a ReferenceError on `recentVoiceMemos` (silently swallowed
+  // by Railway). Added to the parallel fetch here.
+  const [
+    category,
+    recentEpisodes,
+    topPerformers,
+    latestAnalytics,
+    seriesMemory,
+    logInsights,
+    trendingData,
+    vaultHighlights,
+    clipIndexData,
+    scriptLibrary,
+    plannedEpisodes,
+    recentVoiceMemos,
+  ] = await Promise.all([
+    getCategory(userId, categoryId),
+    getRecentEpisodes(userId, categoryId, 5),
+    getTopPerformers(userId, categoryId, 3),
+    getLatestAnalytics(userId, categoryId),
+    getSeriesMemory(userId, categoryId, 8),
+    getLogInsights(userId, categoryId),
+    getTrendingData(categoryId),
+    getVaultHighlights(userId, categoryId),
+    getClipIndexData(userId),
+    getScriptLibrary(userId, categoryId),
+    getPlannedEpisodes(userId, categoryId),
+    getRecentVoiceMemos(userId, categoryId),
+  ]);
+
+  if (!category) return buildMinimalContext(mode);
+
+  const sections = [];
+
+  // ── IDENTITY ──────────────────────────────────────────────
+  sections.push(`# WHISPACUTS CONTEXT
+You are the AI creative layer inside WhispaCuts, a content production system for a solo creator.
+Current mode: ${mode.toUpperCase()}
+Creator niche: ${category.niche}
+Category: ${category.name}${episodeCtx?.targetDurationMinutes ? `
+Target episode duration: ${episodeCtx.targetDurationMinutes} minutes (~${Math.round(episodeCtx.targetDurationMinutes * 130)} words VO)` : ''}`);
+
+  // ── VOICE PROFILE ─────────────────────────────────────────
+  if (category.voice_profile) {
+    const vp = category.voice_profile;
+    const vc = vp.voiceCharacteristics || {};
+    const sp = vp.structuralPatterns || {};
+    const lf = vp.languageFingerprint || {};
+
+    sections.push(`## CREATOR VOICE PROFILE
+Sentence pattern: ${vc.sentenceLengthPattern || 'varied'}
+Typical sentence length: ${vc.typicalSentenceLength || '8-12 words — punchy, not academic'}
+Vocabulary: ${vc.vocabularyLevel || 'conversational'}
+Signature phrases: ${(lf.signaturePhrases || []).join(', ') || 'none yet'}
+Characteristic sentence openers: ${(lf.sentenceOpeners || []).join(' / ') || 'not yet captured'}
+Rhetorical devices: ${(lf.rhetoricalDevices || []).join(', ') || 'none specified'}
+Hook style: ${sp.hookStyle || 'drops straight into the action'}
+How they build to a reveal: ${sp.revealBuildPattern || 'not yet captured'}
+Transition phrases: ${(sp.transitionPhrases || []).join(' / ') || 'natural'}
+Open loop style: ${sp.openLoopStyle || 'plants question early'}
+CTA style: ${sp.ctaStyle || 'low pressure'}
+Humour: ${lf.humourStyle || 'light, natural'}
+Storytelling: ${lf.storytellingStyle || 'personal, first-person'}
+Words/phrases to AVOID (not their voice): ${(lf.avoidPhrases || []).join(', ') || 'none specified'}
+Rhythm note: ${vc.rhythmNote || 'not yet captured'}`);
+  }
+
+  // ── PERFORMANCE INTELLIGENCE ──────────────────────────────
+  if (logInsights) {
+    sections.push(`## WHAT WORKS FOR THIS CREATOR'S AUDIENCE
+${logInsights}`);
+  }
+
+  if (latestAnalytics?.length) {
+    const latest = latestAnalytics[0]
+    const trend  = latestAnalytics.length >= 2
+      ? (latestAnalytics[0].avg_score || 0) - (latestAnalytics[1].avg_score || 0)
+      : null
+    const allTimeAvg = Math.round(
+      latestAnalytics.reduce((s, u) => s + (u.avg_score || 0), 0) / latestAnalytics.length
+    )
+
+    const scoreHistory = [...latestAnalytics].reverse().map(u =>
+      `  ${new Date(u.upload_date).toLocaleDateString('en', { month: 'short', day: 'numeric' })}: ${u.avg_score}% avg (${u.video_count} videos)`
+    ).join('\n')
+
+    const topVideos = (latest.top_performers || []).slice(0, 8).map((v, i) =>
+      `  ${i+1}. "${v.title}" — score: ${v.retentionScore}%${v.views ? `, views: ${v.views.toLocaleString()}` : ''}${v.ctr ? `, CTR: ${v.ctr.toFixed(1)}%` : ''}${v.avgViewPercentage ? `, avg view: ${v.avgViewPercentage}%` : ''}`
+    ).join('\n')
+
+    sections.push(`## ANALYTICS DATA
+All-time avg retention score: ${allTimeAvg}%${trend !== null ? ` (${trend >= 0 ? '+' : ''}${trend.toFixed(0)}pts vs previous batch)` : ''}
+Total upload batches: ${latestAnalytics.length}
+Total videos tracked: ${latestAnalytics.reduce((s, u) => s + (u.video_count || 0), 0)}
+
+Score history (oldest → newest):
+${scoreHistory}
+
+Latest batch top performers:
+${topVideos || '  No video data yet'}
+
+Latest batch AI insights: ${latest.insights || 'Not yet generated'}`)
+  }
+
+  // ── TOP PERFORMERS — only real published episodes ────────
+  if (topPerformers.length) {
+    sections.push(`## TOP PERFORMING EPISODES (real published data only)
+${topPerformers.map(e =>
+  `Ep ${e.episode_number}: "${e.track_name}" — ${e.yt_retention_score}/100 retention${e.script_score ? ` · Gemini script score: ${e.script_score.overallScore}/100` : ''}
+  Concept: ${e.episode_concept || 'N/A'}
+  Hook used: ${e.generation_decisions?.hookVariantUsed?.slice(0, 80) || 'N/A'}${e.script_score?.topIssue ? `
+  Gemini noted: ${e.script_score.topIssue}` : ''}`
+).join('\n\n')}`)
+  } else {
+    sections.push(`## TOP PERFORMING EPISODES
+No published episodes with real performance data yet. Do not reference or invent episode benchmarks. The creator is still in pre-launch — base all recommendations on the analytics upload data and industry knowledge only.`)
+  }
+
+  // ── RECENT VOICE MEMOS (raw ideas from Companion sessions) ──────────
+  if (recentVoiceMemos?.length) {
+    sections.push(`## RECENT COMPANION SESSIONS (creator's raw captured ideas)
+These are voice sessions from the Companion app — the creator's unfiltered thinking.
+${recentVoiceMemos.map(m => {
+  const memo = (m.voice_memo_text || '').slice(0, 300)
+  const transcript = (m.transcript || '').slice(0, 400)
+  const moments = (m.key_moments || []).slice(0, 3).map(k => `• ${k}`).join('\n')
+  return `[${new Date(m.created_at).toLocaleDateString()}${m.title ? ` — ${m.title}` : ''}]
+Summary: "${memo}${memo.length >= 300 ? '...' : ''}"${moments ? `\nKey moments:\n${moments}` : ''}${transcript && !memo ? `\nTranscript excerpt: "${transcript.slice(0,200)}"` : ''}`
+}).join('\n\n')}`)
+  }
+
+  // ── SERIES MEMORY ─────────────────────────────────────────
+  if (seriesMemory.length) {
+    sections.push(`## SERIES MEMORY — previous episodes
+${seriesMemory.map(e =>
+  `Ep ${e.episode_number}: "${e.track_name}" [${e.track_context?.mood || ''}]
+  ${e.summary || ''}
+  ${e.callback_seeds?.length ? `Can reference: ${e.callback_seeds.join(' | ')}` : ''}`
+).join('\n\n')}`);
+  }
+
+  // ── KB PLANNED EPISODES ───────────────────────────────────
+  if (plannedEpisodes.length) {
+    sections.push(`## KB PLANNED EPISODES — mapped out in chat, not yet recorded
+${plannedEpisodes.map(e =>
+  `Ep ${e.episode_number ? e.episode_number + ': ' : ''}"${e.track_name}" [${e.status}] — ${e.summary || ''}${e.themes?.length ? ` | themes: ${e.themes.join(', ')}` : ''}`
+).join('\n')}
+These are committed from previous KB conversations — the creator plans to record these.`)
+  }
+
+  // ── TRENDING ──────────────────────────────────────────────
+  if (trendingData?.analysis) {
+    const t = trendingData.analysis;
+    sections.push(`## TRENDING THIS WEEK (${category.niche})
+Themes: ${(t.themes || []).slice(0, 4).join(', ')}
+Recurring hooks: ${(t.recurringHooks || []).slice(0, 3).join(' | ')}
+Emerging topics: ${(t.emergingTopics || []).slice(0, 3).join(', ')}
+Emotional triggers working now: ${(t.emotionalTriggers || []).slice(0, 3).join(', ')}`);
+  }
+
+  // ── CLIP INDEX ─────────────────────────────────────────────
+  if (clipIndexData && clipIndexData.total > 0) {
+    const byType = clipIndexData.byType || {}
+    const totalMins = Math.round((clipIndexData.totalDurationMs || 0) / 60000)
+    const clipLines = (clipIndexData.clips || []).map(c =>
+      `  [${c.clip_type}] ${c.filename}${c.duration_ms ? ` (${Math.round(c.duration_ms/1000)}s)` : ''}${c.transcript ? ` — "${c.transcript.slice(0, 120)}${c.transcript.length > 120 ? '...' : ''}"` : ''}${c.visual_tags?.length ? ` | tags: ${c.visual_tags.slice(0,4).join(', ')}` : ''}`
+    ).join('\n')
+
+    sections.push(`## INDEXED FOOTAGE LIBRARY
+Total clips: ${clipIndexData.total} | cam: ${byType.cam||0} | daw: ${byType.daw||0} | broll: ${byType.broll||0} | total duration: ~${totalMins} min
+${clipLines}`)
+  }
+
+  // ── VAULT HIGHLIGHTS ──────────────────────────────────────
+  if (vaultHighlights.length) {
+    sections.push(`## VAULT — high-value unused ideas
+${vaultHighlights.map(v =>
+  `[${v.type}] "${v.title}": ${v.content.slice(0, 100)}...`
+).join('\n')}`);
+  }
+
+  // ── SCRIPT LIBRARY ────────────────────────────────────────
+  if (scriptLibrary.own.length || scriptLibrary.competitor.length || scriptLibrary.shorts.length) {
+    const parts = []
+    if (scriptLibrary.own.length) {
+      parts.push(`OWN LONG-FORM SCRIPTS (${scriptLibrary.own.length}):\n${scriptLibrary.own.map(s =>
+        `  "${s.title}" — ${s.content.slice(0, 300)}${s.content.length > 300 ? '...' : ''}`
+      ).join('\n\n')}`)
+    }
+    if (scriptLibrary.shorts.length) {
+      parts.push(`SHORTS/TIKTOK SCRIPTS (${scriptLibrary.shorts.length}):\n${scriptLibrary.shorts.map(s =>
+        `  "${s.title}" — ${s.content.slice(0, 200)}${s.content.length > 200 ? '...' : ''}`
+      ).join('\n\n')}`)
+    }
+    if (scriptLibrary.competitor.length) {
+      parts.push(`COMPETITOR SCRIPTS TO STUDY (${scriptLibrary.competitor.length}):\n${scriptLibrary.competitor.map(s =>
+        `  "${s.title}" — ${s.content.slice(0, 300)}${s.content.length > 300 ? '...' : ''}`
+      ).join('\n\n')}`)
+    }
+    sections.push(`## SCRIPT LIBRARY\n${parts.join('\n\n')}`)
+  }
+
+  // ── RETENTION PATTERNS ────────────────────────────────────
+  if (category.retention_db) {
+    const db = category.retention_db;
+    const hooks = (db.hookLibrary || []).filter(h => h.strength === 'A').slice(0, 5);
+    if (hooks.length) {
+      sections.push(`## PROVEN HOOK PATTERNS (Grade A only)
+${hooks.map(h => `- ${h.pattern}: "${h.example}"`).join('\n')}`);
+    }
+  }
+
+  // ── EPISODE IN PROGRESS ───────────────────────────────────
+  if (episodeCtx) {
+    sections.push(`## CURRENT EPISODE CONTEXT
+Track: ${episodeCtx.trackName || 'untitled'}
+Mood: ${episodeCtx.mood || ''}
+Genre: ${episodeCtx.genre || ''}
+Episode number: ${episodeCtx.episodeNumber || '?'}
+Voice memo: ${episodeCtx.voiceMemoText ? `"${episodeCtx.voiceMemoText.slice(0, 300)}..."` : 'not provided yet'}`);
+  }
+
+  // ── PRIOR CONVERSATION ────────────────────────────────────
+  if (chatHistory) {
+    sections.push(`## PRIOR CONVERSATION CONTEXT
+${chatHistory}`);
+  }
+
+  // ── MODE-SPECIFIC INSTRUCTIONS ───────────────────────────
+  sections.push(getModeInstructions(mode));
+
+  const result = sections.join('\n\n');
+  if (cacheable) setCached(cacheKey, result);
+  return result;
+}
+
+// ─── MODE INSTRUCTIONS ────────────────────────────────────────────────────────
+
+function getModeInstructions(mode) {
+  // FIX: explicit no-markdown instruction added to base. The previous prompt said
+  // "No bullet lists unless asked" but didn't ban **bold**, *italic*, or ## headers,
+  // so Claude defaulted to markdown which rendered as raw symbols in the chat UI.
+  const base = `## HOW TO RESPOND
+You are a sharp creative collaborator — talk like a talented friend, not a system.
+NEVER start responses with headers, mode announcements, or labels like "# KB MODE".
+NEVER say "I'm here" or announce your status. Just respond to what was said.
+CRITICAL: Never use markdown formatting. No **bold**, no *italic*, no ## headers, no bullet points with -, no backticks. Write in plain conversational prose only.
+Keep responses SHORT — max 4-6 sentences for chat, more only when writing actual content.
+No bullet lists unless asked. No preamble. Lead with the actual insight or idea.
+Do not explain your reasoning unless asked. Just give the answer.`
+
+  const instructions = {
+    generate: base + `
+In generate mode: help the creator develop episode ideas. When asked to generate, write in their voice. Don't think out loud — just produce.`,
+    vault:    base + `
+In vault mode: surface ideas from their library. Be specific — name the idea, why it fits now.`,
+    series:   base + `
+In series mode: think like a showrunner. Spot narrative threads, callback opportunities, arc development.`,
+    analytics: base + `
+In analytics mode: interpret numbers, don't just display them. Name the cause, give 1-2 concrete next steps.`,
+    teleprompter: base + `
+In teleprompter mode: flag lines that sound written not spoken. Keep it brief — creator is about to record.`,
+    sound:    base + `
+In sound mode: give precise sound design direction. BPM, texture, timecode. Ask one clarifying question if needed.`,
+    editor:   base + `
+In editor mode: help with clip selection, edit structure, pacing decisions.`,
+    storyboard: base + `
+In storyboard mode: suggest shot types, framing, visual coverage.`,
+  }
+
+  return instructions[mode] || instructions.generate
+}
+
+// ─── DATA FETCHERS ────────────────────────────────────────────────────────────
+
+async function getCategory(userId, categoryId) {
+  const { data } = await supabase
+    .from('categories')
+    .select('*')
+    .eq('id', categoryId)
+    .eq('user_id', userId)
+    .single();
+  return data;
+}
+
+async function getRecentEpisodes(userId, categoryId, limit) {
+  const { data } = await supabase
+    .from('episodes')
+    .select('episode_number, track_name, episode_concept, generation_decisions, yt_retention_score, script_score, status')
+    .eq('user_id', userId)
+    .eq('category_id', categoryId)
+    .order('episode_number', { ascending: false })
+    .limit(limit);
+  return data || [];
+}
+
+async function getTopPerformers(userId, categoryId, limit) {
+  const { data } = await supabase
+    .from('episodes')
+    .select('episode_number, track_name, episode_concept, generation_decisions, yt_retention_score, script_score, status')
+    .eq('user_id', userId)
+    .eq('category_id', categoryId)
+    .eq('status', 'published')           // only real published episodes
+    .not('yt_retention_score', 'is', null)
+    .gt('yt_retention_score', 0)         // must have a real score
+    .order('yt_retention_score', { ascending: false })
+    .limit(limit);
+  return data || [];
+}
+
+async function getLatestAnalytics(userId, categoryId) {
+  const { data } = await supabase
+    .from('analytics_uploads')
+    .select('insights, avg_score, top_performers, upload_date, video_count, platform')
+    .eq('user_id', userId)
+    .eq('category_id', categoryId)
+    .order('upload_date', { ascending: false })
+    .limit(8)
+  return data || []
+}
+
+async function getSeriesMemory(userId, categoryId, limit) {
+  const { data } = await supabase
+    .from('series_memory')
+    .select('episode_number, track_name, track_context, summary, callback_seeds, themes')
+    .eq('user_id', userId)
+    .eq('category_id', categoryId)
+    .order('episode_number', { ascending: false })
+    .limit(limit);
+  return data || [];
+}
+
+async function getLogInsights(userId, categoryId) {
+  const { data } = await supabase
+    .from('generation_log')
+    .select('insights')
+    .eq('user_id', userId)
+    .eq('category_id', categoryId)
+    .not('insights', 'is', null)
+    .order('generated_at', { ascending: false })
+    .limit(1)
+    .single();
+  return data?.insights || null;
+}
+
+async function getTrendingData(categoryId) {
+  const { data } = await supabase
+    .from('categories')
+    .select('trending_data, trending_refreshed_at')
+    .eq('id', categoryId)
+    .single();
+  return data?.trending_data || null;
+}
+
+async function getVaultHighlights(userId, categoryId) {
+  const { data } = await supabase
+    .from('vault_entries')
+    .select('type, title, content')
+    .eq('user_id', userId)
+    .eq('category_id', categoryId)
+    .eq('is_favourite', true)
+    .is('used_at', null)
+    .order('created_at', { ascending: false })
+    .limit(5);
+  return data || [];
+}
+
+async function getClipIndexData(userId) {
+  const { data, count } = await supabase
+    .from('clip_index')
+    .select('filename, clip_type, duration_ms, transcript, visual_tags', { count: 'exact' })
+    .eq('user_id', userId)
+    .not('indexed_at', 'is', null)
+    .order('indexed_at', { ascending: false })
+    .limit(50)
+
+  if (!data || data.length === 0) return null
+
+  const byType = data.reduce((acc, c) => {
+    acc[c.clip_type] = (acc[c.clip_type] || 0) + 1
+    return acc
+  }, {})
+
+  const totalDurationMs = data.reduce((s, c) => s + (c.duration_ms || 0), 0)
+
+  return { total: count || data.length, byType, totalDurationMs, clips: data }
+}
+
+async function getPlannedEpisodes(userId, categoryId) {
+  const { data } = await supabase
+    .from('kb_planned_episodes')
+    .select('episode_number, track_name, track_context, summary, themes, status')
+    .eq('user_id', userId)
+    .eq('category_id', categoryId)
+    .order('episode_number', { ascending: true })
+    .limit(20)
+  return data || []
+}
+
+async function getScriptLibrary(userId, categoryId) {
+  const { data } = await supabase
+    .from('vault_entries')
+    .select('title, content, tags')
+    .eq('user_id', userId)
+    .eq('category_id', categoryId)
+    .eq('type', 'script')
+    .order('created_at', { ascending: false })
+    .limit(20)
+
+  const entries = data || []
+  return {
+    own:        entries.filter(s => !s.tags?.includes('competitor') && !s.tags?.includes('shorts') && !s.tags?.includes('tiktok')),
+    shorts:     entries.filter(s => s.tags?.includes('shorts') || s.tags?.includes('tiktok')),
+    competitor: entries.filter(s => s.tags?.includes('competitor')),
+  }
+}
+
+function buildMinimalContext(mode) {
+  return `# WHISPACUTS\nYou are the AI creative layer in WhispaCuts.\nMode: ${mode.toUpperCase()}\nNo category context loaded yet — help the user get set up.`;
+}
+
+// FIX: table name corrected from 'sessions' → 'session_journals'.
+// The old name caused every call to silently return [] since the table was
+// renamed. This function is now also correctly wired into the Promise.all above.
+async function getRecentVoiceMemos(userId, categoryId) {
+  try {
+    const { data } = await supabase
+      .from('session_journals')
+      .select('voice_memo_text, transcript, key_moments, created_at, title')
+      .eq('user_id', userId)
+      .eq('category_id', categoryId)
+      .not('voice_memo_text', 'is', null)
+      .order('created_at', { ascending: false })
+      .limit(3)
+    return data || []
+  } catch { return [] }
+}
+
+module.exports = { assembleContext, invalidateContext };
