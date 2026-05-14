@@ -76,31 +76,22 @@ export default function AppLayout() {
     return () => window.removeEventListener('resize', check)
   }, [])
 
-  // Keyboard detection: listen to focusin/focusout on input and textarea elements.
-  // This is the most reliable cross-device approach — if an input is focused,
-  // the keyboard is open. visualViewport was unreliable on some Android browsers.
+  // Keyboard open/close — hide pill when any input is focused, show when not.
   useEffect(() => {
-    if (!isMobile) return
-
-    const onFocusIn = (e) => {
-      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
-        setKbOffset(1) // non-zero = keyboard open, exact height not needed
-      }
+    const show = () => setKbOffset(0)
+    const hide = (e) => {
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') setKbOffset(1)
     }
-    const onFocusOut = (e) => {
-      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
-        // Small delay — focusout fires before the keyboard fully closes
-        setTimeout(() => setKbOffset(0), 100)
-      }
+    const blur = (e) => {
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') setTimeout(() => setKbOffset(0), 150)
     }
-
-    document.addEventListener('focusin',  onFocusIn)
-    document.addEventListener('focusout', onFocusOut)
+    document.addEventListener('focusin',  hide)
+    document.addEventListener('focusout', blur)
     return () => {
-      document.removeEventListener('focusin',  onFocusIn)
-      document.removeEventListener('focusout', onFocusOut)
+      document.removeEventListener('focusin',  hide)
+      document.removeEventListener('focusout', blur)
     }
-  }, [isMobile])
+  }, [])
 
   // Close pill on outside click
   useEffect(() => {
@@ -184,7 +175,7 @@ export default function AppLayout() {
         />
         {/* Panel — floats above pill */}
         <div style={{
-          position:'fixed', bottom: 80 + kbOffset, left:'50%', transform:'translateX(-50%)',
+          position:'fixed', bottom: 80, left:'50%', transform:'translateX(-50%)',
           width:'min(340px, calc(100vw - 32px))',
           background:'rgba(8,10,16,0.98)', border:'1px solid rgba(74,222,128,0.12)',
           borderRadius:16, zIndex:59, overflow:'hidden',
@@ -257,10 +248,6 @@ export default function AppLayout() {
   // ── PILL TOOLBAR ───────────────────────────────────────────────────────────
   function PillToolbar() {
     if (isCompanion) return null
-    // On mobile, KB home is full-screen chat — pill serves no purpose there
-    // and sits over the chat input. Hide it entirely on mobile home.
-    if (isMobile && isHome) return null
-    // Hide pill when any input is focused (keyboard open) on mobile
     if (isMobile && kbOffset > 0) return null
 
     const pillBottom = 24
@@ -513,18 +500,8 @@ export default function AppLayout() {
           right:      isMobile ? 12 : 'auto',
           width:      isMobile ? 'auto' : 'min(860px, calc(100vw - 64px))',
           transform:  isMobile ? 'none' : 'translateX(-50%)',
-          // On mobile: when keyboard is open the pill is hidden, so the sheet
-          // drops to bottom:0 and fills from topbar down to the keyboard.
-          // When keyboard is closed the pill is visible so sheet sits above it.
-          // On desktop: always 130px from bottom at 75vh.
-          bottom:     isMobile ? (kbOffset > 0 ? 0 : 130) : 130,
-          height:     chatOpen
-            ? (isMobile
-                ? (kbOffset > 0
-                    ? (window.visualViewport?.height || window.innerHeight * 0.5) // fill above keyboard
-                    : window.innerHeight - 52 - 130)      // above pill, below topbar
-                : '75vh')
-            : 0,
+          bottom:     130,
+          height:     chatOpen ? (isMobile ? 'calc(100dvh - 52px - 130px)' : '75vh') : 0,
           overflow:   'hidden',
           transition: 'bottom 0.3s ease, height 0.4s cubic-bezier(0.32,0.72,0,1)',
           zIndex:     40,
