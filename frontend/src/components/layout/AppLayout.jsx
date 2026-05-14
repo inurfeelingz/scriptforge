@@ -76,42 +76,31 @@ export default function AppLayout() {
     return () => window.removeEventListener('resize', check)
   }, [])
 
-  // Keyboard detection: dual approach for maximum device compatibility.
-  // Primary: visualViewport API (most accurate — gives exact keyboard height).
-  // Fallback: window resize (older Android WebViews shrink the window when
-  // the keyboard opens, so comparing to the initial height works reliably).
+  // Keyboard detection: listen to focusin/focusout on input and textarea elements.
+  // This is the most reliable cross-device approach — if an input is focused,
+  // the keyboard is open. visualViewport was unreliable on some Android browsers.
   useEffect(() => {
-    const initialHeight = window.innerHeight
+    if (!isMobile) return
 
-    const update = () => {
-      const vv = window.visualViewport
-      if (vv) {
-        // visualViewport.height shrinks when keyboard is open
-        const kb = window.innerHeight - vv.height - vv.offsetTop
-        setKbOffset(Math.max(0, Math.round(kb)))
-      } else {
-        // Fallback: window.innerHeight shrinks on some Android browsers
-        const kb = initialHeight - window.innerHeight
-        setKbOffset(Math.max(0, kb))
+    const onFocusIn = (e) => {
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
+        setKbOffset(1) // non-zero = keyboard open, exact height not needed
+      }
+    }
+    const onFocusOut = (e) => {
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
+        // Small delay — focusout fires before the keyboard fully closes
+        setTimeout(() => setKbOffset(0), 100)
       }
     }
 
-    const vv = window.visualViewport
-    if (vv) {
-      vv.addEventListener('resize', update)
-      vv.addEventListener('scroll', update)
-    }
-    // Always also listen to window resize as belt-and-braces
-    window.addEventListener('resize', update)
-
+    document.addEventListener('focusin',  onFocusIn)
+    document.addEventListener('focusout', onFocusOut)
     return () => {
-      if (vv) {
-        vv.removeEventListener('resize', update)
-        vv.removeEventListener('scroll', update)
-      }
-      window.removeEventListener('resize', update)
+      document.removeEventListener('focusin',  onFocusIn)
+      document.removeEventListener('focusout', onFocusOut)
     }
-  }, [])
+  }, [isMobile])
 
   // Close pill on outside click
   useEffect(() => {
@@ -268,8 +257,10 @@ export default function AppLayout() {
   // ── PILL TOOLBAR ───────────────────────────────────────────────────────────
   function PillToolbar() {
     if (isCompanion) return null
-    // Hide pill + orb entirely on mobile when the keyboard is open —
-    // no point showing it above a QWERTY keyboard where it just gets in the way.
+    // On mobile, KB home is full-screen chat — pill serves no purpose there
+    // and sits over the chat input. Hide it entirely on mobile home.
+    if (isMobile && isHome) return null
+    // Hide pill when any input is focused (keyboard open) on mobile
     if (isMobile && kbOffset > 0) return null
 
     const pillBottom = 24
@@ -530,7 +521,7 @@ export default function AppLayout() {
           height:     chatOpen
             ? (isMobile
                 ? (kbOffset > 0
-                    ? window.innerHeight - kbOffset - 52  // above keyboard, below topbar
+                    ? (window.visualViewport?.height || window.innerHeight * 0.5) // fill above keyboard
                     : window.innerHeight - 52 - 130)      // above pill, below topbar
                 : '75vh')
             : 0,
