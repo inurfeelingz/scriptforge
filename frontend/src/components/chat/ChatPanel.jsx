@@ -5,7 +5,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import {
   Send, Trash2, Loader2, BookmarkPlus, Check,
-  Plus, Clock, X, Sparkles, Mic, MicOff, Volume2,
+  Plus, Clock, X, Sparkles, Mic, MicOff, Volume2, ChevronDown,
 } from 'lucide-react'
 import { useStore } from '../../store'
 import { chat as chatApi } from '../../lib/api'
@@ -204,6 +204,7 @@ const STYLES = `
     display: flex;
     flex-direction: column;
     min-width: 0;
+    position: relative;
   }
 
   .kb-messages {
@@ -433,6 +434,7 @@ export default function ChatPanel() {
   const [generating,  setGenerating]  = useState(false)
   const [generated,   setGenerated]   = useState(null)
   const [genPct,      setGenPct]      = useState(0)
+  const [showScrollBtn, setShowScrollBtn] = useState(false)
   const genTimerRef = useRef(null)
   const bottomRef   = useRef(null)
   const inputRef    = useRef(null)
@@ -479,11 +481,22 @@ export default function ChatPanel() {
     const el = messagesRef.current
     if (!el) return
     const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
-    // Only auto-scroll if within 120px of bottom
     if (distFromBottom < 120) {
       bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
     }
   }, [messages, streamText])
+
+  // Show scroll-to-bottom button when user has scrolled up more than 300px
+  useEffect(() => {
+    const el = messagesRef.current
+    if (!el) return
+    const handleScroll = () => {
+      const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
+      setShowScrollBtn(distFromBottom > 300)
+    }
+    el.addEventListener('scroll', handleScroll, { passive: true })
+    return () => el.removeEventListener('scroll', handleScroll)
+  }, [])
 
   const sendMessage = useCallback(async (overrideText) => {
     const text = (overrideText || input).trim()
@@ -700,6 +713,36 @@ export default function ChatPanel() {
 
           <div ref={bottomRef}/>
         </div>
+
+        {/* Scroll to bottom button */}
+        {showScrollBtn && (
+          <button
+            onClick={() => bottomRef.current?.scrollIntoView({ behavior: 'smooth' })}
+            style={{
+              position:       'absolute',
+              bottom:         120,
+              left:           '50%',
+              transform:      'translateX(-50%)',
+              width:          34,
+              height:         34,
+              borderRadius:   '50%',
+              background:     'rgba(8,10,16,0.92)',
+              border:         '1px solid rgba(74,222,128,0.25)',
+              color:          'rgba(74,222,128,0.8)',
+              cursor:         'pointer',
+              display:        'flex',
+              alignItems:     'center',
+              justifyContent: 'center',
+              boxShadow:      '0 2px 12px rgba(0,0,0,0.5)',
+              transition:     'all 0.15s',
+              zIndex:         5,
+            }}
+            onMouseEnter={e => { e.currentTarget.style.background = 'rgba(74,222,128,0.12)'; e.currentTarget.style.borderColor = 'rgba(74,222,128,0.5)' }}
+            onMouseLeave={e => { e.currentTarget.style.background = 'rgba(8,10,16,0.92)'; e.currentTarget.style.borderColor = 'rgba(74,222,128,0.25)' }}
+          >
+            <ChevronDown size={16}/>
+          </button>
+        )}
 
         {/* Generate episode strip */}
         {canGenerate && (
