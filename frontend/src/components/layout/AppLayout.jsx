@@ -58,11 +58,13 @@ export default function AppLayout() {
   const [showNewCat,   setShowNewCat]   = useState(false)
   const [catLoading,   setCatLoading]   = useState(false)
   const [scrolled,     setScrolled]     = useState(false)
+  // FIX: track keyboard height so pill stays pinned above keyboard on mobile
+  const [kbOffset,     setKbOffset]     = useState(0)
 
   const location    = useLocation()
   const navigate    = useNavigate()
   const isCompanion = location.pathname === '/companion'
-  const isHome      = location.pathname === '/'
+  const isHome      = location.pathname === '/';
   const activeCategory_ = activeCategory?.()
   const pillRef     = useRef(null)
 
@@ -72,6 +74,29 @@ export default function AppLayout() {
     check()
     window.addEventListener('resize', check)
     return () => window.removeEventListener('resize', check)
+  }, [])
+
+  // FIX: Visual Viewport API — tracks when the soft keyboard opens/closes on
+  // mobile and adjusts kbOffset so the pill lifts to sit above the keyboard.
+  // Without this, the pill sits behind the keyboard and the chat input is
+  // unreachable unless the user scrolls.
+  useEffect(() => {
+    const vv = window.visualViewport
+    if (!vv) return
+
+    const handleResize = () => {
+      // The gap between the bottom of the visual viewport and the bottom of
+      // the layout viewport is the keyboard height.
+      const keyboardHeight = window.innerHeight - vv.height - vv.offsetTop
+      setKbOffset(Math.max(0, keyboardHeight))
+    }
+
+    vv.addEventListener('resize', handleResize)
+    vv.addEventListener('scroll', handleResize)
+    return () => {
+      vv.removeEventListener('resize', handleResize)
+      vv.removeEventListener('scroll', handleResize)
+    }
   }, [])
 
   // Close pill on outside click
@@ -155,7 +180,7 @@ export default function AppLayout() {
         />
         {/* Panel — floats above pill */}
         <div style={{
-          position:'fixed', bottom:80, left:'50%', transform:'translateX(-50%)',
+          position:'fixed', bottom: 80 + kbOffset, left:'50%', transform:'translateX(-50%)',
           width:'min(340px, calc(100vw - 32px))',
           background:'rgba(8,10,16,0.98)', border:'1px solid rgba(74,222,128,0.12)',
           borderRadius:16, zIndex:59, overflow:'hidden',
@@ -228,17 +253,22 @@ export default function AppLayout() {
   // ── PILL TOOLBAR ───────────────────────────────────────────────────────────
   function PillToolbar() {
     if (isCompanion) return null
+    // Hide pill + orb entirely on mobile when the keyboard is open —
+    // no point showing it above a QWERTY keyboard where it just gets in the way.
+    if (isMobile && kbOffset > 0) return null
+
+    const pillBottom = 24
 
     return (
       <div
         ref={pillRef}
         style={{
           position:   'fixed',
-          bottom:     '24px',
+          bottom:     pillBottom,
           left:       '50%',
           transform:  'translateX(-50%)',
           zIndex:     44,
-          transition: 'bottom 0.4s cubic-bezier(0.32,0.72,0,1)',
+          transition: 'bottom 0.3s ease',
           display:    'flex',
           flexDirection: 'column',
           alignItems: 'center',
@@ -312,6 +342,38 @@ export default function AppLayout() {
 
           <div style={{ width: 1, height: 20, background: 'rgba(255,255,255,0.06)', margin: '0 2px' }}/>
 
+          {/* FIX: Companion button — visible in the pill on mobile where the
+              pipeline items are hidden. Uses Radio icon (already imported).
+              On desktop it stays in the MORE_ITEMS expanded menu as before. */}
+          {isMobile && (
+            <>
+              <button
+                onClick={() => navigate('/companion')}
+                style={{
+                  width:          36,
+                  height:         36,
+                  borderRadius:   50,
+                  background:     location.pathname === '/companion' ? GREEN_LOW : 'none',
+                  border:         'none',
+                  color:          location.pathname === '/companion' ? GREEN : 'rgba(255,255,255,0.35)',
+                  cursor:         'pointer',
+                  display:        'flex',
+                  flexDirection:  'column',
+                  alignItems:     'center',
+                  justifyContent: 'center',
+                  gap:            3,
+                  transition:     'all 0.15s',
+                }}
+              >
+                <Radio size={15}/>
+                <span style={{ fontSize: 8, letterSpacing: '0.06em', textTransform: 'uppercase', fontFamily: "'Figtree', sans-serif", lineHeight: 1 }}>
+                  Live
+                </span>
+              </button>
+              <div style={{ width: 1, height: 20, background: 'rgba(255,255,255,0.06)', margin: '0 2px' }}/>
+            </>
+          )}
+
           {/* Pipeline items — hidden on mobile, shown on desktop */}
           {!isMobile && PILL_ITEMS.map(item => (
             <PillButton key={item.to} {...item}/>
@@ -341,8 +403,6 @@ export default function AppLayout() {
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg)', color: 'var(--text)', display: 'flex', flexDirection: 'column' }}>
 
-
-
       {/* Top bar — minimal */}
       {!isCompanion && (
         <header style={{
@@ -359,7 +419,6 @@ export default function AppLayout() {
           zIndex:       30,
           backdropFilter: 'blur(16px)',
         }}>
-          {/* Workspace indicator */}
           {/* Logo — click to go home */}
           <button
             onClick={() => navigate('/')}
@@ -446,10 +505,20 @@ export default function AppLayout() {
           right:      isMobile ? 12 : 'auto',
           width:      isMobile ? 'auto' : 'min(860px, calc(100vw - 64px))',
           transform:  isMobile ? 'none' : 'translateX(-50%)',
-          bottom:     130,
-          height:     chatOpen ? (isMobile ? '82vh' : '75vh') : 0,
+          // On mobile: when keyboard is open the pill is hidden, so the sheet
+          // drops to bottom:0 and fills from topbar down to the keyboard.
+          // When keyboard is closed the pill is visible so sheet sits above it.
+          // On desktop: always 130px from bottom at 75vh.
+          bottom:     isMobile ? (kbOffset > 0 ? 0 : 130) : 130,
+          height:     chatOpen
+            ? (isMobile
+                ? (kbOffset > 0
+                    ? window.innerHeight - kbOffset - 52  // above keyboard, below topbar
+                    : window.innerHeight - 52 - 130)      // above pill, below topbar
+                : '75vh')
+            : 0,
           overflow:   'hidden',
-          transition: 'height 0.4s cubic-bezier(0.32,0.72,0,1)',
+          transition: 'bottom 0.3s ease, height 0.4s cubic-bezier(0.32,0.72,0,1)',
           zIndex:     40,
           background: 'rgba(8,10,16,0.98)',
           borderRadius: '20px 20px 0 0',
@@ -461,8 +530,6 @@ export default function AppLayout() {
           {chatOpen && <ChatPanel/>}
         </div>
       )}
-
-
 
       {/* Pill toolbar */}
       <PillToolbar/>

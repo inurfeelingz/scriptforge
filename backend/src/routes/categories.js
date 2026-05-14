@@ -12,7 +12,11 @@ const router = express.Router();
 router.get('/', async (req, res) => {
   const { data, error } = await supabase
     .from('categories')
-    .select('id, name, niche, color, icon, total_episodes, avg_retention, trending_refreshed_at, is_active, created_at')
+    // FIX: added onboarded_at and voice_profile to the select.
+    // These were missing, so cat.onboarded_at was always undefined in the store,
+    // causing KBHome to treat every user as needing onboarding on every page load —
+    // the root cause of the onboarding loop bug.
+    .select('id, name, niche, color, icon, total_episodes, avg_retention, trending_refreshed_at, is_active, created_at, onboarded_at, voice_profile')
     .eq('user_id', req.user.id)
     .eq('is_active', true)
     .order('created_at', { ascending: true });

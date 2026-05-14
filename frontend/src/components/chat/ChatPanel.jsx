@@ -780,6 +780,12 @@ export default function ChatPanel() {
               value={input}
               onChange={e => setInput(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage() } }}
+              onFocus={() => {
+                // On mobile, after the keyboard opens the element may be
+                // obscured. A short delay lets the viewport settle before
+                // scrolling the input into view.
+                setTimeout(() => inputRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 150)
+              }}
               placeholder={meta.hint}
               rows={2}
               className="kb-textarea"

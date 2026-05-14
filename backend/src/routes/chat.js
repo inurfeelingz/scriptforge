@@ -341,6 +341,7 @@ router.delete('/history', async (req, res) => {
 
 // ── GET /api/chat/sessions ─────────────────────────────────────────────────────
 router.get('/sessions', async (req, res) => {
+  const { categoryId, mode = 'generate' } = req.query
   const { data } = await supabase
     .from('chat_sessions')
     .select('id, title, mode, category_id, created_at, updated_at')
@@ -396,7 +397,6 @@ router.delete('/sessions/:id', async (req, res) => {
     .eq('user_id', req.user.id)
   res.json({ deleted: true })
 })
-
 
 // ── POST /api/chat/speak — ElevenLabs TTS ────────────────────────────────────
 router.post('/speak', async (req, res) => {
@@ -471,10 +471,11 @@ router.post('/speak', async (req, res) => {
 
 
 // ── POST /api/chat/onboard — KB voice profile interview ──────────────────────
-// Runs a conversational onboarding. Client sends { categoryId, message, step }
-// KB asks 6 questions one at a time. On final step, extracts and saves voice profile.
+// Runs a conversational onboarding. Client sends { categoryId, message, history }
+// KB asks 6 questions one at a time. On the final answer it extracts + saves the
+// voice profile, then sends onboardingComplete: true in the done event.
 router.post('/onboard', async (req, res) => {
-  const { categoryId, message, history = [], step = 0 } = req.body
+  const { categoryId, message, history = [] } = req.body
   if (!categoryId) return res.status(400).json({ error: 'categoryId required' })
 
   res.setHeader('Content-Type', 'text/event-stream')
@@ -489,10 +490,13 @@ router.post('/onboard', async (req, res) => {
   try {
     const { data: cat } = await supabase.from('categories').select('name, niche').eq('id', categoryId).single()
 
+    // FIX: explicit no-markdown instruction added to prevent raw symbols in chat
     const SYSTEM = `You are KB, the AI inside WhispaCuts. You are onboarding a new creator.
 Your job is to learn how they communicate on camera so their scripts sound like them.
 Ask ONE question at a time. Be warm, direct, and brief — like a creative friend, not a form.
 After collecting all answers, output a JSON block wrapped in ===VOICE_PROFILE=== tags.
+
+CRITICAL: Never use markdown formatting. No **bold**, no *italic*, no ## headers, no bullet points with -, no backticks. Write in plain conversational prose only.
 
 The 6 questions to work through (adapt naturally based on their answers):
 1. What kind of content do you make? (format, length, style)
@@ -502,12 +506,13 @@ The 6 questions to work through (adapt naturally based on their answers):
 5. Name a creator whose style you admire and why
 6. How often do you want to post?
 
-When you have all 6 answers, output this exact format:
+When you have all 6 answers, output this exact format with no text before or after the tags:
 ===VOICE_PROFILE===
 {"voiceCharacteristics":{"sentenceLengthPattern":"","rhythmNote":"","vocabularyLevel":""},"structuralPatterns":{"hookStyle":"","ctaStyle":""},"languageFingerprint":{"signaturePhrases":[],"avoidPhrases":[],"humourStyle":"","storytellingStyle":""},"audience":"","postingCadence":"","referenceCreators":[]}
 ===VOICE_PROFILE===
 
-Keep all responses short — max 2-3 sentences per message. No lists unless you're summarising at the end.
+After the closing ===VOICE_PROFILE=== tag, write one short warm closing sentence to wrap the conversation (plain text, no markdown).
+Keep all responses short — max 2-3 sentences per message. No lists.
 Show name: ${cat?.name || 'their show'}. Niche: ${cat?.niche || 'content creation'}.`
 
     const messages = [
@@ -520,46 +525,72 @@ Show name: ${cat?.name || 'their show'}. Niche: ${cat?.niche || 'content creatio
       messages.push({ role: 'user', content: 'start' })
     }
 
+    // FIX: max_tokens raised from 400 → 1200. The JSON block alone is ~300 tokens;
+    // 400 was guaranteed to truncate mid-JSON on the final turn, silently breaking
+    // the regex extraction and leaving the user in the onboarding loop forever.
     const stream = await client.messages.stream({
       model:      process.env.CLAUDE_MODEL || 'claude-sonnet-4-5',
-      max_tokens: 400,
+      max_tokens: 1200,
       system:     SYSTEM,
       messages,
     })
 
+    // FIX: accumulate the FULL response before streaming anything to the client.
+    // The previous approach filtered chunks during streaming — if the ===VOICE_PROFILE===
+    // tag split across two chunks, the toggle fired twice and the JSON leaked to the
+    // client. Accumulating first then stripping is safe and simple.
     let full = ''
     for await (const chunk of stream) {
       if (chunk.type === 'content_block_delta' && chunk.delta.type === 'text_delta') {
-        const text = chunk.delta.text
-        full += text
-
-        // Don't stream the JSON block — handle it silently
-        if (full.includes('===VOICE_PROFILE===')) continue
-        send('chunk', { text })
+        full += chunk.delta.text
       }
     }
 
-    // Extract and save voice profile if present
-    const vpMatch = full.match(/===VOICE_PROFILE===\s*({[\s\S]*?})\s*===VOICE_PROFILE===/)
-    let voiceProfileSaved = false
-    if (vpMatch) {
-      try {
-        const vp = JSON.parse(vpMatch[1])
-        await supabase.from('categories').update({
-          voice_profile: vp,
-          onboarded_at:  new Date().toISOString(),
-        }).eq('id', categoryId).eq('user_id', req.user.id)
-        voiceProfileSaved = true
-      } catch (e) { console.warn('[onboard] voice profile parse error', e.message) }
-    }
+    console.log('[onboard] full response length:', full.length, '| preview:', full.slice(0, 120))
 
-    // Strip the JSON block from the response shown to user
-    const cleanResponse = full.replace(/===VOICE_PROFILE===[\s\S]*?===VOICE_PROFILE===/g, '').trim()
+    // FIX: split-based extraction instead of greedy regex.
+    // The old regex /===VOICE_PROFILE===\s*({[\s\S]*?})\s*===VOICE_PROFILE===/ used a
+    // lazy match on `{...}` which stops at the first `}` — breaking on any nested object
+    // in the profile JSON. Split on the delimiter instead to grab everything between the tags.
+    let voiceProfileSaved = false
+    let cleanResponse = full
+
+    if (full.includes('===VOICE_PROFILE===')) {
+      const parts = full.split('===VOICE_PROFILE===')
+      // parts[0] = text before opening tag
+      // parts[1] = the JSON block
+      // parts[2] = text after closing tag (the warm closing sentence)
+      const jsonRaw = parts[1]?.trim()
+      const afterTag = parts[2]?.trim() || ''
+
+      if (jsonRaw) {
+        try {
+          const vp = JSON.parse(jsonRaw)
+          const { error: dbErr } = await supabase.from('categories').update({
+            voice_profile: vp,
+            onboarded_at:  new Date().toISOString(),
+          }).eq('id', categoryId).eq('user_id', req.user.id)
+
+          if (dbErr) {
+            console.error('[onboard] supabase update error:', dbErr.message)
+          } else {
+            voiceProfileSaved = true
+            console.log('[onboard] voice profile saved for category:', categoryId)
+          }
+        } catch (e) {
+          console.warn('[onboard] voice profile parse error:', e.message)
+          console.warn('[onboard] raw JSON attempted:', jsonRaw.slice(0, 200))
+        }
+      }
+
+      // Show the text before the tag + anything after the closing tag (warm close sentence)
+      // Strip any leftover whitespace artifacts
+      cleanResponse = [parts[0]?.trim(), afterTag].filter(Boolean).join('\n\n').trim()
+    }
 
     send('done', {
       response: cleanResponse,
       voiceProfileSaved,
-      // Tell client if onboarding is complete
       onboardingComplete: voiceProfileSaved,
     })
 
@@ -570,72 +601,6 @@ Show name: ${cat?.name || 'their show'}. Niche: ${cat?.niche || 'content creatio
     clearInterval(keepalive)
     res.end()
   }
-})
-
-module.exports = router;
-
-// ── GET /api/chat/sessions ─────────────────────────────────────────────────────
-// List past sessions for a mode/category
-router.get('/sessions', async (req, res) => {
-  const { categoryId, mode = 'generate' } = req.query
-  const { data } = await supabase
-    .from('chat_sessions')
-    .select('id, title, mode, created_at, updated_at')
-    .eq('user_id', req.user.id)
-    .eq('category_id', categoryId)
-    .eq('mode', mode)
-    .order('updated_at', { ascending: false })
-    .limit(30)
-  res.json({ sessions: data || [] })
-})
-
-// ── GET /api/chat/sessions/:id ─────────────────────────────────────────────────
-router.get('/sessions/:id', async (req, res) => {
-  const { data } = await supabase
-    .from('chat_sessions')
-    .select('*')
-    .eq('id', req.params.id)
-    .eq('user_id', req.user.id)
-    .single()
-  if (!data) return res.status(404).json({ error: 'Session not found' })
-  res.json({ session: data })
-})
-
-// ── POST /api/chat/sessions ────────────────────────────────────────────────────
-// Save current conversation as a named session
-router.post('/sessions', async (req, res) => {
-  const { categoryId, mode, messages, title } = req.body
-  if (!categoryId || !messages?.length) return res.status(400).json({ error: 'categoryId and messages required' })
-
-  // Auto-title from first user message if not provided
-  const autoTitle = title ||
-    messages.find(m => m.role === 'user')?.content?.slice(0, 60) ||
-    'Untitled conversation'
-
-  const { data, error } = await supabase
-    .from('chat_sessions')
-    .insert({
-      user_id:     req.user.id,
-      category_id: categoryId,
-      mode:        mode || 'generate',
-      title:       autoTitle,
-      messages,
-    })
-    .select()
-    .single()
-
-  if (error) return res.status(500).json({ error: error.message })
-  res.json({ session: data })
-})
-
-// ── DELETE /api/chat/sessions/:id ──────────────────────────────────────────────
-router.delete('/sessions/:id', async (req, res) => {
-  await supabase
-    .from('chat_sessions')
-    .delete()
-    .eq('id', req.params.id)
-    .eq('user_id', req.user.id)
-  res.json({ deleted: true })
 })
 
 // ── POST /api/chat/generate-episode ───────────────────────────────────────────
@@ -733,3 +698,7 @@ router.post('/generate-episode', async (req, res) => {
     res.end()
   }
 })
+
+// FIX: module.exports moved to end of file — it was previously mid-file which
+// caused the duplicate session routes below it to be unreachable/ambiguous.
+module.exports = router;
