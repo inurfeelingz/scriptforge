@@ -647,7 +647,6 @@ export default function ChatPanel() {
 
   const isSeriesMode = mode === 'series' || mode === 'generate'
   const canCommit    = isSeriesMode && messages.length >= 4 && !committed
-  const canGenerate  = isSeriesMode && messages.length >= 4 && !generated && !streaming && !generating
 
   // ── HISTORY VIEW ─────────────────────────────────────────────────────────
   if (view === 'history') {
@@ -759,16 +758,7 @@ export default function ChatPanel() {
           </button>
         )}
 
-        {/* Generate episode strip — removed: KB handles this conversationally */}
-        {false && canGenerate && (
-          <div className="kb-generate-strip">
-            <span className="kb-generate-text">Ready to generate from this conversation</span>
-            <button className="kb-generate-btn" onClick={generateEpisodeFromChat} disabled={generating}>
-              {generating ? <Loader2 size={9}/> : <Sparkles size={9}/>}
-              {generating ? 'KB is working...' : 'Generate episode'}
-            </button>
-          </div>
-        )}
+
 
         {/* Generation progress bar */}
         {generating && genPct > 0 && (
