@@ -44,6 +44,7 @@ export default function KBHome() {
     if (!cat) return
     const fromOnboard = searchParams.get('onboarding') === '1'
     const needsOnboard = !cat.onboarded_at
+    console.log('[KBHome] needsOnboard:', needsOnboard, 'fromOnboard:', fromOnboard, 'setting onboarding:', fromOnboard || needsOnboard)
     setOnboarding(fromOnboard || needsOnboard)
     setChecked(true)
     if (fromOnboard) setSearchParams({}, { replace: true })
