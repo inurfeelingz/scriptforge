@@ -155,6 +155,7 @@ export default function AppLayout() {
           cursor:         'pointer',
           transition:     'all 0.15s',
           whiteSpace:     'nowrap',
+          width:          isMobile ? '100%' : 'auto',
           flexShrink:     0,
         }}
         onMouseEnter={e => { if (!active) e.currentTarget.style.color = 'rgba(255,255,255,0.8)' }}
@@ -281,16 +282,16 @@ export default function AppLayout() {
             background:     'rgba(8,10,16,0.97)',
             border:         `1px solid rgba(74,222,128,0.12)`,
             borderRadius:   16,
-            padding:        '8px 4px',
-            display:        'flex',
-            gap:            0,
+            padding:        isMobile ? '4px' : '8px 4px',
+            display:        isMobile ? 'grid' : 'flex',
+            gridTemplateColumns: isMobile ? 'repeat(3, 1fr)' : undefined,
+            gap:            isMobile ? 2 : 0,
             boxShadow:      '0 -8px 40px rgba(0,0,0,0.6), 0 0 0 1px rgba(74,222,128,0.04)',
             backdropFilter: 'blur(20px)',
-            flexWrap:       isMobile ? 'wrap' : 'nowrap',
-            maxWidth:       isMobile ? 340 : 'none',
-            justifyContent: 'center',
+            width:          isMobile ? 'calc(100vw - 48px)' : 'none',
+            maxWidth:       isMobile ? 320 : 'none',
           }}>
-            {MORE_ITEMS.map(item => (
+            {(isMobile ? [...PILL_ITEMS, ...MORE_ITEMS] : MORE_ITEMS).map(item => (
               <PillButton key={item.to} {...item}/>
             ))}
           </div>
