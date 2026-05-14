@@ -313,7 +313,12 @@ export default function AppLayout() {
 
           {/* KB Orb — hidden on home (KB is already full screen there) */}
           {!isHome && <div
-            onClick={() => setChatOpen(o => !o)}
+            onClick={() => {
+              const opening = !chatOpen
+              setChatOpen(o => !o)
+              // When opening, dispatch kb:focus so ChatPanel auto-focuses the input
+              if (opening) setTimeout(() => window.dispatchEvent(new Event('kb:focus')), 350)
+            }}
             style={{
               cursor:     'pointer',
               flexShrink: 0,
@@ -501,7 +506,7 @@ export default function AppLayout() {
           width:      isMobile ? 'auto' : 'min(860px, calc(100vw - 64px))',
           transform:  isMobile ? 'none' : 'translateX(-50%)',
           bottom:     130,
-          height:     chatOpen ? (isMobile ? 'calc(100dvh - 52px - 130px)' : '75vh') : 0,
+          height:     chatOpen ? (isMobile ? 'calc(100svh - 52px - 130px)' : '75vh') : 0,
           overflow:   'hidden',
           transition: 'bottom 0.3s ease, height 0.4s cubic-bezier(0.32,0.72,0,1)',
           zIndex:     40,
@@ -512,7 +517,35 @@ export default function AppLayout() {
             : 'none',
           backdropFilter: 'blur(20px)',
         }}>
-          {chatOpen && <ChatPanel/>}
+          {chatOpen && (
+            <>
+              {/* Close button — always visible so user can close chat without the orb */}
+              <button
+                type="button"
+                onClick={() => setChatOpen(false)}
+                style={{
+                  position:   'absolute',
+                  top:        12,
+                  right:      16,
+                  zIndex:     2,
+                  background: 'rgba(255,255,255,0.06)',
+                  border:     '1px solid rgba(255,255,255,0.1)',
+                  borderRadius: '50%',
+                  width:      28,
+                  height:     28,
+                  display:    'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color:      'rgba(255,255,255,0.4)',
+                  cursor:     'pointer',
+                  touchAction: 'manipulation',
+                }}
+              >
+                <X size={14}/>
+              </button>
+              <ChatPanel/>
+            </>
+          )}
         </div>
       )}
 

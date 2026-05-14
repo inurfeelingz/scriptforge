@@ -54,16 +54,16 @@
     -webkit-text-size-adjust: 100%;
   }
 
-  html {
+  html, body {
+    margin: 0;
+    padding: 0;
     height: 100%;
-    overflow: hidden;
-    /* Prevent the whole page scrolling on mobile when keyboard opens */
-    position: fixed;
-    width: 100%;
+    /* Do NOT use position:fixed on body — it breaks keyboard height calculations
+       and causes the gap between text box and keyboard. Instead we let AppLayout
+       handle fixed positioning of all UI elements. */
   }
 
   body {
-    margin: 0;
     background: var(--bg);
     color: var(--text);
     font-family: 'Figtree', system-ui, -apple-system, sans-serif;
@@ -71,20 +71,11 @@
     line-height: 1.6;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
-    height: 100%;
-    overflow: hidden;
-    /* Let #root handle scrolling instead */
-    position: fixed;
-    width: 100%;
+    overscroll-behavior: none;
   }
 
   #root {
     height: 100%;
-    overflow-y: auto;
-    overflow-x: hidden;
-    /* Enable momentum scrolling on iOS */
-    -webkit-overflow-scrolling: touch;
-    overscroll-behavior: none;
   }
 
   h1, h2, h3, h4, h5, h6 {

@@ -351,6 +351,9 @@ const STYLES = `
     justify-content: center;
     transition: all 0.15s;
     flex-shrink: 0;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+    user-select: none;
   }
   .kb-send:disabled { opacity: 0.2; cursor: not-allowed; }
 
@@ -453,6 +456,18 @@ export default function ChatPanel() {
       }
     },
   })
+
+  // Auto-focus input on mount — opens keyboard immediately when chat sheet opens
+  useEffect(() => {
+    setTimeout(() => inputRef.current?.focus(), 300)
+  }, [])
+
+  // Also focus when orb is tapped to open (kb:focus event from AppLayout)
+  useEffect(() => {
+    const handler = () => setTimeout(() => inputRef.current?.focus(), 100)
+    window.addEventListener('kb:focus', handler)
+    return () => window.removeEventListener('kb:focus', handler)
+  }, [])
 
   // Cancel any in-flight stream when the panel unmounts (tab switch, page change)
   useEffect(() => {
@@ -744,8 +759,8 @@ export default function ChatPanel() {
           </button>
         )}
 
-        {/* Generate episode strip */}
-        {canGenerate && (
+        {/* Generate episode strip — removed: KB handles this conversationally */}
+        {false && canGenerate && (
           <div className="kb-generate-strip">
             <span className="kb-generate-text">Ready to generate from this conversation</span>
             <button className="kb-generate-btn" onClick={generateEpisodeFromChat} disabled={generating}>
