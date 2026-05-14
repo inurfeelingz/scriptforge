@@ -60,6 +60,7 @@ export default function AppLayout() {
   const [scrolled,     setScrolled]     = useState(false)
   // FIX: track keyboard height so pill stays pinned above keyboard on mobile
   const [kbOffset,     setKbOffset]     = useState(0)
+  const [vvBottom,     setVvBottom]     = useState(0) // distance from bottom of visual viewport to bottom of layout viewport
 
   const location    = useLocation()
   const navigate    = useNavigate()
@@ -78,7 +79,6 @@ export default function AppLayout() {
 
   // Keyboard open/close — hide pill when any input is focused, show when not.
   useEffect(() => {
-    const show = () => setKbOffset(0)
     const hide = (e) => {
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') setKbOffset(1)
     }
@@ -90,6 +90,27 @@ export default function AppLayout() {
     return () => {
       document.removeEventListener('focusin',  hide)
       document.removeEventListener('focusout', blur)
+    }
+  }, [])
+
+  // Track exact keyboard height via visualViewport for chat sheet bottom positioning
+  useEffect(() => {
+    const update = () => {
+      const vv = window.visualViewport
+      if (!vv) return
+      const kb = window.innerHeight - vv.height - vv.offsetTop
+      setVvBottom(Math.max(0, Math.round(kb)))
+    }
+    const vv = window.visualViewport
+    if (vv) {
+      vv.addEventListener('resize', update)
+      vv.addEventListener('scroll', update)
+    }
+    return () => {
+      if (vv) {
+        vv.removeEventListener('resize', update)
+        vv.removeEventListener('scroll', update)
+      }
     }
   }, [])
 
@@ -505,10 +526,20 @@ export default function AppLayout() {
           right:      isMobile ? 12 : 'auto',
           width:      isMobile ? 'auto' : 'min(860px, calc(100vw - 64px))',
           transform:  isMobile ? 'none' : 'translateX(-50%)',
-          bottom:     130,
-          height:     chatOpen ? (isMobile ? 'calc(100svh - 52px - 130px)' : '75vh') : 0,
+          // On mobile: pin sheet between header (top:52) and keyboard top (bottom:vvBottom).
+          // This means the sheet always fills exactly the visible space between header
+          // and keyboard — no gaps, no overflow — regardless of keyboard height.
+          // On desktop: use bottom+height as before.
+          ...(isMobile ? {
+            top:        chatOpen ? 52 : '100vh',
+            bottom:     vvBottom,
+            height:     'auto',
+          } : {
+            bottom:     130,
+            height:     chatOpen ? '75vh' : 0,
+          }),
           overflow:   'hidden',
-          transition: 'bottom 0.3s ease, height 0.4s cubic-bezier(0.32,0.72,0,1)',
+          transition: 'top 0.35s cubic-bezier(0.32,0.72,0,1), bottom 0.15s ease',
           zIndex:     40,
           background: 'rgba(8,10,16,0.98)',
           borderRadius: '20px 20px 0 0',
