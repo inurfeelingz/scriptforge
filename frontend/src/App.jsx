@@ -43,9 +43,12 @@ function useKeepAlive() {
 }
 
 function AuthGuard({ children }) {
-  const { user, initialized } = useStore()
+  const { user, profile, initialized } = useStore()
   if (!initialized) return <SplashScreen />
   if (!user) return <Navigate to="/auth" replace />
+  // Wait for profile to load before rendering — prevents 401s on first render
+  // after Google OAuth when the token is valid but profile fetch is still in flight
+  if (!profile) return <SplashScreen />
   return children
 }
 

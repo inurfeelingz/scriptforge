@@ -147,7 +147,6 @@ export const useStore = create((set, get) => ({
         if (event === 'SIGNED_IN' && !get().profile) {
           // No profile yet means this is a real new sign-in, not a recovery
           // Wait for token to settle then load
-          await new Promise(r => setTimeout(r, 1000))
           try {
             const { profile } = await usersApi.profile()
             set({ profile })
