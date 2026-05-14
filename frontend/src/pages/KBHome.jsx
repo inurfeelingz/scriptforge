@@ -12,8 +12,13 @@ export default function KBHome() {
   const [searchParams, setSearchParams] = useSearchParams()
   const navigate = useNavigate()
   const isMobile = window.innerWidth < 768
-  const { activeCategory, loadCategories } = useStore()
-  const cat = activeCategory?.()
+  // Subscribe directly to categories + activeCategoryId so the component
+  // re-renders when they load — activeCategory() called outside a subscription
+  // returns stale data on first render when categories are still loading.
+  const categories      = useStore(s => s.categories)
+  const activeCategoryId = useStore(s => s.activeCategoryId)
+  const loadCategories  = useStore(s => s.loadCategories)
+  const cat = categories.find(c => c.id === activeCategoryId) || null
 
   const [onboarding, setOnboarding] = useState(false)
   const [checked,    setChecked]    = useState(false)
@@ -46,8 +51,9 @@ export default function KBHome() {
       // Wait briefly to let loadCategories finish on first render
       const timer = setTimeout(() => {
         // Re-check after delay — if still no cat, send to onboard
-        const { activeCategory: ac } = useStore.getState?.() || {}
-        const stillNoCat = !ac?.()
+        const cats = useStore.getState?.().categories || []
+        const actId = useStore.getState?.().activeCategoryId
+        const stillNoCat = !cats.find(c => c.id === actId)
         if (stillNoCat) navigate('/onboard')
       }, 800)
       return () => clearTimeout(timer)
