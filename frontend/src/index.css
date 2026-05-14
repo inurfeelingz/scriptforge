@@ -399,8 +399,8 @@ input, textarea, select {
   transition: border-color 0.15s, box-shadow 0.15s;
 }
 input:focus, textarea:focus, select:focus {
-  box-shadow: 0 0 0 2px rgba(212,168,83,0.12), 0 0 0 1px rgba(212,168,83,0.3);
-  border-color: rgba(212,168,83,0.4) !important;
+  box-shadow: none;
+  border-color: rgba(74,222,128,0.25) !important;
   outline: none;
 }
 

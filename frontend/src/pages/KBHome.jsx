@@ -17,6 +17,28 @@ export default function KBHome() {
 
   const [onboarding, setOnboarding] = useState(false)
   const [checked,    setChecked]    = useState(false)
+  const [vvBottom,   setVvBottom]   = useState(0)
+
+  // Track keyboard height so the chat panel bottom sticks to the keyboard
+  useEffect(() => {
+    const update = () => {
+      const vv = window.visualViewport
+      if (!vv) return
+      const kb = window.innerHeight - vv.height - vv.offsetTop
+      setVvBottom(Math.max(0, Math.round(kb)))
+    }
+    const vv = window.visualViewport
+    if (vv) {
+      vv.addEventListener('resize', update)
+      vv.addEventListener('scroll', update)
+    }
+    return () => {
+      if (vv) {
+        vv.removeEventListener('resize', update)
+        vv.removeEventListener('scroll', update)
+      }
+    }
+  }, [])
 
   useEffect(() => {
     // No category at all — user needs to create their first workspace
@@ -55,7 +77,7 @@ export default function KBHome() {
       top:           52,
       left:          0,
       right:         0,
-      bottom:        84,
+      bottom:        vvBottom > 0 ? vvBottom : 84,
       display:       'flex',
       flexDirection: 'column',
       background:    'rgba(8,10,16,0.99)',
