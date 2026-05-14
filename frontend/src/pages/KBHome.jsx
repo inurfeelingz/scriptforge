@@ -7,30 +7,24 @@ import { useSearchParams, useNavigate } from 'react-router-dom'
 import ChatPanel     from '../components/chat/ChatPanel'
 import KBOnboarding  from '../components/chat/KBOnboarding'
 import { useStore }  from '../store'
+import { chat as chatApi } from '../lib/api'
 
 export default function KBHome() {
   const [searchParams, setSearchParams] = useSearchParams()
   const navigate = useNavigate()
-  const isMobile = window.innerWidth < 768
-  // Subscribe directly to categories + activeCategoryId so the component
-  // re-renders when they load — activeCategory() called outside a subscription
-  // returns stale data on first render when categories are still loading.
-  const categories      = useStore(s => s.categories)
-  const activeCategoryId = useStore(s => s.activeCategoryId)
-  const loadCategories  = useStore(s => s.loadCategories)
-  const cat = categories.find(c => c.id === activeCategoryId) || null
+  const { activeCategory, loadCategories } = useStore()
+  const cat = activeCategory?.()
 
   const [onboarding, setOnboarding] = useState(false)
   const [checked,    setChecked]    = useState(false)
   const [vvBottom,   setVvBottom]   = useState(0)
 
-  // Track keyboard height so the chat panel bottom sticks to the keyboard
+  // Track keyboard height so input sticks to keyboard top
   useEffect(() => {
     const update = () => {
       const vv = window.visualViewport
       if (!vv) return
-      const kb = window.innerHeight - vv.height - vv.offsetTop
-      setVvBottom(Math.max(0, Math.round(kb)))
+      setVvBottom(Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop)))
     }
     const vv = window.visualViewport
     if (vv) {
@@ -46,36 +40,23 @@ export default function KBHome() {
   }, [])
 
   useEffect(() => {
-    // No category at all — user needs to create their first workspace
-    if (!cat) {
-      // Wait briefly to let loadCategories finish on first render
-      const timer = setTimeout(() => {
-        // Re-check after delay — if still no cat, send to onboard
-        const cats = useStore.getState?.().categories || []
-        const actId = useStore.getState?.().activeCategoryId
-        const stillNoCat = !cats.find(c => c.id === actId)
-        if (stillNoCat) navigate('/onboard')
-      }, 800)
-      return () => clearTimeout(timer)
-    }
+    if (!cat) return
     const fromOnboard = searchParams.get('onboarding') === '1'
     const needsOnboard = !cat.onboarded_at
     setOnboarding(fromOnboard || needsOnboard)
     setChecked(true)
-    // Clear URL param
     if (fromOnboard) setSearchParams({}, { replace: true })
   }, [cat?.id, cat?.onboarded_at])
 
   async function handleOnboardComplete() {
     await loadCategories()
+    // Clear chat history so the user lands on a fresh KB after onboarding
+    const { activeCategoryId } = useStore.getState()
+    await chatApi.clearHistory({ categoryId: activeCategoryId, mode: 'generate' }).catch(() => {})
     setOnboarding(false)
   }
 
-  if (!checked) return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(8,10,16,0.99)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      <div style={{ width: 8, height: 8, borderRadius: '50%', background: 'rgba(74,222,128,0.5)', animation: 'pulse 1.5s ease-in-out infinite' }}/>
-    </div>
-  )
+  if (!checked) return null
 
   return (
     <div style={{
