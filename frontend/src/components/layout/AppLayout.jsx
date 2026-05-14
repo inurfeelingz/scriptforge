@@ -127,11 +127,16 @@ export default function AppLayout() {
   // Close pill on route change
   useEffect(() => { setPillExpanded(false); setGearOpen(false) }, [location.pathname])
 
-  // Listen for kb:open event
+  // Listen for kb:open and kb:close events
   useEffect(() => {
-    const handler = () => setChatOpen(true)
-    window.addEventListener('kb:open', handler)
-    return () => window.removeEventListener('kb:open', handler)
+    const openHandler  = () => setChatOpen(true)
+    const closeHandler = () => setChatOpen(false)
+    window.addEventListener('kb:open',  openHandler)
+    window.addEventListener('kb:close', closeHandler)
+    return () => {
+      window.removeEventListener('kb:open',  openHandler)
+      window.removeEventListener('kb:close', closeHandler)
+    }
   }, [])
 
   async function loadCategories_() {

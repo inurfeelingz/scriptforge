@@ -199,6 +199,47 @@ const STYLES = `
   .kb-action-btn.accent { color: var(--text2); }
   .kb-action-btn.accent:hover { color: var(--text); }
 
+  .kb-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 16px;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+    flex-shrink: 0;
+    position: sticky;
+    top: 0;
+    background: rgba(10,12,18,0.97);
+    z-index: 2;
+  }
+
+  .kb-header-mode {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-family: 'Figtree', sans-serif;
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: rgba(255,255,255,0.35);
+  }
+
+  .kb-header-close {
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    border: 1px solid rgba(255,255,255,0.08);
+    background: rgba(255,255,255,0.03);
+    color: rgba(255,255,255,0.35);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s;
+    touch-action: manipulation;
+  }
+  .kb-header-close:hover { background: rgba(255,255,255,0.07); color: rgba(255,255,255,0.7); }
+
   .kb-main {
     flex: 1;
     display: flex;
@@ -653,11 +694,21 @@ export default function ChatPanel() {
     return (
       <div className="kb-panel">
         <div className="kb-main">
-          <div style={{ padding:'12px 16px 0', display:'flex', alignItems:'center', gap:8, borderBottom:'1px solid rgba(255,255,255,0.05)', paddingBottom:12, marginBottom:4 }}>
-            <button onClick={() => setView('chat')} style={{ background:'none', border:'none', cursor:'pointer', color:'rgba(255,255,255,0.4)', fontSize:12, fontFamily:"'Figtree',sans-serif", display:'flex', alignItems:'center', gap:4 }}>
-              ← Back
+          <div className="kb-header">
+            <div className="kb-header-mode">
+              <button onClick={() => setView('chat')} style={{ background:'none', border:'none', cursor:'pointer', color:'rgba(255,255,255,0.4)', fontSize:12, fontFamily:"'Figtree',sans-serif", display:'flex', alignItems:'center', gap:4, padding:0 }}>
+                ← Back
+              </button>
+              <span style={{ color: 'rgba(255,255,255,0.2)' }}>·</span>
+              Saved conversations
+            </div>
+            <button
+              type="button"
+              className="kb-header-close"
+              onClick={() => window.dispatchEvent(new Event('kb:close'))}
+            >
+              <X size={12}/>
             </button>
-            <span style={{ fontSize:11, color:'rgba(255,255,255,0.25)', textTransform:'uppercase', letterSpacing:'0.1em', fontFamily:"'Figtree',sans-serif" }}>Saved conversations</span>
           </div>
           <div className="kb-messages">
             {sessions.length === 0 && (
@@ -689,6 +740,23 @@ export default function ChatPanel() {
 
       {/* Main chat area */}
       <div className="kb-main">
+
+        {/* Sticky header — close button hidden on home (KBHome manages its own layout) */}
+        <div className="kb-header">
+          <div className="kb-header-mode">
+            <span style={{ color: meta.color, fontSize: 14 }}>{meta.glyph}</span>
+            {meta.name}
+          </div>
+          {location.pathname !== '/' && (
+            <button
+              type="button"
+              className="kb-header-close"
+              onClick={() => window.dispatchEvent(new Event('kb:close'))}
+            >
+              <X size={12}/>
+            </button>
+          )}
+        </div>
 
         {/* Messages */}
         <div className="kb-messages" ref={messagesRef}>
