@@ -45,6 +45,7 @@ export default function EpisodePage() {
   const [loading,  setLoading]  = useState(true)
   const [tab,      setTab]      = useState('script')
   const [copied,   setCopied]   = useState(false)
+  const [deleting, setDeleting] = useState(false)
 
   // Set active episode for KB context
   useEffect(() => {
@@ -59,6 +60,18 @@ export default function EpisodePage() {
       .then(({ episode }) => { setEpisode(episode); setLoading(false) })
       .catch(() => setLoading(false))
   }, [id])
+
+  async function deleteEpisode() {
+    if (!id || deleting) return
+    setDeleting(true)
+    try {
+      const { supabase: sb } = await import('../lib/supabase')
+      const { data: { user } } = await sb.auth.getUser()
+      await sb.from('episodes').delete().eq('id', id).eq('user_id', user.id)
+      notify('Episode deleted', 'success')
+      navigate('/pipeline')
+    } catch (err) { notify(err.message, 'error'); setDeleting(false) }
+  }
 
   async function advanceStatus(nextStatus) {
     try {
@@ -126,6 +139,15 @@ export default function EpisodePage() {
           </div>
 
           {/* Status advance button */}
+          {/* Delete episode */}
+          <button
+            onClick={() => { if (window.confirm('Delete this episode? This cannot be undone.')) deleteEpisode() }}
+            disabled={deleting}
+            style={{ padding: '7px 12px', borderRadius: 8, border: '1px solid rgba(248,113,113,0.2)', background: 'transparent', color: 'rgba(248,113,113,0.6)', cursor: 'pointer', fontSize: 12, fontFamily: "'Figtree',sans-serif", flexShrink: 0 }}
+          >
+            {deleting ? '...' : 'Delete'}
+          </button>
+
           {episode.status !== 'published' && (
             <div style={{ flexShrink: 0 }}>
               {episode.status === 'draft' && (
