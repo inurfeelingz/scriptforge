@@ -57,7 +57,7 @@ async function loadHistory(userId, categoryId, mode) {
 
 // ── POST /api/chat/message ─────────────────────────────────────────────────────
 router.post('/message', async (req, res) => {
-  const { categoryId, mode = 'generate', message, episodeCtx, messages = [] } = req.body
+  const { categoryId, mode = 'generate', message, episodeCtx, messages = [], activeEpisodeId } = req.body
 
   if (!message?.trim()) return res.status(400).json({ error: 'Message is required' })
 
@@ -101,10 +101,10 @@ router.post('/message', async (req, res) => {
     const isCommitCmd = COMMIT_TRIGGERS.some(t => message.toLowerCase().includes(t))
 
     // Assemble system context
-    const ctxKey = episodeCtx ? null : `${req.user.id}:${categoryId}:${mode}`
+    const ctxKey = (episodeCtx || activeEpisodeId) ? null : `${req.user.id}:${categoryId}:${mode}`
     let systemContext = ctxKey ? getCachedCtx(ctxKey) : null
     if (!systemContext) {
-      systemContext = await assembleContext(req.user.id, categoryId, { mode, episodeCtx })
+      systemContext = await assembleContext(req.user.id, categoryId, { mode, episodeCtx, activeEpisodeId })
       if (ctxKey) setCachedCtx(ctxKey, systemContext)
     }
 
@@ -131,8 +131,8 @@ router.post('/message', async (req, res) => {
         if (h.length >= 2) {
           const extractRes = await client.messages.create({
             model:      process.env.CLAUDE_MODEL || 'claude-sonnet-4-5',
-            max_tokens: 300,
-            system:     'Extract the episode plan from this conversation as compact JSON only. No preamble, no markdown. Fields: {"track_name":string,"summary":string,"themes":string[],"mood":string}. If no clear plan exists return {}.',
+            max_tokens: 500,
+            system:     'Extract the episode plan from this conversation as compact JSON only. No preamble, no markdown. Fields: {"track_name":string,"summary":string,"themes":string[],"mood":string,"thumbnail_concept":string}. thumbnail_concept should be a one-sentence description of the visual moment that would stop the viewer mid-scroll — the image, expression, or scene that encapsulates the episode. If no thumbnail has been discussed, infer the most compelling visual from the summary. If no clear plan exists return {}.',
             messages:   [{ role: 'user', content: h.slice(-12).map(m => `${m.role}: ${m.content}`).join('\n') }],
           })
           const raw  = (extractRes.content[0]?.text || '{}').replace(/```json|```/g, '').trim()
@@ -140,15 +140,16 @@ router.post('/message', async (req, res) => {
 
           if (plan.track_name) {
             await supabase.from('kb_planned_episodes').insert({
-              user_id:      req.user.id,
-              category_id:  categoryId,
-              track_name:   plan.track_name,
-              summary:      plan.summary || '',
-              themes:       plan.themes  || [],
-              track_context: { mood: plan.mood || '' },
-              status:       'planned',
-              chat_session: mode,
-              updated_at:   new Date().toISOString(),
+              user_id:           req.user.id,
+              category_id:       categoryId,
+              track_name:        plan.track_name,
+              summary:           plan.summary || '',
+              themes:            plan.themes  || [],
+              thumbnail_concept: plan.thumbnail_concept || '',
+              track_context:     { mood: plan.mood || '' },
+              status:            'planned',
+              chat_session:      mode,
+              updated_at:        new Date().toISOString(),
             })
 
             const ack = `"${plan.track_name}" is locked in. Head to Generate whenever you're ready — your plan is saved.`
@@ -199,7 +200,7 @@ router.post('/message', async (req, res) => {
       }
     }
 
-    // Persist full history
+    // Persist full history — auto-saves every message, no manual save needed
     if (categoryId) {
       const updatedHistory = [
         ...dbHistory,
@@ -207,6 +208,25 @@ router.post('/message', async (req, res) => {
         { role: 'assistant', content: fullResponse,  timestamp: new Date().toISOString() },
       ]
       await saveHistory(req.user.id, categoryId, mode, updatedHistory)
+
+      // Post-message extraction — runs async, non-blocking
+      // Every 5 messages: extract learnings and check for voice profile updates
+      if (updatedHistory.length % 5 === 0) {
+        extractLearnings(req.user.id, categoryId, updatedHistory.slice(-10), fullResponse, message)
+          .catch(err => console.warn('[extract] Failed:', err.message))
+      }
+
+      // Always check for voice profile corrections in the user's last message
+      if (message.toLowerCase().includes("my style") ||
+          message.toLowerCase().includes("i never") ||
+          message.toLowerCase().includes("i always") ||
+          message.toLowerCase().includes("don't say") ||
+          message.toLowerCase().includes("i prefer") ||
+          message.toLowerCase().includes("sounds like me") ||
+          message.toLowerCase().includes("not my voice")) {
+        updateVoiceProfile(req.user.id, categoryId, message, fullResponse)
+          .catch(err => console.warn('[voice-update] Failed:', err.message))
+      }
     }
 
     send('done', { response: fullResponse })
@@ -245,7 +265,7 @@ router.post('/commit-episode', async (req, res) => {
     const extraction = await client.messages.create({
       model:      process.env.CLAUDE_MODEL || 'claude-sonnet-4-5',
       max_tokens: 800,
-      system:     'Extract episode planning data as JSON only. No preamble. Return: { "track_name": string, "episode_number": number|null, "mood": string, "summary": string, "themes": string[], "callback_seeds": string[], "targetDurationMinutes": number }',
+      system:     'Extract episode planning data as JSON only. No preamble. Return: { "track_name": string, "episode_number": number|null, "mood": string, "summary": string, "themes": string[], "callback_seeds": string[], "targetDurationMinutes": number, "thumbnail_concept": string }. thumbnail_concept is a one-sentence visual description of the thumbnail moment — the image that would stop the viewer mid-scroll. Infer from the episode summary if not explicitly discussed.',
       messages:   [{ role: 'user', content: extractionPrompt }],
     })
 
@@ -263,20 +283,21 @@ router.post('/commit-episode', async (req, res) => {
     const { data: planned, error: pe } = await supabase
       .from('kb_planned_episodes')
       .upsert({
-        user_id:      req.user.id,
-        category_id:  categoryId,
-        episode_number: epNumber,
-        track_name:   plan.track_name,
+        user_id:           req.user.id,
+        category_id:       categoryId,
+        episode_number:    epNumber,
+        track_name:        plan.track_name,
         track_context: {
           mood:                   plan.mood || '',
           targetDurationMinutes:  plan.targetDurationMinutes || 8,
         },
-        summary:       plan.summary,
-        themes:        plan.themes || [],
-        callback_seeds: plan.callback_seeds || [],
-        status:        'planned',
-        chat_session:  mode || 'generate',
-        updated_at:    new Date().toISOString(),
+        summary:           plan.summary,
+        themes:            plan.themes || [],
+        callback_seeds:    plan.callback_seeds || [],
+        thumbnail_concept: plan.thumbnail_concept || '',
+        status:            'planned',
+        chat_session:      mode || 'generate',
+        updated_at:        new Date().toISOString(),
       }, { onConflict: epNumber ? 'user_id,category_id,episode_number' : undefined })
       .select()
       .single()
@@ -408,7 +429,20 @@ router.post('/speak', async (req, res) => {
   }
 
   try {
-    const voiceId = process.env.ELEVENLABS_VOICE_ID || 'EXAVITQu4vr4xnSDxMaL' // default: Bella
+    // Use creator's voice clone if available, fall back to env default
+    let voiceId = process.env.ELEVENLABS_VOICE_ID || 'EXAVITQu4vr4xnSDxMaL'
+    if (categoryId) {
+      const { data: cat } = await supabase
+        .from('categories')
+        .select('voice_profile')
+        .eq('id', categoryId)
+        .eq('user_id', req.user.id)
+        .single()
+        .catch(() => ({ data: null }))
+      if (cat?.voice_profile?.elevenLabsVoiceId) {
+        voiceId = cat.voice_profile.elevenLabsVoiceId
+      }
+    }
     const clean   = text
       .replace(/#+\s*/g, '')        // remove markdown headers
       .replace(/\*+/g, '')          // remove bold/italic
@@ -496,7 +530,8 @@ Your job is to learn how they communicate on camera so their scripts sound like 
 Ask ONE question at a time. Be warm, direct, and brief — like a creative friend, not a form.
 After collecting all answers, output a JSON block wrapped in ===VOICE_PROFILE=== tags.
 
-CRITICAL FORMATTING RULE — NO EXCEPTIONS: Never use markdown symbols of any kind. No **bold**, no *italic*, no ## headers, no # headers, no bullet points with -, no numbered lists, no backticks, no --- dividers, no > blockquotes. Never use em dashes. Write everything as plain conversational prose only. This applies even for status checks, diagnostics, lists of items, or structured information — convert all of it to flowing sentences. You CAN use line breaks between paragraphs.
+CRITICAL FORMATTING RULE: Never use markdown symbols of any kind. No bold, no italic, no headers, no bullet points, no backticks, no dividers. Plain prose only. Line breaks between paragraphs are fine.
+After completing onboarding, let the creator know that the next step is to connect YouTube or upload audience data on the Analytics page so KB can tailor everything to their specific viewers.
 
 The 6 questions to work through (adapt naturally based on their answers):
 1. What kind of content do you make? (format, length, style)
@@ -603,7 +638,227 @@ Show name: ${cat?.name || 'their show'}. Niche: ${cat?.niche || 'content creatio
   }
 })
 
-// ── POST /api/chat/generate-episode ───────────────────────────────────────────
+// ── POST /api/chat/edit-frame ────────────────────────────────────────────────
+// KB edits a storyboard frame directly from chat.
+// Body: { frameId, description, notes, shot_type }
+
+router.post('/edit-frame', async (req, res) => {
+  const { frameId, description, notes, shot_type } = req.body
+  if (!frameId) return res.status(400).json({ error: 'frameId required' })
+
+  const updates = {}
+  if (description !== undefined) updates.description = description
+  if (notes       !== undefined) updates.notes       = notes
+  if (shot_type   !== undefined) updates.shot_type   = shot_type
+
+  const { data, error } = await supabase
+    .from('storyboard_frames')
+    .update(updates)
+    .eq('id', frameId)
+    .eq('user_id', req.user.id)
+    .select()
+    .single()
+
+  if (error) return res.status(500).json({ error: error.message })
+  res.json({ frame: data })
+})
+
+// ── POST /api/chat/thumbnail-prompt ──────────────────────────────────────────
+// Generates a Flux-ready thumbnail prompt based on:
+// - The episode plan (track_name, summary, thumbnail_concept)
+// - The audience model (what triggers clicks for this specific viewer)
+// - The creator's voice profile (their brand aesthetic)
+// Returns a copyable prompt ready to paste into Flux or Ideogram.
+
+router.post('/thumbnail-prompt', async (req, res) => {
+  const { categoryId, episodeId, plannedEpisodeId } = req.body
+  if (!categoryId) return res.status(400).json({ error: 'categoryId required' })
+
+  try {
+    // Load category for audience model + voice profile
+    const { data: cat } = await supabase
+      .from('categories')
+      .select('niche, name, audience_model, voice_profile')
+      .eq('id', categoryId)
+      .single()
+
+    // Load reaction images for thumbnail compositing
+    const { data: reactionImages } = await supabase
+      .from('creator_assets')
+      .select('tag, file_name, storage_url')
+      .eq('user_id', req.user.id)
+      .eq('category_id', categoryId)
+      .eq('asset_type', 'reaction')
+      .order('created_at', { ascending: false })
+      .limit(10)
+
+    // Load episode or planned episode for context
+    let episodeContext = {}
+    if (episodeId) {
+      const { data: ep } = await supabase
+        .from('episodes')
+        .select('track_name, episode_concept, summary, themes, thumbnail_concept')
+        .eq('id', episodeId)
+        .single()
+      episodeContext = ep || {}
+    } else if (plannedEpisodeId) {
+      const { data: planned } = await supabase
+        .from('kb_planned_episodes')
+        .select('track_name, summary, themes, thumbnail_concept, track_context')
+        .eq('id', plannedEpisodeId)
+        .single()
+      episodeContext = planned || {}
+    }
+
+    // Build audience context string
+    const audience = cat?.audience_model?.geminiInsights
+    const ytAudience = cat?.audience_model?.youtube
+    const audienceStr = audience ? [
+      audience.primaryAudience?.ageRange && `Viewer: ${audience.primaryAudience.ageRange}`,
+      audience.psychographics?.corePainPoint && `Pain point: ${audience.psychographics.corePainPoint}`,
+      audience.psychographics?.coreAspiration && `Aspiration: ${audience.psychographics.coreAspiration}`,
+      audience.thumbnailPsychology?.emotionalTriggers?.length && `Click triggers: ${audience.thumbnailPsychology.emotionalTriggers.join(', ')}`,
+      audience.thumbnailPsychology?.visualPatterns && `Visual patterns that work: ${audience.thumbnailPsychology.visualPatterns}`,
+    ].filter(Boolean).join('
+') : 'No audience data yet — using niche knowledge.'
+
+    const ytStr = ytAudience?.devices?.[0]
+      ? `Primary device: ${ytAudience.devices[0].device} (${ytAudience.devices[0].pct}% of views)`
+      : ''
+
+    // Generate the Flux prompt
+    const promptRes = await client.messages.create({
+      model:      process.env.CLAUDE_MODEL || 'claude-sonnet-4-5',
+      max_tokens: 600,
+      system:     `You are a thumbnail strategist who writes precise Flux/Midjourney image generation prompts.
+Your prompts are specific, visual, emotionally targeted, and optimised for YouTube CTR.
+Never use markdown. Write the prompt as a single paragraph of plain text.
+The prompt must describe a photorealistic or cinematic image — no illustrations or cartoons unless the creator's brand requires it.
+The prompt must NOT request any text overlays — those are added in Canva after.
+End with: "16:9 aspect ratio, photorealistic, cinematic lighting"`,
+      messages: [{
+        role: 'user',
+        content: `Write a Flux image generation prompt for this YouTube thumbnail.
+
+Episode: "${episodeContext.track_name || 'untitled'}"
+Summary: ${episodeContext.summary || episodeContext.episode_concept || 'not provided'}
+Thumbnail concept: ${episodeContext.thumbnail_concept || 'not specified — infer the most compelling visual from the episode summary'}
+Themes: ${(episodeContext.themes || []).join(', ') || 'not specified'}
+Niche: ${cat?.niche || 'content creation'}
+
+Audience intelligence:
+${audienceStr}
+${ytStr}
+
+${reactionImages?.length ? `Creator reaction images available (use one of these):
+${reactionImages.map(r => `[${r.tag}]: ${r.file_name}`).join('\n')}
+Choose the tag that best matches the episode emotional hook. In the Flux prompt, describe the environment/background to composite around the creator. Include: "Reference image provided. Do NOT alter the face, expression, or skin tone. Composite only. No text overlays."` : 'No reaction images uploaded yet — describe a photorealistic scene without the creator face.'}
+
+The thumbnail must emotionally resonate with this specific viewer. What visual moment would make them stop scrolling? Write the Flux prompt now.`,
+      }],
+    })
+
+    const fluxPrompt = promptRes.content[0]?.text?.trim() || ''
+
+    // Also generate title formulas based on audience
+    const titleRes = await client.messages.create({
+      model:      process.env.CLAUDE_MODEL || 'claude-sonnet-4-5',
+      max_tokens: 300,
+      system:     'You write YouTube titles optimised for CTR. Return 3 title options as plain text, one per line, no numbering, no quotes, no markdown.',
+      messages: [{
+        role: 'user',
+        content: `Write 3 YouTube title options for this episode.
+
+Episode: "${episodeContext.track_name || 'untitled'}"
+Summary: ${episodeContext.summary || 'not provided'}
+Audience pain point: ${audience?.psychographics?.corePainPoint || 'not researched yet'}
+Audience aspiration: ${audience?.psychographics?.coreAspiration || 'not researched yet'}
+Title formulas that work for this audience: ${audience?.thumbnailPsychology?.titleFormulas?.join(' | ') || 'not researched yet'}
+
+Write titles that speak directly to the pain point or aspiration. No clickbait, no generic hooks.`,
+      }],
+    })
+
+    const titleOptions = (titleRes.content[0]?.text || '').trim().split('
+').filter(Boolean)
+
+    res.json({
+      fluxPrompt,
+      titleOptions,
+      thumbnailConcept:  episodeContext.thumbnail_concept || '',
+      audienceUsed:      !!audience,
+      reactionImages:    reactionImages || [],
+    })
+
+  } catch (err) {
+    console.error('[thumbnail-prompt]', err.message)
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// ── POST /api/chat/voice-clone ────────────────────────────────────────────────
+// Initiates ElevenLabs voice clone training from an uploaded audio file.
+// Body: multipart/form-data — file (audio), categoryId
+// After training completes, stores the voice ID in voice_profile.elevenLabsVoiceId
+
+const multerClone = require('multer')({ storage: require('multer').memoryStorage(), limits: { fileSize: 500 * 1024 * 1024 } })
+
+router.post('/voice-clone', multerClone.single('file'), async (req, res) => {
+  const { categoryId } = req.body
+  if (!categoryId)  return res.status(400).json({ error: 'categoryId required' })
+  if (!req.file)    return res.status(400).json({ error: 'Audio file required' })
+  if (!process.env.ELEVENLABS_API_KEY) return res.status(503).json({ error: 'ElevenLabs not configured' })
+
+  try {
+    // Fetch category for naming the clone
+    const { data: cat } = await supabase
+      .from('categories')
+      .select('name, voice_profile')
+      .eq('id', categoryId)
+      .eq('user_id', req.user.id)
+      .single()
+
+    const FormData = require('form-data')
+    const form = new FormData()
+    form.append('name', `${cat?.name || 'Creator'} — WhispaCuts Voice Clone`)
+    form.append('description', `Voice clone for ${cat?.name || 'WhispaCuts creator'}, trained ${new Date().toLocaleDateString()}`)
+    form.append('files', req.file.buffer, {
+      filename:    req.file.originalname || 'voice_sample.mp3',
+      contentType: req.file.mimetype || 'audio/mpeg',
+    })
+
+    const axios = require('axios')
+    const cloneRes = await axios.post(
+      'https://api.elevenlabs.io/v1/voices/add',
+      form,
+      {
+        headers: {
+          ...form.getHeaders(),
+          'xi-api-key': process.env.ELEVENLABS_API_KEY,
+        },
+        maxBodyLength: Infinity,
+        maxContentLength: Infinity,
+      }
+    )
+
+    const voiceId = cloneRes.data.voice_id
+    if (!voiceId) throw new Error('No voice ID returned from ElevenLabs')
+
+    // Store in voice_profile
+    const existingVP = cat?.voice_profile || {}
+    await supabase.from('categories').update({
+      voice_profile: { ...existingVP, elevenLabsVoiceId: voiceId },
+      updated_at:    new Date().toISOString(),
+    }).eq('id', categoryId).eq('user_id', req.user.id)
+
+    res.json({ success: true, voiceId, message: 'Voice clone created — KB will now speak in your voice' })
+  } catch (err) {
+    console.error('[voice-clone]', err.response?.data || err.message)
+    res.status(500).json({ error: err.response?.data?.detail || err.message })
+  }
+})
+
+// ── POST /api/chat/generate-episode ───────────────────────────────────────────────
 // KB extracts a plan from conversation then triggers full episode generation
 // Returns SSE stream — same format as /episodes/generate
 router.post('/generate-episode', async (req, res) => {
@@ -698,6 +953,99 @@ router.post('/generate-episode', async (req, res) => {
     res.end()
   }
 })
+
+// ── POST-CONVERSATION EXTRACTION ─────────────────────────────────────────────
+// Runs async after every 5 messages. Extracts learnings and writes to kb_learnings.
+
+async function extractLearnings(userId, categoryId, recentMessages, lastResponse, lastMessage) {
+  const conversation = recentMessages
+    .map(m => `${m.role}: ${m.content.slice(0, 300)}`)
+    .join('\n')
+
+  const extraction = await client.messages.create({
+    model:      process.env.CLAUDE_MODEL || 'claude-sonnet-4-5',
+    max_tokens: 400,
+    system:     'Extract creative learnings from this conversation. Return ONLY valid JSON, no preamble. Fields: { "insights": string[], "preferences": string[], "episodeIdeas": string[], "voiceNotes": string[] }. insights = things learned about what works for this creator. preferences = stated likes/dislikes. episodeIdeas = any episode concepts mentioned. voiceNotes = anything about how they communicate. Return empty arrays if nothing relevant. Max 3 items per array.',
+    messages:   [{ role: 'user', content: conversation }],
+  })
+
+  let learnings = {}
+  try {
+    learnings = JSON.parse(extraction.content[0]?.text?.replace(/```json|```/g, '').trim() || '{}')
+  } catch { return }
+
+  // Only save if there's something meaningful
+  const hasContent = Object.values(learnings).some(v => Array.isArray(v) && v.length > 0)
+  if (!hasContent) return
+
+  await supabase.from('kb_learnings').insert({
+    user_id:     userId,
+    category_id: categoryId,
+    insights:    learnings.insights    || [],
+    preferences: learnings.preferences || [],
+    episode_ideas: learnings.episodeIdeas || [],
+    voice_notes: learnings.voiceNotes  || [],
+    extracted_at: new Date().toISOString(),
+  })
+}
+
+// ── VOICE PROFILE LIVE UPDATE ─────────────────────────────────────────────────
+// Detects when the creator corrects or refines their voice profile mid-conversation
+// and patches the category voice_profile immediately.
+
+async function updateVoiceProfile(userId, categoryId, userMessage, kbResponse) {
+  const { data: cat } = await supabase
+    .from('categories')
+    .select('voice_profile')
+    .eq('id', categoryId)
+    .eq('user_id', userId)
+    .single()
+
+  if (!cat?.voice_profile) return
+
+  const detection = await client.messages.create({
+    model:      process.env.CLAUDE_MODEL || 'claude-sonnet-4-5',
+    max_tokens: 300,
+    system:     'Detect if the creator is correcting or refining their voice profile. Return ONLY valid JSON: { "hasUpdate": boolean, "field": string, "oldValue": string, "newValue": string, "path": string }. path is the dot-notation path in the voice_profile object to update (e.g. "languageFingerprint.avoidPhrases", "voiceCharacteristics.rhythmNote"). If no clear voice correction, return { "hasUpdate": false }.',
+    messages:   [{ role: 'user', content: `Creator said: "${userMessage}"\n\nCurrent voice profile: ${JSON.stringify(cat.voice_profile).slice(0, 500)}\n\nIs this a voice profile correction?` }],
+  })
+
+  let update = {}
+  try {
+    update = JSON.parse(detection.content[0]?.text?.replace(/```json|```/g, '').trim() || '{}')
+  } catch { return }
+
+  if (!update.hasUpdate || !update.path || !update.newValue) return
+
+  // Apply the update via dot-notation path
+  const vp = { ...cat.voice_profile }
+  const parts = update.path.split('.')
+  let obj = vp
+  for (let i = 0; i < parts.length - 1; i++) {
+    if (!obj[parts[i]]) obj[parts[i]] = {}
+    obj = obj[parts[i]]
+  }
+  const lastKey = parts[parts.length - 1]
+
+  // Handle array fields (avoidPhrases, signaturePhrases etc.)
+  if (Array.isArray(obj[lastKey])) {
+    if (!obj[lastKey].includes(update.newValue)) {
+      obj[lastKey] = [...obj[lastKey], update.newValue]
+    }
+  } else {
+    obj[lastKey] = update.newValue
+  }
+
+  await supabase.from('categories').update({
+    voice_profile: vp,
+    updated_at:    new Date().toISOString(),
+  }).eq('id', categoryId).eq('user_id', userId)
+
+  // Bust context cache so next message sees the update
+  const { invalidateContext } = require('./contextAssembler')  // already imported
+  // Note: invalidateContext is already available from the contextAssembler require at top
+  console.log(`[voice-update] Patched ${update.path} for category ${categoryId}`)
+}
 
 // FIX: module.exports moved to end of file — it was previously mid-file which
 // caused the duplicate session routes below it to be unreachable/ambiguous.

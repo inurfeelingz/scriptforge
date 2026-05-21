@@ -200,6 +200,147 @@ async function pullAnalyticsData(accessToken, startDate, endDate) {
   }).filter(v => v.title && v.title !== v.videoId)
 }
 
+// ── Pull audience demographics ───────────────────────────────────────────────
+// Fetches age/gender, geography, traffic sources, and device type.
+// All pulled in parallel for efficiency.
+
+async function pullAudienceDemographics(accessToken, startDate, endDate) {
+  const channelRes = await axios.get('https://www.googleapis.com/youtube/v3/channels', {
+    params:  { part: 'id', mine: true },
+    headers: { Authorization: `Bearer ${accessToken}` },
+  })
+  const channelId = channelRes.data.items?.[0]?.id
+  if (!channelId) throw new Error('No YouTube channel found')
+
+  const start = startDate || new Date(Date.now() - 90 * 86400000).toISOString().split('T')[0]
+  const end   = endDate   || new Date().toISOString().split('T')[0]
+
+  const base = {
+    ids:       `channel==${channelId}`,
+    startDate: start,
+    endDate:   end,
+  }
+  const headers = { Authorization: `Bearer ${accessToken}` }
+
+  // Pull all 5 dimensions in parallel
+  const [ageGender, geography, trafficSource, deviceType, subStatus] = await Promise.allSettled([
+
+    // Age + gender breakdown
+    axios.get('https://youtubeanalytics.googleapis.com/v2/reports', {
+      params:  { ...base, metrics: 'viewerPercentage', dimensions: 'ageGroup,gender', sort: '-viewerPercentage' },
+      headers,
+    }),
+
+    // Top 15 countries by views
+    axios.get('https://youtubeanalytics.googleapis.com/v2/reports', {
+      params:  { ...base, metrics: 'views,averageViewPercentage', dimensions: 'country', sort: '-views', maxResults: 15 },
+      headers,
+    }),
+
+    // Traffic sources
+    axios.get('https://youtubeanalytics.googleapis.com/v2/reports', {
+      params:  { ...base, metrics: 'views,averageViewPercentage', dimensions: 'insightTrafficSourceType', sort: '-views' },
+      headers,
+    }),
+
+    // Device type
+    axios.get('https://youtubeanalytics.googleapis.com/v2/reports', {
+      params:  { ...base, metrics: 'views,averageViewPercentage', dimensions: 'deviceType', sort: '-views' },
+      headers,
+    }),
+
+    // Subscriber vs non-subscriber
+    axios.get('https://youtubeanalytics.googleapis.com/v2/reports', {
+      params:  { ...base, metrics: 'views,averageViewPercentage,estimatedMinutesWatched', dimensions: 'subscribedStatus' },
+      headers,
+    }),
+  ])
+
+  // Helper to safely parse a settled result
+  const parse = (result) => {
+    if (result.status !== 'fulfilled') return []
+    const rows    = result.value.data.rows || []
+    const headers = (result.value.data.columnHeaders || []).map(h => h.name)
+    return rows.map(row => {
+      const obj = {}
+      headers.forEach((h, i) => { obj[h] = row[i] })
+      return obj
+    })
+  }
+
+  const agGenderRows    = parse(ageGender)
+  const geoRows         = parse(geography)
+  const trafficRows     = parse(trafficSource)
+  const deviceRows      = parse(deviceType)
+  const subRows         = parse(subStatus)
+
+  // ── Summarise age + gender ────────────────────────────────────────────────
+  const ageGroups = {}
+  const genderTotals = {}
+  for (const row of agGenderRows) {
+    const age    = row.ageGroup    || 'unknown'
+    const gender = row.gender      || 'unknown'
+    const pct    = parseFloat(row.viewerPercentage || 0)
+    ageGroups[age]       = (ageGroups[age]       || 0) + pct
+    genderTotals[gender] = (genderTotals[gender] || 0) + pct
+  }
+  const topAgeGroup = Object.entries(ageGroups).sort((a,b) => b[1]-a[1])[0]
+
+  // ── Summarise geography ───────────────────────────────────────────────────
+  const totalGeoViews = geoRows.reduce((s, r) => s + (parseInt(r.views) || 0), 0)
+  const topCountries  = geoRows.slice(0, 10).map(r => ({
+    country:          r.country,
+    views:            parseInt(r.views || 0),
+    pct:              totalGeoViews ? Math.round((parseInt(r.views||0)/totalGeoViews)*100) : 0,
+    avgViewPct:       parseFloat(r.averageViewPercentage || 0),
+  }))
+
+  // ── Summarise traffic sources ─────────────────────────────────────────────
+  const totalTrafficViews = trafficRows.reduce((s, r) => s + (parseInt(r.views) || 0), 0)
+  const trafficSources    = trafficRows.map(r => ({
+    source:     r.insightTrafficSourceType,
+    views:      parseInt(r.views || 0),
+    pct:        totalTrafficViews ? Math.round((parseInt(r.views||0)/totalTrafficViews)*100) : 0,
+    avgViewPct: parseFloat(r.averageViewPercentage || 0),
+  }))
+
+  // ── Summarise device type ─────────────────────────────────────────────────
+  const totalDeviceViews = deviceRows.reduce((s, r) => s + (parseInt(r.views) || 0), 0)
+  const devices          = deviceRows.map(r => ({
+    device:     r.deviceType,
+    views:      parseInt(r.views || 0),
+    pct:        totalDeviceViews ? Math.round((parseInt(r.views||0)/totalDeviceViews)*100) : 0,
+    avgViewPct: parseFloat(r.averageViewPercentage || 0),
+  }))
+
+  // ── Subscriber vs non-subscriber ──────────────────────────────────────────
+  const subData = {}
+  for (const row of subRows) {
+    subData[row.subscribedStatus] = {
+      views:       parseInt(row.views || 0),
+      avgViewPct:  parseFloat(row.averageViewPercentage || 0),
+      watchMinutes: parseInt(row.estimatedMinutesWatched || 0),
+    }
+  }
+
+  return {
+    pulledAt: new Date().toISOString(),
+    ageGender: {
+      topAgeGroup:   topAgeGroup?.[0] || 'unknown',
+      topAgeGroupPct: Math.round(topAgeGroup?.[1] || 0),
+      genderSplit:   genderTotals,
+      fullBreakdown: agGenderRows,
+    },
+    geography: {
+      topCountries,
+      totalCountries: geoRows.length,
+    },
+    trafficSources,
+    devices,
+    subscriberSplit: subData,
+  }
+}
+
 // ── Check connection status ───────────────────────────────────────────────────
 
 async function getConnectionStatus(userId, categoryId) {
@@ -232,6 +373,81 @@ async function disconnect(userId, categoryId) {
     .eq('category_id', categoryId)
 }
 
+// ── Pull comment sentiment ────────────────────────────────────────────────────
+// Fetches recent top-level comments from the channel's latest videos,
+// then Gemini extracts what the audience loves, hates, and is asking for.
+
+async function pullCommentSentiment(accessToken, maxVideos = 10) {
+  const axios = require('axios')
+  const headers = { Authorization: `Bearer ${accessToken}` }
+
+  try {
+    // Get channel ID
+    const channelRes = await axios.get('https://www.googleapis.com/youtube/v3/channels', {
+      params: { part: 'id,snippet', mine: true }, headers,
+    })
+    const channelId = channelRes.data.items?.[0]?.id
+    if (!channelId) return null
+
+    // Get latest videos
+    const videosRes = await axios.get('https://www.googleapis.com/youtube/v3/search', {
+      params: { part: 'id', channelId, order: 'date', type: 'video', maxResults: maxVideos },
+      headers,
+    })
+    const videoIds = (videosRes.data.items || []).map(v => v.id?.videoId).filter(Boolean)
+    if (!videoIds.length) return null
+
+    // Pull top comments from each video
+    const allComments = []
+    for (const videoId of videoIds.slice(0, 5)) {
+      try {
+        const commentsRes = await axios.get('https://www.googleapis.com/youtube/v3/commentThreads', {
+          params: { part: 'snippet', videoId, order: 'relevance', maxResults: 20 },
+          headers,
+        })
+        const comments = (commentsRes.data.items || []).map(item =>
+          item.snippet?.topLevelComment?.snippet?.textDisplay || ''
+        ).filter(Boolean)
+        allComments.push(...comments)
+      } catch { continue }
+    }
+
+    if (allComments.length < 3) return null
+
+    // Gemini sentiment analysis
+    const { GoogleGenerativeAI } = require('@google/generative-ai')
+    if (!process.env.GEMINI_API_KEY) return { raw: allComments.slice(0, 50) }
+
+    const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY)
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' })
+
+    const prompt = `Analyse these YouTube comments from a music content creator's channel and extract audience sentiment.
+
+Comments (${allComments.length} total):
+${allComments.slice(0, 60).join('
+')}
+
+Return ONLY valid JSON, no markdown:
+{
+  "loves": ["what they consistently praise or react positively to"],
+  "wants": ["specific content requests or recurring questions"],
+  "pain": ["frustrations, complaints, or things confusing them"],
+  "emotionalTriggers": ["what type of content generates the strongest reactions"],
+  "topPhrases": ["recurring words or phrases that reveal how they think about this content"],
+  "sentimentScore": 0-100,
+  "commentCount": ${allComments.length},
+  "analysedAt": "${new Date().toISOString()}"
+}`
+
+    const result = await model.generateContent(prompt)
+    const text   = result.response.text().replace(/\`\`\`json|\`\`\`/g, '').trim()
+    return JSON.parse(text)
+  } catch (err) {
+    console.warn('[youtube/commentSentiment] Failed:', err.message)
+    return null
+  }
+}
+
 module.exports = {
   buildAuthUrl,
   exchangeCode,
@@ -239,6 +455,8 @@ module.exports = {
   getValidToken,
   getChannelInfo,
   pullAnalyticsData,
+  pullAudienceDemographics,
+  pullCommentSentiment,
   getConnectionStatus,
   disconnect,
 }

@@ -1,4 +1,5 @@
-// frontend/src/lib/api.js
+// 
+
 // Centralised API client. All calls go through here.
 // Token is injected automatically from Supabase session.
 
@@ -181,6 +182,26 @@ export const analytics = {
   youtubeDisconnect: (categoryId) => req('DELETE', `/analytics/youtube/disconnect?categoryId=${categoryId}`),
   // Episode retention
   episodeRetention:  (episodeId)  => req('GET',  `/analytics/episode/${episodeId}/retention`),
+  audienceUploads:   (categoryId) => req('GET',  `/analytics/audience-uploads?categoryId=${categoryId}`),
+  audienceResearch:     (categoryId) => req('POST', '/analytics/audience-research', { categoryId }),
+  competitorResearch:   (categoryId) => req('POST', '/analytics/competitor-research', { categoryId }),
+  audienceUpload: async (file, categoryId) => {
+    const { data: { session } } = await supabase.auth.getSession()
+    const token = session?.access_token
+    const form  = new FormData()
+    form.append('file', file)
+    form.append('categoryId', categoryId)
+    const res = await fetch(`${BASE}/analytics/audience-upload`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+      body: form,
+    })
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: res.statusText }))
+      throw new Error(err.error || 'Upload failed')
+    }
+    return res.json()
+  },
   saveRetentionCurve:(id, data)   => req('POST', `/analytics/episode/${id}/retention-curve`, { curveData: data }),
 }
 
@@ -204,6 +225,8 @@ export const chat = {
   clearHistory:     (body)   => req('DELETE', '/chat/history', body),
   onboard: (body, handlers) => streamRequest('/chat/onboard', body, handlers),
   commitEpisode:    (body)   => req('POST', '/chat/commit-episode', body),
+  thumbnailPrompt:  (body)   => req('POST', '/chat/thumbnail-prompt', body),
+  editFrame:        (body)   => req('POST', '/chat/edit-frame', body),
   getSessions:      (params) => req('GET', `/chat/sessions?${new URLSearchParams(params)}`),
   getSession:       (id)     => req('GET', `/chat/sessions/${id}`),
   saveSession:      (body)   => req('POST', '/chat/sessions', body),
@@ -212,6 +235,13 @@ export const chat = {
 }
 
 // ── Refresh ───────────────────────────────────────────────────────────────────
+export const episodeComments = {
+  list:    (episodeId)          => req('GET',    `/episode-comments/${episodeId}`),
+  add:     (episodeId, body)    => req('POST',   `/episode-comments/${episodeId}`, body),
+  resolve: (commentId)          => req('PATCH',  `/episode-comments/${commentId}/resolve`),
+  remove:  (commentId)          => req('DELETE', `/episode-comments/${commentId}`),
+}
+
 export const refresh = {
   status: (categoryId) => req('GET', `/refresh/status?categoryId=${categoryId}`),
 }

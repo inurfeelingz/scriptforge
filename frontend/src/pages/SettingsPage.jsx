@@ -10,7 +10,9 @@ import { users as usersApi, categories as catApi, episodes as episodesApi, testW
 
 // ── Sub-components ──────────────────────────────────────────────────────────
 
-function Section({ title, subtitle, children, accent }) {
+function Section({ title, subtitle, children, accent, tab, activeTab }) {
+  // Hide section when tab doesn't match (if tab prop is set)
+  if (tab && activeTab && tab !== activeTab) return null
   return (
     <div style={{ background:"var(--surface)", border:"1px solid var(--border)", borderRadius:"var(--r)", padding:"1.5rem", marginBottom:"1.25rem" }}>
       <div style={{ marginBottom: '1.25rem' }}>
@@ -35,6 +37,69 @@ function Section({ title, subtitle, children, accent }) {
         )}
       </div>
       {children}
+      {/* ── Voice Clone ── */}
+      <Section icon={<Mic size={16}/>} title="KB Voice Clone" tab="integrations" activeTab={activeTab} subtitle="Train KB to speak in your voice using ElevenLabs. Upload at least 30 minutes of clean audio.">
+        {cloneVoiceId ? (
+          <div style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 12px', borderRadius:8, border:'1px solid rgba(74,222,128,0.2)', background:'rgba(74,222,128,0.04)' }}>
+            <span style={{ fontSize:13, color:'rgba(74,222,128,0.8)', fontFamily:"'Figtree',sans-serif" }}>✓ Voice clone active</span>
+            <span style={{ fontSize:11, color:'rgba(255,255,255,0.25)', fontFamily:"'Figtree',sans-serif", fontFamily:'monospace' }}>{cloneVoiceId}</span>
+            <label style={{ marginLeft:'auto', display:'flex', alignItems:'center', gap:6, padding:'5px 10px', borderRadius:6, border:'1px solid rgba(255,255,255,0.1)', background:'transparent', color:'rgba(255,255,255,0.4)', cursor: cloningVoice ? 'wait' : 'pointer', fontSize:11, fontFamily:"'Figtree',sans-serif" }}>
+              {cloningVoice ? 'Uploading...' : 'Re-train'}
+              <input type="file" accept="audio/*,.mp3,.m4a,.wav" onChange={handleVoiceClone} disabled={cloningVoice} style={{ display:'none' }}/>
+            </label>
+          </div>
+        ) : (
+          <div>
+            <label style={{ display:'inline-flex', alignItems:'center', gap:7, padding:'8px 14px', borderRadius:8, background:'rgba(74,222,128,0.07)', border:'1px solid rgba(74,222,128,0.2)', color:'rgba(74,222,128,0.8)', cursor: cloningVoice ? 'wait' : 'pointer', fontSize:12, fontFamily:"'Figtree',sans-serif" }}>
+              <Upload size={12}/>
+              {cloningVoice ? 'Training voice clone...' : 'Upload voice sample'}
+              <input type="file" accept="audio/*,.mp3,.m4a,.wav" onChange={handleVoiceClone} disabled={cloningVoice} style={{ display:'none' }}/>
+            </label>
+            <div style={{ fontSize:11, color:'rgba(255,255,255,0.25)', fontFamily:"'Figtree',sans-serif", marginTop:6 }}>
+              MP3, M4A, or WAV. Minimum 30 minutes of clean speech. No music or background noise.
+            </div>
+          </div>
+        )}
+      </Section>
+
+      {/* ── Reaction Images ── */}
+      <Section icon={<User size={16}/>} title="Thumbnail Reaction Images" tab="integrations" activeTab={activeTab} subtitle="Upload photos of your reactions for thumbnail generation. Tag each one so KB can select the right expression.">
+        <div style={{ marginBottom:12 }}>
+          <label style={{ display:'inline-flex', alignItems:'center', gap:7, padding:'8px 14px', borderRadius:8, background:'rgba(74,222,128,0.07)', border:'1px solid rgba(74,222,128,0.2)', color:'rgba(74,222,128,0.8)', cursor: uploadingReaction ? 'wait' : 'pointer', fontSize:12, fontFamily:"'Figtree',sans-serif" }}>
+            <Upload size={12}/>
+            {uploadingReaction ? 'Uploading...' : 'Upload reaction photos'}
+            <input type="file" accept="image/*" multiple onChange={handleReactionUpload} disabled={uploadingReaction} style={{ display:'none' }}/>
+          </label>
+          <div style={{ fontSize:11, color:'rgba(255,255,255,0.25)', fontFamily:"'Figtree',sans-serif", marginTop:6 }}>
+            JPG or PNG. Name files by expression (e.g. "surprised.jpg", "confident.jpg") for auto-tagging.
+          </div>
+        </div>
+
+        {reactionImages.length === 0 && (
+          <div style={{ fontSize:12, color:'rgba(255,255,255,0.2)', fontFamily:"'Figtree',sans-serif", fontStyle:'italic' }}>
+            No reaction images yet. Upload photos of yourself that KB can reference when generating thumbnail prompts.
+          </div>
+        )}
+
+        <div style={{ display:'grid', gridTemplateColumns: isMobile ? 'repeat(2,1fr)' : 'repeat(4,1fr)', gap:10 }}>
+          {reactionImages.map(img => (
+            <div key={img.id} style={{ borderRadius:8, overflow:'hidden', border:'1px solid rgba(255,255,255,0.07)', background:'rgba(255,255,255,0.02)' }}>
+              <div style={{ aspectRatio:'1', overflow:'hidden', background:'#111' }}>
+                <img src={img.storage_url} alt={img.tag} style={{ width:'100%', height:'100%', objectFit:'cover' }}/>
+              </div>
+              <div style={{ padding:'6px 8px' }}>
+                <input
+                  value={img.tag}
+                  onChange={e => updateReactionTag(img.id, e.target.value)}
+                  placeholder="Tag (e.g. surprised)"
+                  style={{ width:'100%', background:'transparent', border:'none', borderBottom:'1px solid rgba(255,255,255,0.08)', color:'rgba(255,255,255,0.6)', fontSize:11, fontFamily:"'Figtree',sans-serif", outline:'none', padding:'2px 0', boxSizing:'border-box' }}
+                />
+              </div>
+            </div>
+          ))}
+        </div>
+      </Section>
+
     </div>
   )
 }
@@ -64,6 +129,69 @@ function Field({ label, value, onChange, placeholder, hint, wide, multiline }) {
           style={{ width:"100%", background:"var(--surface2)", border:"1px solid var(--border)", borderRadius:"var(--r-sm)", padding:"0.625rem 0.875rem", fontSize:"0.9375rem", color:"var(--text)", fontFamily:"inherit", outline:"none" }}
         />
       )}
+      {/* ── Voice Clone ── */}
+      <Section icon={<Mic size={16}/>} title="KB Voice Clone" tab="integrations" activeTab={activeTab} subtitle="Train KB to speak in your voice using ElevenLabs. Upload at least 30 minutes of clean audio.">
+        {cloneVoiceId ? (
+          <div style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 12px', borderRadius:8, border:'1px solid rgba(74,222,128,0.2)', background:'rgba(74,222,128,0.04)' }}>
+            <span style={{ fontSize:13, color:'rgba(74,222,128,0.8)', fontFamily:"'Figtree',sans-serif" }}>✓ Voice clone active</span>
+            <span style={{ fontSize:11, color:'rgba(255,255,255,0.25)', fontFamily:"'Figtree',sans-serif", fontFamily:'monospace' }}>{cloneVoiceId}</span>
+            <label style={{ marginLeft:'auto', display:'flex', alignItems:'center', gap:6, padding:'5px 10px', borderRadius:6, border:'1px solid rgba(255,255,255,0.1)', background:'transparent', color:'rgba(255,255,255,0.4)', cursor: cloningVoice ? 'wait' : 'pointer', fontSize:11, fontFamily:"'Figtree',sans-serif" }}>
+              {cloningVoice ? 'Uploading...' : 'Re-train'}
+              <input type="file" accept="audio/*,.mp3,.m4a,.wav" onChange={handleVoiceClone} disabled={cloningVoice} style={{ display:'none' }}/>
+            </label>
+          </div>
+        ) : (
+          <div>
+            <label style={{ display:'inline-flex', alignItems:'center', gap:7, padding:'8px 14px', borderRadius:8, background:'rgba(74,222,128,0.07)', border:'1px solid rgba(74,222,128,0.2)', color:'rgba(74,222,128,0.8)', cursor: cloningVoice ? 'wait' : 'pointer', fontSize:12, fontFamily:"'Figtree',sans-serif" }}>
+              <Upload size={12}/>
+              {cloningVoice ? 'Training voice clone...' : 'Upload voice sample'}
+              <input type="file" accept="audio/*,.mp3,.m4a,.wav" onChange={handleVoiceClone} disabled={cloningVoice} style={{ display:'none' }}/>
+            </label>
+            <div style={{ fontSize:11, color:'rgba(255,255,255,0.25)', fontFamily:"'Figtree',sans-serif", marginTop:6 }}>
+              MP3, M4A, or WAV. Minimum 30 minutes of clean speech. No music or background noise.
+            </div>
+          </div>
+        )}
+      </Section>
+
+      {/* ── Reaction Images ── */}
+      <Section icon={<User size={16}/>} title="Thumbnail Reaction Images" tab="integrations" activeTab={activeTab} subtitle="Upload photos of your reactions for thumbnail generation. Tag each one so KB can select the right expression.">
+        <div style={{ marginBottom:12 }}>
+          <label style={{ display:'inline-flex', alignItems:'center', gap:7, padding:'8px 14px', borderRadius:8, background:'rgba(74,222,128,0.07)', border:'1px solid rgba(74,222,128,0.2)', color:'rgba(74,222,128,0.8)', cursor: uploadingReaction ? 'wait' : 'pointer', fontSize:12, fontFamily:"'Figtree',sans-serif" }}>
+            <Upload size={12}/>
+            {uploadingReaction ? 'Uploading...' : 'Upload reaction photos'}
+            <input type="file" accept="image/*" multiple onChange={handleReactionUpload} disabled={uploadingReaction} style={{ display:'none' }}/>
+          </label>
+          <div style={{ fontSize:11, color:'rgba(255,255,255,0.25)', fontFamily:"'Figtree',sans-serif", marginTop:6 }}>
+            JPG or PNG. Name files by expression (e.g. "surprised.jpg", "confident.jpg") for auto-tagging.
+          </div>
+        </div>
+
+        {reactionImages.length === 0 && (
+          <div style={{ fontSize:12, color:'rgba(255,255,255,0.2)', fontFamily:"'Figtree',sans-serif", fontStyle:'italic' }}>
+            No reaction images yet. Upload photos of yourself that KB can reference when generating thumbnail prompts.
+          </div>
+        )}
+
+        <div style={{ display:'grid', gridTemplateColumns: isMobile ? 'repeat(2,1fr)' : 'repeat(4,1fr)', gap:10 }}>
+          {reactionImages.map(img => (
+            <div key={img.id} style={{ borderRadius:8, overflow:'hidden', border:'1px solid rgba(255,255,255,0.07)', background:'rgba(255,255,255,0.02)' }}>
+              <div style={{ aspectRatio:'1', overflow:'hidden', background:'#111' }}>
+                <img src={img.storage_url} alt={img.tag} style={{ width:'100%', height:'100%', objectFit:'cover' }}/>
+              </div>
+              <div style={{ padding:'6px 8px' }}>
+                <input
+                  value={img.tag}
+                  onChange={e => updateReactionTag(img.id, e.target.value)}
+                  placeholder="Tag (e.g. surprised)"
+                  style={{ width:'100%', background:'transparent', border:'none', borderBottom:'1px solid rgba(255,255,255,0.08)', color:'rgba(255,255,255,0.6)', fontSize:11, fontFamily:"'Figtree',sans-serif", outline:'none', padding:'2px 0', boxSizing:'border-box' }}
+                />
+              </div>
+            </div>
+          ))}
+        </div>
+      </Section>
+
     </div>
   )
 }
@@ -90,6 +218,69 @@ function UsageBar({ used, max, label }) {
           }}
         />
       </div>
+      {/* ── Voice Clone ── */}
+      <Section icon={<Mic size={16}/>} title="KB Voice Clone" tab="integrations" activeTab={activeTab} subtitle="Train KB to speak in your voice using ElevenLabs. Upload at least 30 minutes of clean audio.">
+        {cloneVoiceId ? (
+          <div style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 12px', borderRadius:8, border:'1px solid rgba(74,222,128,0.2)', background:'rgba(74,222,128,0.04)' }}>
+            <span style={{ fontSize:13, color:'rgba(74,222,128,0.8)', fontFamily:"'Figtree',sans-serif" }}>✓ Voice clone active</span>
+            <span style={{ fontSize:11, color:'rgba(255,255,255,0.25)', fontFamily:"'Figtree',sans-serif", fontFamily:'monospace' }}>{cloneVoiceId}</span>
+            <label style={{ marginLeft:'auto', display:'flex', alignItems:'center', gap:6, padding:'5px 10px', borderRadius:6, border:'1px solid rgba(255,255,255,0.1)', background:'transparent', color:'rgba(255,255,255,0.4)', cursor: cloningVoice ? 'wait' : 'pointer', fontSize:11, fontFamily:"'Figtree',sans-serif" }}>
+              {cloningVoice ? 'Uploading...' : 'Re-train'}
+              <input type="file" accept="audio/*,.mp3,.m4a,.wav" onChange={handleVoiceClone} disabled={cloningVoice} style={{ display:'none' }}/>
+            </label>
+          </div>
+        ) : (
+          <div>
+            <label style={{ display:'inline-flex', alignItems:'center', gap:7, padding:'8px 14px', borderRadius:8, background:'rgba(74,222,128,0.07)', border:'1px solid rgba(74,222,128,0.2)', color:'rgba(74,222,128,0.8)', cursor: cloningVoice ? 'wait' : 'pointer', fontSize:12, fontFamily:"'Figtree',sans-serif" }}>
+              <Upload size={12}/>
+              {cloningVoice ? 'Training voice clone...' : 'Upload voice sample'}
+              <input type="file" accept="audio/*,.mp3,.m4a,.wav" onChange={handleVoiceClone} disabled={cloningVoice} style={{ display:'none' }}/>
+            </label>
+            <div style={{ fontSize:11, color:'rgba(255,255,255,0.25)', fontFamily:"'Figtree',sans-serif", marginTop:6 }}>
+              MP3, M4A, or WAV. Minimum 30 minutes of clean speech. No music or background noise.
+            </div>
+          </div>
+        )}
+      </Section>
+
+      {/* ── Reaction Images ── */}
+      <Section icon={<User size={16}/>} title="Thumbnail Reaction Images" tab="integrations" activeTab={activeTab} subtitle="Upload photos of your reactions for thumbnail generation. Tag each one so KB can select the right expression.">
+        <div style={{ marginBottom:12 }}>
+          <label style={{ display:'inline-flex', alignItems:'center', gap:7, padding:'8px 14px', borderRadius:8, background:'rgba(74,222,128,0.07)', border:'1px solid rgba(74,222,128,0.2)', color:'rgba(74,222,128,0.8)', cursor: uploadingReaction ? 'wait' : 'pointer', fontSize:12, fontFamily:"'Figtree',sans-serif" }}>
+            <Upload size={12}/>
+            {uploadingReaction ? 'Uploading...' : 'Upload reaction photos'}
+            <input type="file" accept="image/*" multiple onChange={handleReactionUpload} disabled={uploadingReaction} style={{ display:'none' }}/>
+          </label>
+          <div style={{ fontSize:11, color:'rgba(255,255,255,0.25)', fontFamily:"'Figtree',sans-serif", marginTop:6 }}>
+            JPG or PNG. Name files by expression (e.g. "surprised.jpg", "confident.jpg") for auto-tagging.
+          </div>
+        </div>
+
+        {reactionImages.length === 0 && (
+          <div style={{ fontSize:12, color:'rgba(255,255,255,0.2)', fontFamily:"'Figtree',sans-serif", fontStyle:'italic' }}>
+            No reaction images yet. Upload photos of yourself that KB can reference when generating thumbnail prompts.
+          </div>
+        )}
+
+        <div style={{ display:'grid', gridTemplateColumns: isMobile ? 'repeat(2,1fr)' : 'repeat(4,1fr)', gap:10 }}>
+          {reactionImages.map(img => (
+            <div key={img.id} style={{ borderRadius:8, overflow:'hidden', border:'1px solid rgba(255,255,255,0.07)', background:'rgba(255,255,255,0.02)' }}>
+              <div style={{ aspectRatio:'1', overflow:'hidden', background:'#111' }}>
+                <img src={img.storage_url} alt={img.tag} style={{ width:'100%', height:'100%', objectFit:'cover' }}/>
+              </div>
+              <div style={{ padding:'6px 8px' }}>
+                <input
+                  value={img.tag}
+                  onChange={e => updateReactionTag(img.id, e.target.value)}
+                  placeholder="Tag (e.g. surprised)"
+                  style={{ width:'100%', background:'transparent', border:'none', borderBottom:'1px solid rgba(255,255,255,0.08)', color:'rgba(255,255,255,0.6)', fontSize:11, fontFamily:"'Figtree',sans-serif", outline:'none', padding:'2px 0', boxSizing:'border-box' }}
+                />
+              </div>
+            </div>
+          ))}
+        </div>
+      </Section>
+
     </div>
   )
 }
@@ -98,6 +289,10 @@ function UsageBar({ used, max, label }) {
 
 export default function SettingsPage() {
   const { profile, setProfile, activeCategoryId, activeCategory, notify, theme, setTheme } = useStore()
+  const [reactionImages,   setReactionImages]   = useState([])
+  const [cloningVoice,     setCloningVoice]     = useState(false)
+  const [cloneVoiceId,     setCloneVoiceId]     = useState(cat?.voice_profile?.elevenLabsVoiceId || null)
+  const [uploadingReaction,setUploadingReaction] = useState(false)
   const [isMobile, setIsMobile] = useState(typeof window !== 'undefined' && window.innerWidth < 768)
   // Update on resize
   useEffect(() => {
@@ -163,6 +358,113 @@ export default function SettingsPage() {
     }).then(r => r.json()).then(d => { setBalance(d); setBalanceLoading(false) }).catch(() => setBalanceLoading(false))
     })()
   }, [profile?.is_admin])
+
+  // Load reaction images for this category
+  useEffect(() => {
+    if (!activeCategoryId) return
+    supabase
+      .from('creator_assets')
+      .select('id, file_name, tag, storage_url, created_at')
+      .eq('user_id', profile?.id)
+      .eq('category_id', activeCategoryId)
+      .eq('asset_type', 'reaction')
+      .order('created_at', { ascending: false })
+      .then(({ data }) => setReactionImages(data || []))
+      .catch(() => {})
+  }, [activeCategoryId, profile?.id])
+
+  async function handleVoiceClone(e) {
+    const file = e.target.files?.[0]
+    if (!file || !activeCategoryId) return
+    setCloningVoice(true)
+    notify('Uploading voice sample — this may take a minute...', 'info', 8000)
+    try {
+      const { supabase: sb } = await import('../lib/supabase')
+      const { data: { session } } = await sb.auth.getSession()
+      const form = new FormData()
+      form.append('file', file)
+      form.append('categoryId', activeCategoryId)
+      const res = await fetch(`${import.meta.env.VITE_API_URL}/api/chat/voice-clone`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${session?.access_token}` },
+        body: form,
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error)
+      setCloneVoiceId(data.voiceId)
+      notify('Voice clone created — KB now speaks in your voice', 'success')
+    } catch (err) {
+      notify('Voice clone failed: ' + err.message, 'error')
+    }
+    setCloningVoice(false)
+    e.target.value = ''
+  }
+
+  async function handleReactionUpload(e) {
+    const files = Array.from(e.target.files || [])
+    if (!files.length || !activeCategoryId) return
+    setUploadingReaction(true)
+    for (const file of files) {
+      try {
+        // Upload to Supabase storage
+        const ext      = file.name.split('.').pop()
+        const path     = `reactions/${profile?.id}/${activeCategoryId}/${Date.now()}.${ext}`
+        const { error: upErr } = await supabase.storage
+          .from('creator-assets')
+          .upload(path, file, { upsert: false })
+        if (upErr) throw upErr
+
+        const { data: urlData } = supabase.storage
+          .from('creator-assets')
+          .getPublicUrl(path)
+
+        // Default tag from filename
+        const defaultTag = file.name
+          .replace(/\.[^.]+$/, '')
+          .replace(/[_-]/g, ' ')
+          .toLowerCase()
+          .replace(/\w/g, c => c.toUpperCase())
+
+        // Save reference in DB
+        await supabase.from('creator_assets').insert({
+          user_id:     profile?.id,
+          category_id: activeCategoryId,
+          asset_type:  'reaction',
+          file_name:   file.name,
+          storage_url: urlData.publicUrl,
+          tag:         defaultTag,
+          created_at:  new Date().toISOString(),
+        })
+
+        notify(`${file.name} uploaded`, 'success')
+      } catch (err) {
+        notify(`${file.name} failed: ${err.message}`, 'error')
+      }
+    }
+    // Reload
+    const { data } = await supabase
+      .from('creator_assets')
+      .select('id, file_name, tag, storage_url, created_at')
+      .eq('user_id', profile?.id)
+      .eq('category_id', activeCategoryId)
+      .eq('asset_type', 'reaction')
+      .order('created_at', { ascending: false })
+    setReactionImages(data || [])
+    setUploadingReaction(false)
+    e.target.value = ''
+  }
+
+  async function updateReactionTag(id, tag) {
+    await supabase.from('creator_assets').update({ tag }).eq('id', id)
+    setReactionImages(prev => prev.map(r => r.id === id ? { ...r, tag } : r))
+  }
+
+  async function deleteReaction(id, storagePath) {
+    await supabase.storage.from('creator-assets').remove([storagePath])
+    await supabase.from('creator_assets').delete().eq('id', id)
+    setReactionImages(prev => prev.filter(r => r.id !== id))
+    notify('Removed', 'success')
+  }
 
   const vp = cat?.voice_profile || {}
   const vc = vp.voiceCharacteristics  || {}
@@ -325,7 +627,21 @@ export default function SettingsPage() {
       <h1 style={{ marginBottom: '1.75rem' }}>Settings</h1>
 
       {/* ── Profile ──────────────────────────────────────────────────────── */}
-      <Section title="Profile">
+      {activeTab === 'profile' && <><Section title="Profile" tab="profile" activeTab={activeTab}>
+        {profile?.display_name && (
+          <div style={{ marginBottom: 16, padding: '10px 14px', borderRadius: 8, border: '1px solid rgba(74,222,128,0.1)', background: 'rgba(74,222,128,0.03)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div>
+              <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)', fontFamily: "'Figtree',sans-serif", marginBottom: 2 }}>Your public profile</div>
+              <div style={{ fontSize: 11, color: 'rgba(74,222,128,0.5)', fontFamily: 'monospace' }}>
+                whispacuts.com/u/{profile.display_name.toLowerCase()}
+              </div>
+            </div>
+            <a href={'/u/' + profile.display_name.toLowerCase()} target="_blank" rel="noopener noreferrer"
+              style={{ fontSize: 11, padding: '5px 10px', borderRadius: 6, border: '1px solid rgba(74,222,128,0.15)', background: 'transparent', color: 'rgba(74,222,128,0.6)', textDecoration: 'none', fontFamily: "'Figtree',sans-serif" }}>
+              View
+            </a>
+          </div>
+        )}
         <div style={{ display: 'grid', gap: '1rem' }}>
           <div>
             <label style={{ display:"block", fontSize:"0.8125rem", fontWeight:500, color:"var(--text2)", marginBottom:"0.375rem" }}>Display name</label>
@@ -359,7 +675,7 @@ export default function SettingsPage() {
       </Section>
 
       {/* ── Plan & usage ─────────────────────────────────────────────────── */}
-      <Section title="Plan & Usage">
+      <Section title="Plan & Usage" tab="profile" activeTab={activeTab}>
         {/* Tier display */}
         <div style={{
           display: 'flex',
@@ -678,7 +994,7 @@ export default function SettingsPage() {
       {activeCategoryId && (
         <Section
           title={`Voice profile — ${cat?.name || ''}`}
-          subtitle="The more specific you are, the more KB writes in your actual voice rather than generic documentary style."
+          subtitle="The more specific you are, the more KB writes in your actual voice rather than generic documentary style." tab="voice" activeTab={activeTab}
         >
           <div style={{ marginBottom: '1rem' }}>
             <div style={{
@@ -768,7 +1084,7 @@ export default function SettingsPage() {
       </Section>
 
       {/* ── Appearance ────────────────────────────────────────────────────── */}
-      <Section title="Appearance">
+      <Section title="Appearance" tab="profile" activeTab={activeTab}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.75rem' }}>
           <div>
             <div style={{ fontSize: '0.9375rem', fontWeight: 500, color: 'var(--text)' }}>Theme</div>
@@ -789,7 +1105,7 @@ export default function SettingsPage() {
       </Section>
 
       {/* ── Account ───────────────────────────────────────────────────────── */}
-      <Section title="Account">
+      <Section title="Account" tab="danger" activeTab={activeTab}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div>
             <div style={{ fontSize: '0.9375rem', fontWeight: 500, color: 'var(--text)' }}>Sign out</div>
@@ -803,6 +1119,69 @@ export default function SettingsPage() {
           </button>
         </div>
       </Section>
+      {/* ── Voice Clone ── */}
+      <Section icon={<Mic size={16}/>} title="KB Voice Clone" tab="integrations" activeTab={activeTab} subtitle="Train KB to speak in your voice using ElevenLabs. Upload at least 30 minutes of clean audio.">
+        {cloneVoiceId ? (
+          <div style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 12px', borderRadius:8, border:'1px solid rgba(74,222,128,0.2)', background:'rgba(74,222,128,0.04)' }}>
+            <span style={{ fontSize:13, color:'rgba(74,222,128,0.8)', fontFamily:"'Figtree',sans-serif" }}>✓ Voice clone active</span>
+            <span style={{ fontSize:11, color:'rgba(255,255,255,0.25)', fontFamily:"'Figtree',sans-serif", fontFamily:'monospace' }}>{cloneVoiceId}</span>
+            <label style={{ marginLeft:'auto', display:'flex', alignItems:'center', gap:6, padding:'5px 10px', borderRadius:6, border:'1px solid rgba(255,255,255,0.1)', background:'transparent', color:'rgba(255,255,255,0.4)', cursor: cloningVoice ? 'wait' : 'pointer', fontSize:11, fontFamily:"'Figtree',sans-serif" }}>
+              {cloningVoice ? 'Uploading...' : 'Re-train'}
+              <input type="file" accept="audio/*,.mp3,.m4a,.wav" onChange={handleVoiceClone} disabled={cloningVoice} style={{ display:'none' }}/>
+            </label>
+          </div>
+        ) : (
+          <div>
+            <label style={{ display:'inline-flex', alignItems:'center', gap:7, padding:'8px 14px', borderRadius:8, background:'rgba(74,222,128,0.07)', border:'1px solid rgba(74,222,128,0.2)', color:'rgba(74,222,128,0.8)', cursor: cloningVoice ? 'wait' : 'pointer', fontSize:12, fontFamily:"'Figtree',sans-serif" }}>
+              <Upload size={12}/>
+              {cloningVoice ? 'Training voice clone...' : 'Upload voice sample'}
+              <input type="file" accept="audio/*,.mp3,.m4a,.wav" onChange={handleVoiceClone} disabled={cloningVoice} style={{ display:'none' }}/>
+            </label>
+            <div style={{ fontSize:11, color:'rgba(255,255,255,0.25)', fontFamily:"'Figtree',sans-serif", marginTop:6 }}>
+              MP3, M4A, or WAV. Minimum 30 minutes of clean speech. No music or background noise.
+            </div>
+          </div>
+        )}
+      </Section>
+
+      {/* ── Reaction Images ── */}
+      <Section icon={<User size={16}/>} title="Thumbnail Reaction Images" tab="integrations" activeTab={activeTab} subtitle="Upload photos of your reactions for thumbnail generation. Tag each one so KB can select the right expression.">
+        <div style={{ marginBottom:12 }}>
+          <label style={{ display:'inline-flex', alignItems:'center', gap:7, padding:'8px 14px', borderRadius:8, background:'rgba(74,222,128,0.07)', border:'1px solid rgba(74,222,128,0.2)', color:'rgba(74,222,128,0.8)', cursor: uploadingReaction ? 'wait' : 'pointer', fontSize:12, fontFamily:"'Figtree',sans-serif" }}>
+            <Upload size={12}/>
+            {uploadingReaction ? 'Uploading...' : 'Upload reaction photos'}
+            <input type="file" accept="image/*" multiple onChange={handleReactionUpload} disabled={uploadingReaction} style={{ display:'none' }}/>
+          </label>
+          <div style={{ fontSize:11, color:'rgba(255,255,255,0.25)', fontFamily:"'Figtree',sans-serif", marginTop:6 }}>
+            JPG or PNG. Name files by expression (e.g. "surprised.jpg", "confident.jpg") for auto-tagging.
+          </div>
+        </div>
+
+        {reactionImages.length === 0 && (
+          <div style={{ fontSize:12, color:'rgba(255,255,255,0.2)', fontFamily:"'Figtree',sans-serif", fontStyle:'italic' }}>
+            No reaction images yet. Upload photos of yourself that KB can reference when generating thumbnail prompts.
+          </div>
+        )}
+
+        <div style={{ display:'grid', gridTemplateColumns: isMobile ? 'repeat(2,1fr)' : 'repeat(4,1fr)', gap:10 }}>
+          {reactionImages.map(img => (
+            <div key={img.id} style={{ borderRadius:8, overflow:'hidden', border:'1px solid rgba(255,255,255,0.07)', background:'rgba(255,255,255,0.02)' }}>
+              <div style={{ aspectRatio:'1', overflow:'hidden', background:'#111' }}>
+                <img src={img.storage_url} alt={img.tag} style={{ width:'100%', height:'100%', objectFit:'cover' }}/>
+              </div>
+              <div style={{ padding:'6px 8px' }}>
+                <input
+                  value={img.tag}
+                  onChange={e => updateReactionTag(img.id, e.target.value)}
+                  placeholder="Tag (e.g. surprised)"
+                  style={{ width:'100%', background:'transparent', border:'none', borderBottom:'1px solid rgba(255,255,255,0.08)', color:'rgba(255,255,255,0.6)', fontSize:11, fontFamily:"'Figtree',sans-serif", outline:'none', padding:'2px 0', boxSizing:'border-box' }}
+                />
+              </div>
+            </div>
+          ))}
+        </div>
+      </Section>
+
     </div>
   )
 }

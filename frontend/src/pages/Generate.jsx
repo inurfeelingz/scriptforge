@@ -222,7 +222,7 @@ function getNicheConfig(niche = '') {
 
 // ── Main component ────────────────────────────────────────────────────────────
 export default function Generate() {
-  const { activeCategoryId, activeCategory, notify } = useStore()
+  const { activeCategoryId, activeCategory, notify, setActiveEpisodeId } = useStore()
 
   const PERSIST_KEYS = ['mood', 'genre', 'bpm', 'targetDurationMinutes']
   const storedDefaults = (() => {
@@ -236,6 +236,7 @@ export default function Generate() {
     bpm:                   storedDefaults.bpm                   || '',
     platformLink:          '',
     voiceMemoText:         '',
+    thumbnailConcept:      '',
     episodeNumber:         '',
     targetDurationMinutes: storedDefaults.targetDurationMinutes || '8',
   })
@@ -489,6 +490,7 @@ export default function Generate() {
             bpm:                   f.bpm,
             platformLink:          f.platformLink,
             targetDurationMinutes: parseInt(f.targetDurationMinutes) || 8,
+            thumbnailConcept:      f.thumbnailConcept || '',
           },
           voiceMemoText: voiceMemoBoosted,
           clipInventory: clips,
@@ -666,6 +668,18 @@ export default function Generate() {
             rows={4}
             className="w-full bg-[#0d0d0d] border border-[#1e1e1e] rounded px-3 py-2.5 text-sm text-[#f0ede8] placeholder-[#333] outline-none focus:border-[rgba(74,222,128,0.40)] transition-colors resize-none"
           />
+        </div>
+
+        {/* Thumbnail concept */}
+        <div className="col-span-2 space-y-2">
+          <label className="text-xs text-[#666] uppercase tracking-wide">Thumbnail concept <span className="normal-case text-[#444]">— optional</span></label>
+          <input
+            value={form.thumbnailConcept}
+            onChange={e => setField('thumbnailConcept', e.target.value)}
+            placeholder="Close-up, looking directly at camera, slight smirk, dark studio behind me..."
+            className="w-full bg-[#0d0d0d] border border-[#1e1e1e] rounded px-3 py-2.5 text-sm text-[#f0ede8] placeholder-[#333] outline-none focus:border-[rgba(74,222,128,0.40)] transition-colors"
+          />
+          <div className="text-[10px] text-[#333]">Describe the visual moment that stops your viewer mid-scroll. KB uses this to write a hook that matches the thumbnail promise.</div>
         </div>
 
         {/* Clip upload */}

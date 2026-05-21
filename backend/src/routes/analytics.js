@@ -1,6 +1,7 @@
 // backend/src/routes/analytics.js
 const express = require('express');
 const multer  = require('multer');
+const XLSX    = require('xlsx');
 const Anthropic = require('@anthropic-ai/sdk');
 const { supabase }        = require('../utils/supabase');
 const { assembleContext } = require('../services/contextAssembler');
@@ -119,7 +120,19 @@ router.post('/youtube/pull', async (req, res) => {
 
   try {
     const accessToken = await ytOAuth.getValidToken(req.user.id, categoryId)
-    const videos      = await ytOAuth.pullAnalyticsData(accessToken)
+
+    // Pull video performance, demographics, and comment sentiment in parallel
+    const [videos, demographics, commentSentiment] = await Promise.all([
+      ytOAuth.pullAnalyticsData(accessToken),
+      ytOAuth.pullAudienceDemographics(accessToken).catch(err => {
+        console.warn('[youtube/pull] Demographics fetch failed (non-fatal):', err.message)
+        return null
+      }),
+      ytOAuth.pullCommentSentiment(accessToken).catch(err => {
+        console.warn('[youtube/pull] Comment sentiment fetch failed (non-fatal):', err.message)
+        return null
+      }),
+    ])
 
     if (!videos.length) {
       return res.json({ message: 'No video data found for this channel', videoCount: 0 })
@@ -153,7 +166,7 @@ router.post('/youtube/pull', async (req, res) => {
     } // end skip_insights
     const avgScore = Math.round(scored.reduce((s,v) => s+v.retentionScore,0) / scored.length)
 
-    // Save
+    // Save — include demographics if pulled successfully
     await supabase.from('analytics_uploads').insert({
       user_id:        req.user.id,
       category_id:    categoryId,
@@ -164,7 +177,31 @@ router.post('/youtube/pull', async (req, res) => {
       top_performers: scored.slice(0, 20),
       insights,
       raw_data:       scored,
+      demographics:   demographics || null,
     })
+
+    // Also update the category's audience_model with fresh demographics
+    if (demographics) {
+      const { data: existingCat } = await supabase
+        .from('categories')
+        .select('audience_model')
+        .eq('id', categoryId)
+        .single()
+
+      const existingModel = existingCat?.audience_model || {}
+      await supabase.from('categories').update({
+        audience_model: {
+          ...existingModel,
+          youtube:              demographics,
+          youtube_updated_at:   new Date().toISOString(),
+          ...(commentSentiment ? {
+            commentSentiment,
+            comments_updated_at: new Date().toISOString(),
+          } : {}),
+        },
+        updated_at: new Date().toISOString(),
+      }).eq('id', categoryId).eq('user_id', req.user.id)
+    }
 
     // Update last pulled timestamp
     await supabase.from('youtube_connections').update({
@@ -193,7 +230,19 @@ router.post('/youtube/pull', async (req, res) => {
       }
     }
 
-    res.json({ videoCount: videos.length, avgScore, insights, episodesMatched: matched, source: 'oauth' })
+    res.json({
+      videoCount:   videos.length,
+      avgScore,
+      insights,
+      episodesMatched: matched,
+      source:       'oauth',
+      demographics: demographics ? {
+        topAgeGroup:    demographics.ageGender?.topAgeGroup,
+        topCountries:   demographics.geography?.topCountries?.slice(0,3).map(c => c.country),
+        topDevice:      demographics.devices?.[0]?.device,
+        topTraffic:     demographics.trafficSources?.[0]?.source,
+      } : null,
+    })
   } catch (err) {
     console.error('[youtube/pull]', err.message)
     res.status(500).json({ error: err.message })
@@ -693,5 +742,197 @@ function mapScriptToTimecodes(voScript) {
 
   return result
 }
+
+// ── POST /api/analytics/competitor-research ──────────────────────────────────
+router.post('/competitor-research', async (req, res) => {
+  const { categoryId } = req.body
+  if (!categoryId) return res.status(400).json({ error: 'categoryId required' })
+
+  try {
+    const { data: cat } = await supabase
+      .from('categories')
+      .select('niche, name')
+      .eq('id', categoryId)
+      .single()
+
+    const { researchCompetitors } = require('../services/geminiService')
+    const intel = await researchCompetitors(cat?.niche || '', cat?.name || '')
+
+    await supabase.from('categories').update({
+      competitor_intel: intel,
+      updated_at: new Date().toISOString(),
+    }).eq('id', categoryId).eq('user_id', req.user.id)
+
+    res.json({ success: true, intel })
+  } catch (err) {
+    console.error('[competitor-research]', err.message)
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// ── POST /api/analytics/audience-research ────────────────────────────────────
+// Manually trigger Gemini audience research for a category.
+// Also called automatically by the weekly scheduler.
+
+router.post('/audience-research', async (req, res) => {
+  const { categoryId } = req.body
+  if (!categoryId) return res.status(400).json({ error: 'categoryId required' })
+
+  try {
+    const { runAudienceResearch } = require('../services/smartScheduler')
+    await runAudienceResearch(req.user.id, categoryId)
+
+    const { data: cat } = await supabase
+      .from('categories')
+      .select('audience_model')
+      .eq('id', categoryId)
+      .single()
+
+    res.json({ success: true, audienceModel: cat?.audience_model?.geminiInsights || null })
+  } catch (err) {
+    console.error('[audience-research]', err.message)
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// ── POST /api/analytics/audience-upload ───────────────────────────────────────
+// Accepts CSV or XLS/XLSX audience data files (personas, user exports, surveys).
+// Parses the file, runs Gemini to synthesise a plain-English persona summary,
+// stores in audience_uploads + updates categories.audience_model.
+
+router.post('/audience-upload', upload.single('file'), async (req, res) => {
+  const { categoryId } = req.body
+  if (!categoryId)   return res.status(400).json({ error: 'categoryId required' })
+  if (!req.file)     return res.status(400).json({ error: 'No file uploaded' })
+
+  try {
+    const ext = req.file.originalname.split('.').pop().toLowerCase()
+    let rows = []
+
+    if (ext === 'csv' || ext === 'txt') {
+      // Parse CSV
+      const text = req.file.buffer.toString('utf8')
+      const lines = text.trim().split('\n')
+      const headers = lines[0].split(',').map(h => h.trim().replace(/"/g, ''))
+      rows = lines.slice(1).filter(l => l.trim()).map(line => {
+        const vals = line.split(',').map(v => v.trim().replace(/"/g, ''))
+        const obj = {}
+        headers.forEach((h, i) => { obj[h] = vals[i] || '' })
+        return obj
+      })
+    } else if (ext === 'xlsx' || ext === 'xls') {
+      // Parse Excel
+      const workbook = XLSX.read(req.file.buffer, { type: 'buffer' })
+      const sheet    = workbook.Sheets[workbook.SheetNames[0]]
+      rows = XLSX.utils.sheet_to_json(sheet, { defval: '' })
+    } else {
+      return res.status(400).json({ error: 'Unsupported file type. Upload CSV, XLS, or XLSX.' })
+    }
+
+    if (!rows.length) return res.status(400).json({ error: 'File appears empty or unreadable' })
+
+    // Cap at 500 rows to avoid context overflow
+    const sampleRows = rows.slice(0, 500)
+    const columns    = Object.keys(sampleRows[0] || {})
+    const rowCount   = rows.length
+
+    // Build a compact summary for Gemini
+    const dataSample = sampleRows.slice(0, 20).map(r =>
+      columns.map(c => `${c}: ${r[c]}`).join(' | ')
+    ).join('\n')
+
+    // Run Gemini to synthesise a persona summary
+    const geminiService = require('../services/geminiService')
+    let personaSummary = ''
+    try {
+      personaSummary = await geminiService.synthesiseAudienceData({
+        fileName:   req.file.originalname,
+        rowCount,
+        columns,
+        dataSample,
+        categoryId,
+      })
+    } catch (gemErr) {
+      console.warn('[audience-upload] Gemini synthesis failed:', gemErr.message)
+      personaSummary = `Audience data uploaded: ${rowCount} records across ${columns.length} columns (${columns.slice(0,5).join(', ')}${columns.length > 5 ? '...' : ''}). Gemini synthesis unavailable.`
+    }
+
+    // Save to audience_uploads
+    const { data: upload, error: uploadErr } = await supabase
+      .from('audience_uploads')
+      .insert({
+        user_id:        req.user.id,
+        category_id:    categoryId,
+        file_name:      req.file.originalname,
+        row_count:      rowCount,
+        columns,
+        raw_data:       sampleRows,
+        persona_summary: personaSummary,
+        upload_date:    new Date().toISOString(),
+      })
+      .select()
+      .single()
+
+    if (uploadErr) throw uploadErr
+
+    // Update category audience_model with the new persona data
+    const { data: existingCat } = await supabase
+      .from('categories')
+      .select('audience_model')
+      .eq('id', categoryId)
+      .single()
+
+    const existingModel = existingCat?.audience_model || {}
+    await supabase.from('categories').update({
+      audience_model: {
+        ...existingModel,
+        ownData: {
+          ...(existingModel.ownData || {}),
+          latestUpload: {
+            fileName:       req.file.originalname,
+            rowCount,
+            columns,
+            personaSummary,
+            uploadedAt:     new Date().toISOString(),
+          },
+          allSummaries: [
+            ...(existingModel.ownData?.allSummaries || []).slice(-4), // keep last 5
+            { fileName: req.file.originalname, personaSummary, uploadedAt: new Date().toISOString() },
+          ],
+        },
+        ownData_updated_at: new Date().toISOString(),
+      },
+      updated_at: new Date().toISOString(),
+    }).eq('id', categoryId).eq('user_id', req.user.id)
+
+    res.json({
+      success:        true,
+      rowCount,
+      columns,
+      personaSummary,
+      uploadId:       upload.id,
+    })
+
+  } catch (err) {
+    console.error('[audience-upload]', err.message)
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// ── GET /api/analytics/audience-uploads ───────────────────────────────────────
+router.get('/audience-uploads', async (req, res) => {
+  const { categoryId } = req.query
+  if (!categoryId) return res.status(400).json({ error: 'categoryId required' })
+
+  const { data } = await supabase
+    .from('audience_uploads')
+    .select('id, file_name, row_count, columns, persona_summary, upload_date')
+    .eq('user_id', req.user.id)
+    .eq('category_id', categoryId)
+    .order('upload_date', { ascending: false })
+    .limit(10)
+
+  res.json({ uploads: data || [] })
+})
 
 module.exports = router;

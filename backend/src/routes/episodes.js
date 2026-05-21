@@ -2,6 +2,7 @@
 const express   = require('express');
 const Anthropic  = require('@anthropic-ai/sdk');
 const { supabase }         = require('../utils/supabase');
+const pushService          = require('../services/pushService');
 const { assembleContext }  = require('../services/contextAssembler');
 const tierGate             = require('../middleware/tier');
 const creditGate           = require('../middleware/credits');
@@ -116,6 +117,9 @@ ${clipList}
 VOICE MEMO:
 "${voiceMemoText || 'No voice memo provided — use track context to infer the story'}"
 
+THUMBNAIL CONCEPT:
+${trackContext.thumbnailConcept || 'Not specified — infer the most compelling visual moment from the episode content for the THUMBNAIL_FLUX_PROMPT in metadata.'}
+
 Return using these exact section markers:
 ===REASONING===
 [Your structural thinking — 3-5 sentences]
@@ -146,7 +150,12 @@ YOUTUBE_DESCRIPTION:
 YOUTUBE_TAGS:
 YOUTUBE_CHAPTERS:
 TIKTOK_CAPTION:
-PLATFORM_CTA:`;
+PLATFORM_CTA:
+THUMBNAIL_FLUX_PROMPT: [Write a Flux image generation prompt for the thumbnail. Photorealistic, cinematic. Emotionally targeted to the audience pain point and aspiration from the context. No text overlays. End with: 16:9 aspect ratio, photorealistic, cinematic lighting]
+THUMBNAIL_TITLE_OPTIONS:
+[Option 1]
+[Option 2]
+[Option 3]`;
 
     // Stream with visible reasoning
     let fullResponse = '';
@@ -325,6 +334,18 @@ PLATFORM_CTA:`;
       send('done', { episodeId: episode.id, slug, parsed });
     }
     res.end();
+
+    // Push notification — episode ready
+    setImmediate(async () => {
+      try {
+        const trackName = parsed?.metadata?.trackName || episode?.track_name || 'Your episode'
+        const epNum     = parsed?.metadata?.episodeNumber || episode?.episode_number || '?'
+        await pushService.sendToUser(
+          req.user.id,
+          pushService.episodeReadyPayload(trackName, epNum)
+        )
+      } catch {}
+    })
 
     // Gemini script scoring — async, non-blocking, runs after response sent
     if (process.env.GEMINI_API_KEY && parsed?.voScript && episode?.id) {
@@ -696,6 +717,52 @@ router.patch('/:id/status', async (req, res) => {
     .single();
 
   if (error) return res.status(500).json({ error: error.message });
+
+  // When an episode is marked published:
+  // 1. Regenerate series bible (always, non-blocking)
+  // 2. Auto-generate if this is the 3rd, 5th, or 10th published episode — milestone moments
+  if (status === 'published' && data?.category_id) {
+    const { generateSeriesBible } = require('../services/seriesBible')
+
+    // Count total published episodes for this category
+    supabase
+      .from('episodes')
+      .select('id', { count: 'exact', head: true })
+      .eq('category_id', data.category_id)
+      .eq('status', 'published')
+      .then(({ count }) => {
+        const milestone = [3, 5, 10, 20, 50].includes(count)
+        console.log(`[seriesBible] Published count: ${count}${milestone ? ' — MILESTONE' : ''}`)
+
+        // Always regenerate, force=true on milestone episodes
+        generateSeriesBible(req.user.id, data.category_id, milestone)
+          .then(bible => {
+            console.log(`[seriesBible] Regenerated after Ep ${data.episode_number} published`)
+
+            // Send push on milestone
+            if (milestone) {
+              pushService.sendToUser(req.user.id, {
+                title: `📖 Series bible updated`,
+                body:  `${count} episodes published — KB has updated your show bible with new insights`,
+                icon:  '/icons/icon-192x192.png',
+                tag:   'series-bible-updated',
+                data:  { url: '/analytics', type: 'series_bible_updated' },
+              }).catch(() => {})
+            }
+          })
+          .catch(err => console.warn('[seriesBible] Auto-regen failed:', err.message))
+      })
+      .catch(() => {})
+
+    pushService.sendToUser(req.user.id, {
+      title: '🎉 Episode published',
+      body:  `Ep ${data.episode_number} "${data.track_name}" is live`,
+      icon:  '/icons/icon-192x192.png',
+      tag:   'episode-published',
+      data:  { url: `/episode/${data.id}`, type: 'episode_published' },
+    }).catch(() => {})
+  }
+
   res.json({ episode: data });
 });
 

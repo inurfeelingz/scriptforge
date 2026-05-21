@@ -10,12 +10,14 @@
 import { Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { useState, useEffect, useRef } from 'react'
 import {
-  Mic, Music2, Scissors, Settings, LogOut,
+  Mic, Music2, Settings, LogOut,
   Plus, RefreshCw, BarChart2, Calendar,
-  Menu, X, FileText, Film, BookMarked,
-  ChevronRight, Zap, Radio,
+  X, BookMarked, Search,
+  ChevronRight, Zap, Radio, Film,
 } from 'lucide-react'
 import KBOrb        from '../chat/KBOrb'
+import CompanionPanel  from './CompanionPanel'
+import CommandPalette  from './CommandPalette'
 import ChatPanel    from '../chat/ChatPanel'
 import { useStore } from '../../store'
 import { categories as catApi } from '../../lib/api'
@@ -24,22 +26,25 @@ import Notifications    from './Notifications'
 import NewCategoryModal from './NewCategoryModal'
 
 // ── PILL MENU ITEMS ──────────────────────────────────────────────────────────
+// Desktop pill: Pipeline, Vault, Analytics, Sound, Schedule
+// Mobile expanded: all items in 3-column grid
+// KB orb: opens KB chat on non-home pages
+// Gear: workspace switcher + settings
+
 const PILL_ITEMS = [
-  { to: '/teleprompter', icon: Mic,        label: 'Teleprompter' },
-  { to: '/storyboard',   icon: Film,       label: 'Shot List'    },
-  { to: '/editor',       icon: Scissors,   label: 'Editor'       },
-  { to: '/schedule',     icon: Calendar,   label: 'Schedule'     },
-  { to: '/analytics',    icon: BarChart2,  label: 'Analytics'    },
+  { to: '/pipeline',  icon: Zap,       label: 'Pipeline'  },
+  { to: '/vault',     icon: BookMarked,label: 'Vault'     },
+  { to: '/analytics', icon: BarChart2, label: 'Insights'  },
+  { to: '/sound',     icon: Music2,    label: 'Sound'     },
+  { to: '/schedule',  icon: Calendar,  label: 'Schedule'  },
 ]
 
 const MORE_ITEMS = [
-  { to: '/series',       icon: Film,       label: 'Series'       },
-  { to: '/scripts',      icon: FileText,   label: 'Scripts'      },
-  { to: '/series-bible', icon: BookMarked, label: 'Series Bible' },
-  { to: '/vault',        icon: BookMarked, label: 'Vault'        },
-  { to: '/journals',     icon: Mic,        label: 'Journals'     },
-  { to: '/sound',        icon: Music2,     label: 'Sound'        },
-  { to: '/shorts',       icon: Zap,        label: 'Shorts'       },
+  { to: '/pipeline',  icon: Zap,       label: 'Pipeline'  },
+  { to: '/vault',     icon: BookMarked,label: 'Vault'     },
+  { to: '/analytics', icon: BarChart2, label: 'Insights'  },
+  { to: '/sound',     icon: Music2,    label: 'Sound'     },
+  { to: '/schedule',  icon: Calendar,  label: 'Schedule'  },
 ]
 
 const GREEN     = 'rgba(74,222,128,1)'
@@ -49,9 +54,12 @@ const GREEN_MID = 'rgba(74,222,128,0.2)'
 
 export default function AppLayout() {
   const { profile, activeCategoryId, activeCategory, categories,
-          loadCategories, setActiveCategory, notify } = useStore()
+          loadCategories, setActiveCategory, notify, clearWorkspaceContext } = useStore()
 
   const [chatOpen,     setChatOpen]     = useState(false)
+  const [companionOpen,  setCompanionOpen]  = useState(false)
+  const [paletteOpen,    setPaletteOpen]    = useState(false)
+  const [isOnline,       setIsOnline]       = useState(navigator.onLine)
   const [gearOpen,     setGearOpen]     = useState(false)
   const [pillExpanded, setPillExpanded] = useState(false)
   const [isMobile,     setIsMobile]     = useState(false)
@@ -65,7 +73,7 @@ export default function AppLayout() {
   const location    = useLocation()
   const navigate    = useNavigate()
   const isCompanion = location.pathname === '/companion'
-  const isHome      = location.pathname === '/';
+  const isHome      = location.pathname === '/' || location.pathname === '/pipeline';
   const activeCategory_ = activeCategory?.()
   const pillRef     = useRef(null)
 
@@ -112,6 +120,62 @@ export default function AppLayout() {
         vv.removeEventListener('scroll', update)
       }
     }
+  }, [])
+
+  // Global keyboard shortcuts
+  useEffect(() => {
+    const handler = (e) => {
+      // Don't fire if user is typing in an input or textarea
+      const tag = document.activeElement?.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return
+      if (e.metaKey || e.ctrlKey || e.altKey) return
+
+      switch (e.key) {
+        case 'g': e.preventDefault(); navigate('/pipeline');   break
+        case 'v': e.preventDefault(); navigate('/vault');      break
+        case 'i': e.preventDefault(); navigate('/analytics');  break
+        case 's': e.preventDefault(); navigate('/sound');      break
+        case '/':
+          e.preventDefault()
+          // Focus KB chat if on home, otherwise open palette
+          if (location.pathname === '/') {
+            window.dispatchEvent(new Event('kb:focus'))
+          } else {
+            window.dispatchEvent(new Event('kb:open'))
+          }
+          break
+        case 'Escape':
+          setChatOpen(false)
+          setCompanionOpen(false)
+          setPaletteOpen(false)
+          setGearOpen(false)
+          break
+        default: break
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [location.pathname, navigate])
+
+  // Online/offline detection
+  useEffect(() => {
+    const on  = () => setIsOnline(true)
+    const off = () => setIsOnline(false)
+    window.addEventListener('online',  on)
+    window.addEventListener('offline', off)
+    return () => { window.removeEventListener('online', on); window.removeEventListener('offline', off) }
+  }, [])
+
+  // Global Cmd/Ctrl+K → command palette
+  useEffect(() => {
+    const handler = (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault()
+        setPaletteOpen(o => !o)
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
   }, [])
 
   // Close pill on outside click
@@ -214,7 +278,7 @@ export default function AppLayout() {
             <div style={{ display:'flex', flexDirection:'column', gap:3 }}>
               {(categories || []).map(cat => (
                 <button key={cat.id}
-                  onClick={() => { setActiveCategory(cat.id); setGearOpen(false) }}
+                  onClick={() => { setActiveCategory(cat.id); clearWorkspaceContext?.(); setGearOpen(false) }}
                   style={{ display:'flex', alignItems:'center', gap:8, padding:'8px 10px', borderRadius:8, border:'none', cursor:'pointer', background: cat.id === activeCategoryId ? GREEN_LOW : 'transparent', color: cat.id === activeCategoryId ? GREEN : 'rgba(255,255,255,0.55)', textAlign:'left', transition:'all 0.15s', fontFamily:"'Figtree',sans-serif", fontSize:13 }}
                 >
                   <span style={{ width:6, height:6, borderRadius:'50%', background: cat.id === activeCategoryId ? GREEN : '#333', flexShrink:0 }}/>
@@ -369,34 +433,29 @@ export default function AppLayout() {
           {/* FIX: Companion button — visible in the pill on mobile where the
               pipeline items are hidden. Uses Radio icon (already imported).
               On desktop it stays in the MORE_ITEMS expanded menu as before. */}
-          {isMobile && (
-            <>
-              <button
-                onClick={() => navigate('/companion')}
-                style={{
-                  width:          36,
-                  height:         36,
-                  borderRadius:   50,
-                  background:     location.pathname === '/companion' ? GREEN_LOW : 'none',
-                  border:         'none',
-                  color:          location.pathname === '/companion' ? GREEN : 'rgba(255,255,255,0.35)',
-                  cursor:         'pointer',
-                  display:        'flex',
-                  flexDirection:  'column',
-                  alignItems:     'center',
-                  justifyContent: 'center',
-                  gap:            3,
-                  transition:     'all 0.15s',
-                }}
-              >
-                <Radio size={15}/>
-                <span style={{ fontSize: 8, letterSpacing: '0.06em', textTransform: 'uppercase', fontFamily: "'Figtree', sans-serif", lineHeight: 1 }}>
-                  Live
-                </span>
-              </button>
-              <div style={{ width: 1, height: 20, background: 'rgba(255,255,255,0.06)', margin: '0 2px' }}/>
-            </>
-          )}
+          {/* Companion button — always visible, opens floating panel */}
+          <button
+            onClick={() => setCompanionOpen(o => !o)}
+            style={{
+              width:          36,
+              height:         36,
+              borderRadius:   50,
+              background:     companionOpen ? GREEN_LOW : 'none',
+              border:         companionOpen ? `1px solid ${GREEN_MID}` : 'none',
+              color:          companionOpen ? GREEN : 'rgba(255,255,255,0.35)',
+              cursor:         'pointer',
+              display:        'flex',
+              flexDirection:  'column',
+              alignItems:     'center',
+              justifyContent: 'center',
+              gap:            3,
+              transition:     'all 0.15s',
+            }}
+          >
+            <Radio size={15}/>
+            {isMobile && <span style={{ fontSize: 8, letterSpacing: '0.06em', textTransform: 'uppercase', fontFamily: "'Figtree', sans-serif", lineHeight: 1 }}>Live</span>}
+          </button>
+          <div style={{ width: 1, height: 20, background: 'rgba(255,255,255,0.06)', margin: '0 2px' }}/>
 
           {/* Pipeline items — hidden on mobile, shown on desktop */}
           {!isMobile && PILL_ITEMS.map(item => (
@@ -473,23 +532,66 @@ export default function AppLayout() {
           )}
 
           <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+            {/* Command palette trigger */}
+            <button
+              onClick={() => setPaletteOpen(true)}
+              style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 10px', borderRadius: 7, border: '1px solid rgba(255,255,255,0.07)', background: 'rgba(255,255,255,0.03)', color: 'rgba(255,255,255,0.25)', cursor: 'pointer', fontSize: 11, fontFamily: "'Figtree',sans-serif" }}
+            >
+              <Search size={11}/>
+              <span style={{ display: isMobile ? 'none' : 'inline' }}>Search</span>
+              <span style={{ fontSize: 10, fontFamily: 'monospace', display: isMobile ? 'none' : 'inline' }}>⌘K</span>
+            </button>
             {/* Profile name — desktop */}
             {!isMobile && (
               <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.35)', fontFamily: "'Figtree', sans-serif" }}>
                 {profile?.display_name}
               </span>
             )}
-            {/* Tier badge */}
-            <span style={{
-              fontSize: 11, padding: '2px 8px', borderRadius: 99,
-              border: `1px solid rgba(74,222,128,0.25)`,
-              color: GREEN, fontFamily: "'Figtree', sans-serif",
-              background: GREEN_LOW,
-            }}>
+            {/* Tier badge — shows usage for free users, tier for paid */}
+            <button
+              onClick={() => navigate('/billing')}
+              style={{
+                fontSize: 11, padding: '2px 8px', borderRadius: 99,
+                border: `1px solid ${profile?.tier === 'free' ? 'rgba(200,150,50,0.35)' : 'rgba(74,222,128,0.25)'}`,
+                color: profile?.tier === 'free' ? 'rgba(200,150,50,0.9)' : GREEN,
+                fontFamily: "'Figtree', sans-serif",
+                background: profile?.tier === 'free' ? 'rgba(200,150,50,0.08)' : GREEN_LOW,
+                cursor: 'pointer', border: 'none',
+                display: 'flex', alignItems: 'center', gap: 4,
+              }}
+              title={profile?.tier === 'free' ? `${profile?.episodes_this_month || 0}/${profile?.max_episodes_pm || 3} episodes this month` : null}
+            >
+              {profile?.tier === 'free' && (
+                <span style={{ opacity: 0.7 }}>{profile?.episodes_this_month || 0}/{profile?.max_episodes_pm || 3}</span>
+              )}
               {profile?.tier || 'free'}
-            </span>
+            </button>
           </div>
         </header>
+      )}
+
+      {/* Offline banner */}
+      {!isOnline && !isCompanion && (
+        <div style={{
+          position:   'fixed',
+          top:        52,
+          left:       0,
+          right:      0,
+          zIndex:     49,
+          background: 'rgba(200,120,40,0.95)',
+          backdropFilter: 'blur(8px)',
+          padding:    '8px 16px',
+          display:    'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap:        8,
+          fontSize:   12,
+          color:      'rgba(255,255,255,0.9)',
+          fontFamily: "'Figtree',sans-serif",
+        }}>
+          <span>⚠</span>
+          You're offline — KB is unavailable. Recording and local actions still work.
+        </div>
       )}
 
       {/* Main content */}
@@ -587,6 +689,15 @@ export default function AppLayout() {
 
       {/* Pill toolbar */}
       <PillToolbar/>
+
+      {/* Floating companion panel */}
+      {companionOpen && !isCompanion && (
+        <CompanionPanel onClose={() => setCompanionOpen(false)} />
+      )}
+
+      {paletteOpen && (
+        <CommandPalette onClose={() => setPaletteOpen(false)} />
+      )}
 
       <GearPanel/>
       <Notifications/>

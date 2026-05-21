@@ -175,4 +175,203 @@ async function fetchTrendingWithGrounding(niche) {
   }
 }
 
-module.exports = { analyseTrends, scoreScript, fetchTrendingWithGrounding }
+// ── Synthesise audience data upload ──────────────────────────────────────────
+// Reads a sample of uploaded audience data and returns a plain-English
+// persona summary KB can use directly in context.
+
+async function synthesiseAudienceData({ fileName, rowCount, columns, dataSample }) {
+  if (!process.env.GEMINI_API_KEY) throw new Error('GEMINI_API_KEY not set')
+
+  const genAI = getClient()
+  const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' })
+
+  const prompt = `You are analysing audience/user data uploaded by a content creator.
+
+File: ${fileName}
+Total records: ${rowCount}
+Columns: ${columns.join(', ')}
+
+Sample data (first 20 rows):
+${dataSample}
+
+Write a plain-English audience persona summary (150-200 words) that a content creator can use to understand who their audience is. Cover:
+- Who these people are (demographics if available)
+- What they care about or are trying to achieve
+- Any pain points or motivations visible in the data
+- What kind of content would resonate with them
+- Any notable patterns or segments
+
+Write in direct, specific prose. No bullet points, no headers, no markdown. Write as if briefing a scriptwriter on who they're writing for.`
+
+  const result = await model.generateContent(prompt)
+  return result.response.text().trim()
+}
+
+// ── Deep audience research via Gemini + Google Search grounding ──────────────
+// Researches who watches content in this niche — demographics, psychographics,
+// pain points, content gaps, thumbnail psychology.
+// Runs weekly alongside the trend refresh.
+
+async function researchAudience(niche, channelContext = {}) {
+  if (!process.env.GEMINI_API_KEY) throw new Error('GEMINI_API_KEY not set')
+
+  const genAI = getClient()
+
+  // Use grounding model for real-time research
+  const groundedModel = genAI.getGenerativeModel({
+    model: 'gemini-2.0-flash',
+    tools: [{ googleSearch: {} }],
+  })
+
+  // Use standard model for synthesis (grounding + JSON don't mix well)
+  const synthModel = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' })
+
+  // Step 1 — Research the niche audience with grounding
+  let rawResearch = ''
+  try {
+    const researchPrompt = `Search for research and data about the audience for "${niche}" content on YouTube and social media.
+
+Find:
+1. Who watches this type of content (age, gender, income, geography)
+2. What drives them to search for and watch this content (motivations, pain points)
+3. What thumbnail and title styles get the most clicks in this niche (emotional triggers, visual patterns)
+4. What content gaps exist — what questions does this audience have that aren't being answered well?
+5. What time of day and week does this audience watch most?
+
+Cite specific data, studies, or patterns where possible.`
+
+    const result = await groundedModel.generateContent(researchPrompt)
+    rawResearch = result.response.text()
+  } catch (err) {
+    console.warn('[gemini/researchAudience] Grounding failed, using niche knowledge:', err.message)
+    rawResearch = `No live grounding data available. Using Gemini knowledge about ${niche} audience.`
+  }
+
+  // Step 2 — Synthesise into structured JSON KB can use
+  const channelSummary = channelContext.topCountries
+    ? `Channel data: top countries ${channelContext.topCountries.join(', ')}, avg retention ${channelContext.avgRetention || 'unknown'}%, primary device ${channelContext.primaryDevice || 'unknown'}.`
+    : ''
+
+  const synthPrompt = `You are building an audience intelligence model for a content creator in the "${niche}" niche.
+
+${channelSummary}
+
+Research findings:
+${rawResearch}
+
+Synthesise this into a structured JSON object. Return ONLY valid JSON, no markdown, no preamble:
+
+{
+  "primaryAudience": {
+    "ageRange": "primary age bracket e.g. 25-34",
+    "genderSplit": "e.g. 65% male, 35% female",
+    "geographies": ["top 3 countries/regions"],
+    "incomeLevel": "e.g. middle income, aspirational",
+    "educationLevel": "e.g. some college, university educated"
+  },
+  "psychographics": {
+    "corePainPoint": "single sentence — the main struggle that drives them to this content",
+    "coreAspiration": "single sentence — what they want to achieve or become",
+    "contentMotivation": "why they watch — validation, learning, entertainment, community",
+    "identityStatement": "I am the kind of person who... (how they see themselves)"
+  },
+  "contentBehaviour": {
+    "peakWatchTimes": "e.g. evenings and weekends",
+    "averageSessionLength": "e.g. 12-18 minutes",
+    "preferredContentLength": "e.g. 8-15 minute deep dives",
+    "discoveryMethod": "how they find new creators — search, suggested, community tabs"
+  },
+  "thumbnailPsychology": {
+    "emotionalTriggers": ["list of emotions that drive clicks in this niche"],
+    "visualPatterns": "what visual styles perform — faces, text-heavy, before/after, etc.",
+    "titleFormulas": ["2-3 title structures that work in this niche"],
+    "whatToAvoid": "thumbnail/title patterns that underperform"
+  },
+  "contentGaps": ["3-5 specific questions or topics this audience has that are underserved"],
+  "competitorPatterns": "what top creators in this niche do that works",
+  "researchedAt": "${new Date().toISOString()}"
+}`
+
+  try {
+    const synthResult = await synthModel.generateContent(synthPrompt)
+    const text = synthResult.response.text().replace(/\`\`\`json|\`\`\`/g, '').trim()
+    const parsed = JSON.parse(text)
+    return { ...parsed, rawResearch: rawResearch.slice(0, 2000) }
+  } catch (err) {
+    console.warn('[gemini/researchAudience] Synthesis parse error:', err.message)
+    // Return minimal structure so the caller doesn't crash
+    return {
+      primaryAudience:    { ageRange: 'unknown', genderSplit: 'unknown', geographies: [], incomeLevel: 'unknown', educationLevel: 'unknown' },
+      psychographics:     { corePainPoint: '', coreAspiration: '', contentMotivation: '', identityStatement: '' },
+      contentBehaviour:   { peakWatchTimes: '', averageSessionLength: '', preferredContentLength: '', discoveryMethod: '' },
+      thumbnailPsychology:{ emotionalTriggers: [], visualPatterns: '', titleFormulas: [], whatToAvoid: '' },
+      contentGaps:        [],
+      competitorPatterns: '',
+      researchedAt:       new Date().toISOString(),
+      rawResearch:        rawResearch.slice(0, 500),
+    }
+  }
+}
+
+// ── Competitor intelligence sweep ─────────────────────────────────────────────
+// Researches top creators in the niche weekly — what they're posting,
+// what's performing, and what gaps they're leaving.
+
+async function researchCompetitors(niche, channelName = '') {
+  if (!process.env.GEMINI_API_KEY) throw new Error('GEMINI_API_KEY not set')
+
+  const genAI       = getClient()
+  const groundedModel = genAI.getGenerativeModel({
+    model: 'gemini-2.0-flash',
+    tools: [{ googleSearch: {} }],
+  })
+  const synthModel = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' })
+
+  // Step 1 — Research with grounding
+  let rawResearch = ''
+  try {
+    const result = await groundedModel.generateContent(
+      `Search for top YouTube creators in the "${niche}" niche. What are they currently posting? What content is performing well? What topics and formats are oversaturated? What questions does the audience have that nobody is answering well? Be specific — name creators, titles, formats.`
+    )
+    rawResearch = result.response.text()
+  } catch (err) {
+    console.warn('[gemini/competitors] Grounding failed:', err.message)
+    rawResearch = `No live data. Using Gemini knowledge about ${niche} creator landscape.`
+  }
+
+  // Step 2 — Synthesise to JSON
+  const synthPrompt = `You are building a competitor intelligence report for a YouTube creator in the "${niche}" niche${channelName ? ` (channel: ${channelName})` : ''}.
+
+Research findings:
+${rawResearch}
+
+Return ONLY valid JSON, no markdown:
+{
+  "summary": "2-3 sentence plain English summary of the competitive landscape",
+  "topCreators": ["name — what they do well"],
+  "contentGaps": ["specific topic or angle nobody is covering well"],
+  "topPerformingFormats": ["format or style that's currently getting traction"],
+  "oversaturated": ["topics or formats that are overdone"],
+  "opportunities": ["specific content angles this creator could own"],
+  "researchedAt": "${new Date().toISOString()}"
+}`
+
+  try {
+    const result = await synthModel.generateContent(synthPrompt)
+    const text   = result.response.text().replace(/\`\`\`json|\`\`\`/g, '').trim()
+    return JSON.parse(text)
+  } catch (err) {
+    console.warn('[gemini/competitors] Synthesis failed:', err.message)
+    return {
+      summary:              `Competitor research for ${niche} — synthesis failed`,
+      topCreators:          [],
+      contentGaps:          [],
+      topPerformingFormats: [],
+      oversaturated:        [],
+      opportunities:        [],
+      researchedAt:         new Date().toISOString(),
+    }
+  }
+}
+
+module.exports = { analyseTrends, scoreScript, fetchTrendingWithGrounding, synthesiseAudienceData, researchAudience, researchCompetitors }

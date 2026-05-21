@@ -8,12 +8,13 @@ import {
   Plus, Clock, X, Sparkles, Mic, MicOff, Volume2, ChevronDown,
 } from 'lucide-react'
 import { useStore } from '../../store'
-import { chat as chatApi } from '../../lib/api'
+import { chat as chatApi, vault as vaultApi } from '../../lib/api'
 import useKBVoice from '../../hooks/useKBVoice'
 import { useLocation } from 'react-router-dom'
 
 const MODE_MAP = {
   '/':             'generate',
+  '/pipeline':     'generate',
   '/generate':     'generate',
   '/vault':        'vault',
   '/series':       'series',
@@ -22,6 +23,16 @@ const MODE_MAP = {
   '/sound':        'sound',
   '/editor':       'editor',
   '/storyboard':   'storyboard',
+  '/schedule':     'analytics',
+}
+
+// Dynamic mode for episode workspace
+function getModeFromPathname(pathname) {
+  if (pathname.startsWith('/episode/')) {
+    // KB in generate mode when inside an episode — most useful default
+    return 'generate'
+  }
+  return MODE_MAP[pathname] || 'generate'
 }
 
 const MODE_META = {
@@ -432,6 +443,8 @@ const STYLES = `
   .kb-generate-btn:hover { background: rgba(74,222,128,0.14); color: rgba(74,222,128,1); }
   .kb-generate-btn:disabled { opacity: 0.3; cursor: not-allowed; }
 
+  .kb-msg-wrapper:hover .kb-vault-save { opacity: 1 !important; }
+
   .kb-history-item {
     padding: 11px 13px;
     border-radius: 9px;
@@ -450,9 +463,9 @@ const STYLES = `
 let stylesInjected = false
 
 export default function ChatPanel() {
-  const { activeCategoryId, notify } = useStore()
+  const { activeCategoryId, activeEpisodeId, notify } = useStore()
   const location = useLocation()
-  const mode     = MODE_MAP[location.pathname] || 'generate'
+  const mode     = getModeFromPathname(location.pathname)
   const meta     = MODE_META[mode] || MODE_META.generate
 
   // Inject styles once
@@ -468,13 +481,13 @@ export default function ChatPanel() {
   const isMobile    = typeof window !== 'undefined' && window.innerWidth < 600
   const [messages,    setMessages]    = useState([])
   const [sessions,    setSessions]    = useState([])
+  const [sessionSearch, setSessionSearch] = useState('')
   const [input,       setInput]       = useState('')
   const [streaming,   setStreaming]   = useState(false)
   const [streamText,  setStreamText]  = useState('')
   const [committing,  setCommitting]  = useState(false)
   const [committed,   setCommitted]   = useState(null)
-  const [saving,      setSaving]      = useState(false)
-  const [saved,       setSaved]       = useState(false)
+  // saving/saved removed — history auto-saves on every message via backend
   const [generating,  setGenerating]  = useState(false)
   const [generated,   setGenerated]   = useState(null)
   const [genPct,      setGenPct]      = useState(0)
@@ -517,7 +530,7 @@ export default function ChatPanel() {
 
   useEffect(() => {
     if (!activeCategoryId) return
-    setMessages([]); setCommitted(null); setSaved(false); setGenerated(null)
+    setMessages([]); setCommitted(null); setGenerated(null)
     chatApi.getHistory({ categoryId: activeCategoryId, mode })
       .then(({ messages: h }) => setMessages(h || []))
       .catch(() => {})
@@ -554,6 +567,20 @@ export default function ChatPanel() {
     return () => el.removeEventListener('scroll', handleScroll)
   }, [])
 
+  async function saveToVault(text) {
+    if (!activeCategoryId || !text?.trim()) return
+    try {
+      await vaultApi.create({
+        categoryId: activeCategoryId,
+        type:        'hook',
+        title:       text.slice(0, 80),
+        content:     text,
+        tags:        ['from-kb'],
+      })
+      notify('Saved to vault', 'success')
+    } catch { notify('Could not save to vault', 'error') }
+  }
+
   const sendMessage = useCallback(async (overrideText) => {
     const text = (overrideText || input).trim()
     if (!text || streaming) return
@@ -569,7 +596,7 @@ export default function ChatPanel() {
 
     try {
       await chatApi.send(
-        { categoryId: activeCategoryId, mode, message: text, messages: [] },
+        { categoryId: activeCategoryId, mode, message: text, messages: [], activeEpisodeId: activeEpisodeId || null },
         {
           chunk: ({ text: t }) => setStreamText(prev => prev + t),
           done:  ({ response }) => {
@@ -594,15 +621,7 @@ export default function ChatPanel() {
     }
   }, [input, streaming, activeCategoryId, mode])
 
-  async function saveSession() {
-    if (!messages.length || saving) return
-    setSaving(true)
-    try {
-      await chatApi.saveSession({ categoryId: activeCategoryId, mode, messages })
-      setSaved(true); setTimeout(() => setSaved(false), 3000)
-    } catch { notify('Could not save', 'error') }
-    finally { setSaving(false) }
-  }
+
 
   async function loadSession(id) {
     const { session } = await chatApi.getSession(id)
@@ -618,7 +637,7 @@ export default function ChatPanel() {
 
   async function newChat() {
     await chatApi.clearHistory({ categoryId: activeCategoryId, mode })
-    setMessages([]); setCommitted(null); setSaved(false); setGenerated(null)
+    setMessages([]); setCommitted(null); setGenerated(null)
     setView('chat')
     setTimeout(() => inputRef.current?.focus(), 100)
   }
@@ -711,12 +730,22 @@ export default function ChatPanel() {
             </button>
           </div>
           <div className="kb-messages">
+            {/* Search input */}
+            <div style={{ marginBottom: 10 }}>
+              <input
+                value={sessionSearch}
+                onChange={e => setSessionSearch(e.target.value)}
+                placeholder="Search conversations..."
+                style={{ width: '100%', boxSizing: 'border-box', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 7, padding: '7px 10px', color: 'rgba(255,255,255,0.6)', fontSize: 12, fontFamily: "'Figtree',sans-serif", outline: 'none' }}
+              />
+            </div>
+
             {sessions.length === 0 && (
               <div style={{ color: 'rgba(255,255,255,0.2)', fontSize: 11, fontFamily: "'DM Mono', monospace" }}>
-                No saved conversations yet
+                No saved conversations yet — KB auto-saves every chat
               </div>
             )}
-            {sessions.map(s => (
+            {sessions.filter(s => !sessionSearch || s.title?.toLowerCase().includes(sessionSearch.toLowerCase())).map(s => (
               <div key={s.id} className="kb-history-item" onClick={() => loadSession(s.id)}>
                 <div className="kb-history-title">{s.title}</div>
                 <div className="kb-history-meta">
@@ -769,9 +798,23 @@ export default function ChatPanel() {
 
           {messages.map((msg, i) => (
             <div key={i} className={`kb-msg ${msg.role}`}>
-              <div className={`kb-bubble ${msg.role} ${msg.isError ? 'error' : ''}`}>
-                <MessageContent content={msg.content}/>
-                {msg.isGenerating && <span style={{ color: 'rgba(100,180,100,0.6)', marginLeft: 6 }}>✦</span>}
+              <div style={{ position: 'relative' }} className="kb-msg-wrapper">
+                <div className={`kb-bubble ${msg.role} ${msg.isError ? 'error' : ''}`}>
+                  <MessageContent content={msg.content}/>
+                  {msg.isGenerating && <span style={{ color: 'rgba(100,180,100,0.6)', marginLeft: 6 }}>✦</span>}
+                </div>
+                {msg.role === 'assistant' && !msg.isError && !msg.isGenerating && (
+                  <button
+                    onClick={() => saveToVault(msg.content)}
+                    title="Save to vault"
+                    style={{ position: 'absolute', bottom: -2, left: 6, opacity: 0, transition: 'opacity 0.15s', padding: '2px 6px', borderRadius: 5, border: '1px solid rgba(255,255,255,0.08)', background: 'rgba(8,10,16,0.95)', color: 'rgba(255,255,255,0.3)', cursor: 'pointer', fontSize: 10, fontFamily: "'Figtree',sans-serif", display: 'flex', alignItems: 'center', gap: 3 }}
+                    onMouseEnter={e => e.currentTarget.style.opacity = '1'}
+                    onMouseLeave={e => e.currentTarget.style.opacity = '0'}
+                    className="kb-vault-save"
+                  >
+                    ◈ Save
+                  </button>
+                )}
               </div>
             </div>
           ))}
@@ -871,13 +914,7 @@ export default function ChatPanel() {
 
         {/* Action row — save / history / new */}
         <div style={{ display:'flex', gap:6, padding:'0 12px 8px', justifyContent:'flex-end' }}>
-          {messages.length > 2 && !saved && (
-            <button onClick={saveSession} disabled={saving}
-              style={{ fontSize:10, padding:'3px 8px', borderRadius:6, border:'1px solid rgba(255,255,255,0.06)', background:'transparent', color:'rgba(255,255,255,0.3)', cursor:'pointer', fontFamily:"'Figtree',sans-serif", display:'flex', alignItems:'center', gap:4 }}>
-              {saving ? '...' : '◌'} Save
-            </button>
-          )}
-          {saved && <span style={{ fontSize:10, color:'rgba(74,222,128,0.6)', fontFamily:"'Figtree',sans-serif", padding:'3px 8px' }}>✓ Saved</span>}
+
           <button onClick={() => setView('history')}
             style={{ fontSize:10, padding:'3px 8px', borderRadius:6, border:'1px solid rgba(255,255,255,0.06)', background:'transparent', color:'rgba(255,255,255,0.3)', cursor:'pointer', fontFamily:"'Figtree',sans-serif", display:'flex', alignItems:'center', gap:4 }}>
             <Clock size={9}/> History

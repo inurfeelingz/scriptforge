@@ -7,6 +7,8 @@ require('dotenv').config();
 const cron     = require('node-cron');
 const { supabase } = require('../utils/supabase');
 const { refreshCategoryTrending } = require('./trendingService');
+const { researchAudience, researchCompetitors } = require('./geminiService');
+const pushService = require('./pushService');
 const { runLogAnalysis }          = require('./logAnalysisService');
 
 /**
@@ -18,6 +20,14 @@ async function isTrendingStale(category) {
   const refreshedAt = new Date(category.trending_refreshed_at);
   const hoursOld    = (Date.now() - refreshedAt.getTime()) / (1000 * 60 * 60);
   return hoursOld >= (category.refresh_interval_hours || 48);
+}
+
+// Audience research is stale if older than 7 days
+function isAudienceResearchStale(category) {
+  const updatedAt = category.audience_model?.gemini_updated_at
+  if (!updatedAt) return true
+  const hoursOld = (Date.now() - new Date(updatedAt).getTime()) / (1000 * 60 * 60)
+  return hoursOld >= 168 // 7 days
 }
 
 /**
@@ -45,6 +55,42 @@ async function checkCategoryStaleness(categoryId) {
  * Trigger an immediate refresh for a category.
  * Called on app-open (if stale) or category-switch.
  */
+// Run Gemini audience research for a category and store in audience_model
+async function runAudienceResearch(userId, categoryId) {
+  const { data: category } = await supabase
+    .from('categories')
+    .select('niche, audience_model')
+    .eq('id', categoryId)
+    .eq('user_id', userId)
+    .single()
+
+  if (!category) return
+
+  // Pull channel context from latest youtube demographics if available
+  const existingModel   = category.audience_model || {}
+  const ytDemographics  = existingModel.youtube || {}
+  const channelContext  = {
+    topCountries:   ytDemographics.geography?.topCountries?.slice(0,3).map(c => c.country) || [],
+    avgRetention:   ytDemographics.ageGender ? null : null,
+    primaryDevice:  ytDemographics.devices?.[0]?.device || null,
+  }
+
+  console.log(`[smartScheduler] Running audience research for category ${categoryId} (${category.niche})`)
+
+  const geminiInsights = await researchAudience(category.niche, channelContext)
+
+  await supabase.from('categories').update({
+    audience_model: {
+      ...existingModel,
+      geminiInsights,
+      gemini_updated_at: new Date().toISOString(),
+    },
+    updated_at: new Date().toISOString(),
+  }).eq('id', categoryId).eq('user_id', userId)
+
+  console.log(`[smartScheduler] Audience research complete for category ${categoryId}`)
+}
+
 async function triggerRefresh(userId, categoryId, trigger = 'manual') {
   const { data: category } = await supabase
     .from('categories')
@@ -113,6 +159,78 @@ async function backgroundSweep() {
   console.log(`[smartScheduler] Sweep complete. Refreshed ${refreshed}/${categories.length} categories.`);
 }
 
+// Audience research sweep — runs weekly, checks all active categories
+// Check all active categories for publish overdue — fires weekly push reminders
+async function overdueReminderSweep() {
+  const { data: categories } = await supabase
+    .from('categories')
+    .select('id, user_id, name, auto_refresh_enabled')
+    .eq('auto_refresh_enabled', true)
+    .eq('is_active', true)
+
+  if (!categories?.length) return
+
+  for (const cat of categories) {
+    try {
+      // Get last published episode
+      const { data: lastEp } = await supabase
+        .from('episodes')
+        .select('published_at, track_name, episode_number')
+        .eq('category_id', cat.id)
+        .eq('status', 'published')
+        .order('published_at', { ascending: false })
+        .limit(1)
+        .single()
+
+      if (!lastEp?.published_at) continue
+      const daysSince = (Date.now() - new Date(lastEp.published_at).getTime()) / 86400000
+
+      // Push if overdue by more than 3 days beyond typical cadence
+      if (daysSince > 10) {
+        await pushService.sendToUser(cat.user_id, {
+          title: '⏰ Time to publish',
+          body:  `You haven't published for ${Math.round(daysSince)} days — KB is ready to help plan your next episode`,
+          icon:  '/icons/icon-192x192.png',
+          tag:   'overdue-reminder',
+          data:  { url: '/', type: 'overdue_reminder' },
+          actions: [
+            { action: 'open', title: 'Open KB' },
+            { action: 'dismiss', title: 'Later' },
+          ],
+        })
+      }
+    } catch {}
+  }
+}
+
+async function audienceResearchSweep() {
+  console.log('[smartScheduler] Running audience research sweep...')
+
+  const { data: categories } = await supabase
+    .from('categories')
+    .select('id, user_id, niche, audience_model, auto_refresh_enabled')
+    .eq('auto_refresh_enabled', true)
+    .eq('is_active', true)
+
+  if (!categories?.length) return
+
+  let researched = 0
+  for (const cat of categories) {
+    if (isAudienceResearchStale(cat)) {
+      try {
+        await runAudienceResearch(cat.user_id, cat.id)
+        researched++
+      } catch (err) {
+        console.warn(`[smartScheduler] Audience research failed for ${cat.id}:`, err.message)
+      }
+      // Delay between calls to avoid Gemini rate limits
+      await new Promise(r => setTimeout(r, 5000))
+    }
+  }
+
+  console.log(`[smartScheduler] Audience research sweep complete. Researched ${researched}/${categories.length} categories.`)
+}
+
 /**
  * Generation log analysis sweep.
  * For each user with 3+ new performance data points since last analysis,
@@ -179,7 +297,59 @@ function startSmartScheduler() {
     analysisSwitch().catch(err => console.error('[smartScheduler] Analysis error:', err.message));
   });
 
-  console.log('[smartScheduler] Started. Sweep: every 6h. Analysis: daily 3am.');
+  // Overdue publish reminder — every Wednesday at 9am
+  cron.schedule('0 9 * * 3', () => {
+    overdueReminderSweep().catch(err => console.error('[smartScheduler] Overdue sweep error:', err.message))
+  })
+
+  // Competitor intelligence sweep every Saturday at 2am
+  cron.schedule('0 2 * * 6', () => {
+    competitorIntelSweep().catch(err => console.error('[smartScheduler] Competitor sweep error:', err.message))
+  })
+
+  // Audience research sweep every Sunday at 2am
+  cron.schedule('0 2 * * 0', () => {
+    audienceResearchSweep().catch(err => console.error('[smartScheduler] Audience research error:', err.message))
+  })
+
+  console.log('[smartScheduler] Started. Sweep: every 6h. Analysis: daily 3am. Audience research: weekly Sunday 2am.');
+}
+
+// Competitor intelligence sweep — runs weekly, checks all active categories
+async function competitorIntelSweep() {
+  console.log('[smartScheduler] Running competitor intelligence sweep...')
+
+  const { data: categories } = await supabase
+    .from('categories')
+    .select('id, user_id, name, niche, competitor_intel, auto_refresh_enabled')
+    .eq('auto_refresh_enabled', true)
+    .eq('is_active', true)
+
+  if (!categories?.length) return
+
+  let researched = 0
+  for (const cat of categories) {
+    // Stale after 7 days
+    const updatedAt = cat.competitor_intel?.researchedAt
+    const hoursOld  = updatedAt
+      ? (Date.now() - new Date(updatedAt).getTime()) / (1000 * 60 * 60)
+      : 9999
+    if (hoursOld < 168) continue
+
+    try {
+      const intel = await researchCompetitors(cat.niche, cat.name)
+      await supabase.from('categories').update({
+        competitor_intel: intel,
+        updated_at:       new Date().toISOString(),
+      }).eq('id', cat.id).eq('user_id', cat.user_id)
+      researched++
+      console.log(`[smartScheduler] Competitor intel updated for ${cat.name}`)
+    } catch (err) {
+      console.warn(`[smartScheduler] Competitor intel failed for ${cat.id}:`, err.message)
+    }
+    await new Promise(r => setTimeout(r, 5000))
+  }
+  console.log(`[smartScheduler] Competitor sweep done. Updated ${researched}/${categories.length}.`)
 }
 
 module.exports = {
@@ -187,4 +357,8 @@ module.exports = {
   checkCategoryStaleness,
   triggerRefresh,
   backgroundSweep,
+  runAudienceResearch,
+  audienceResearchSweep,
+  competitorIntelSweep,
+  overdueReminderSweep,
 };

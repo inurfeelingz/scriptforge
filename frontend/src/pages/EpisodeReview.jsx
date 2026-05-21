@@ -109,6 +109,108 @@ function ScriptLine({ line, retentionPct, isDropZone, isRecovery }) {
           style={{ background: colors.border }}
         />
       )}
+      {/* ── Collab ── */}
+      <div style={{ marginTop: 16, padding: '14px 16px', borderRadius: 10, border: '1px solid rgba(255,255,255,0.06)', background: 'rgba(255,255,255,0.01)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: 'rgba(255,255,255,0.7)', fontFamily: "'Figtree',sans-serif" }}>Collaborate</div>
+            <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)', fontFamily: "'Figtree',sans-serif", marginTop: 2 }}>
+              Share this episode with an editor, guest, or collaborator
+            </div>
+          </div>
+          {!collabSession ? (
+            <button
+              onClick={createCollabSession}
+              disabled={collabLoading}
+              style={{ padding: '7px 14px', borderRadius: 8, border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.04)', color: 'rgba(255,255,255,0.5)', cursor: collabLoading ? 'wait' : 'pointer', fontSize: 12, fontFamily: "'Figtree',sans-serif" }}
+            >
+              {collabLoading ? 'Creating...' : 'Create invite link'}
+            </button>
+          ) : (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <code style={{ fontSize: 11, padding: '4px 10px', borderRadius: 6, background: 'rgba(74,222,128,0.08)', border: '1px solid rgba(74,222,128,0.15)', color: 'rgba(74,222,128,0.7)', fontFamily: 'monospace', userSelect: 'all' }}>
+                {collabSession.session_code}
+              </code>
+              <button
+                onClick={() => { navigator.clipboard.writeText(collabSession.session_code); notify('Code copied', 'success') }}
+                style={{ padding: '4px 10px', borderRadius: 6, border: '1px solid rgba(255,255,255,0.08)', background: 'transparent', color: 'rgba(255,255,255,0.4)', cursor: 'pointer', fontSize: 11, fontFamily: "'Figtree',sans-serif" }}
+              >
+                Copy
+              </button>
+            </div>
+          )}
+        </div>
+        {collabSession && (
+          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.2)', fontFamily: "'Figtree',sans-serif", marginTop: 8 }}>
+            Share this code. Collaborators enter it at whispacuts.com/join to access this episode.
+            {collabSession.participants?.length > 1 ? ` ${collabSession.participants.length - 1} collaborator(s) joined.` : ''}
+          </div>
+        )}
+      </div>
+
+      {/* ── Thumbnail Prompt ── */}
+      <div style={{ marginTop: 24, padding: '16px', borderRadius: 10, border: '1px solid rgba(74,222,128,0.1)', background: 'rgba(74,222,128,0.02)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: 'rgba(255,255,255,0.7)', fontFamily: "'Figtree',sans-serif" }}>Thumbnail Intelligence</div>
+            <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)', fontFamily: "'Figtree',sans-serif", marginTop: 2 }}>
+              Flux prompt + title options targeted to your audience
+            </div>
+          </div>
+          <button
+            onClick={generateThumbnailPrompt}
+            disabled={thumbLoading}
+            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px', borderRadius: 8, border: '1px solid rgba(74,222,128,0.25)', background: 'rgba(74,222,128,0.07)', color: 'rgba(74,222,128,0.8)', cursor: thumbLoading ? 'wait' : 'pointer', fontSize: 12, fontFamily: "'Figtree',sans-serif" }}
+          >
+            {thumbLoading ? 'Generating...' : '✦ Generate prompt'}
+          </button>
+        </div>
+
+        {thumbResult && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            {/* Flux prompt */}
+            <div>
+              <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.25)', textTransform: 'uppercase', letterSpacing: '0.08em', fontFamily: "'Figtree',sans-serif", marginBottom: 6 }}>Flux Prompt</div>
+              <div
+                style={{ fontSize: 12, color: 'rgba(255,255,255,0.6)', fontFamily: "'Figtree',sans-serif", lineHeight: 1.65, padding: '10px 12px', borderRadius: 8, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', cursor: 'pointer', userSelect: 'all' }}
+                onClick={() => { navigator.clipboard.writeText(thumbResult.fluxPrompt); notify('Copied', 'success') }}
+                title="Click to copy"
+              >
+                {thumbResult.fluxPrompt}
+              </div>
+              <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.2)', fontFamily: "'Figtree',sans-serif", marginTop: 4 }}>Click to copy · Paste into Flux, Ideogram, or Midjourney</div>
+            </div>
+
+            {/* Title options */}
+            {thumbResult.titleOptions?.length > 0 && (
+              <div>
+                <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.25)', textTransform: 'uppercase', letterSpacing: '0.08em', fontFamily: "'Figtree',sans-serif", marginBottom: 6 }}>Title Options</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {thumbResult.titleOptions.map((title, i) => (
+                    <div
+                      key={i}
+                      onClick={() => { navigator.clipboard.writeText(title); notify('Copied', 'success') }}
+                      style={{ fontSize: 13, color: 'rgba(255,255,255,0.65)', fontFamily: "'Figtree',sans-serif", padding: '8px 12px', borderRadius: 7, border: '1px solid rgba(255,255,255,0.06)', background: 'rgba(255,255,255,0.02)', cursor: 'pointer' }}
+                      title="Click to copy"
+                    >
+                      {title}
+                    </div>
+                  ))}
+                </div>
+                <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.2)', fontFamily: "'Figtree',sans-serif", marginTop: 4 }}>Click any title to copy</div>
+              </div>
+            )}
+
+            {/* Audience flag */}
+            {!thumbResult.audienceUsed && (
+              <div style={{ fontSize: 11, color: 'rgba(255,180,50,0.6)', fontFamily: "'Figtree',sans-serif" }}>
+                No audience data found — run Gemini research on the Analytics page for more targeted prompts.
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
     </div>
   )
 }
@@ -146,21 +248,55 @@ function formatSec(sec) {
 
 export default function EpisodeReview() {
   const { episodeId }  = useParams()
-  const { notify }     = useStore()
+  const { notify, activeCategoryId, setActiveEpisodeId } = useStore()
   const [data,         setData]         = useState(null)
   const [loading,      setLoading]      = useState(true)
   const [curveInput,   setCurveInput]   = useState('')
   const [savingCurve,  setSavingCurve]  = useState(false)
   const [showCurveUpload, setShowCurve] = useState(false)
+  const [thumbLoading,   setThumbLoading]   = useState(false)
+  const [thumbResult,    setThumbResult]    = useState(null)
+  const [collabSession,  setCollabSession]  = useState(null)
+  const [collabLoading,  setCollabLoading]  = useState(false)
 
   useEffect(() => {
     if (!episodeId) return
+    setActiveEpisodeId(episodeId)
     setLoading(true)
     analyticsApi.episodeRetention(episodeId)
       .then(setData)
       .catch(err => notify(err.message, 'error'))
       .finally(() => setLoading(false))
+    return () => setActiveEpisodeId(null)
   }, [episodeId])
+
+  async function createCollabSession() {
+    if (!episodeId || !activeCategoryId) return
+    setCollabLoading(true)
+    try {
+      const { session } = await fetch(`${import.meta.env.VITE_API_URL}/api/collab/session`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${(await import('../lib/supabase')).getSession().then(s => s?.access_token)}` },
+        body: JSON.stringify({ categoryId: activeCategoryId, episodeId }),
+      }).then(r => r.json())
+      setCollabSession(session)
+    } catch (err) {
+      notify('Could not create collab session: ' + err.message, 'error')
+    }
+    setCollabLoading(false)
+  }
+
+  async function generateThumbnailPrompt() {
+    if (!episodeId || !activeCategoryId) return
+    setThumbLoading(true)
+    try {
+      const result = await chatApi.thumbnailPrompt({ categoryId: activeCategoryId, episodeId })
+      setThumbResult(result)
+    } catch (err) {
+      notify('Thumbnail prompt failed: ' + err.message, 'error')
+    }
+    setThumbLoading(false)
+  }
 
   async function saveCurve() {
     if (!curveInput.trim()) return
@@ -392,6 +528,108 @@ export default function EpisodeReview() {
           )}
         </div>
       )}
+      {/* ── Collab ── */}
+      <div style={{ marginTop: 16, padding: '14px 16px', borderRadius: 10, border: '1px solid rgba(255,255,255,0.06)', background: 'rgba(255,255,255,0.01)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: 'rgba(255,255,255,0.7)', fontFamily: "'Figtree',sans-serif" }}>Collaborate</div>
+            <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)', fontFamily: "'Figtree',sans-serif", marginTop: 2 }}>
+              Share this episode with an editor, guest, or collaborator
+            </div>
+          </div>
+          {!collabSession ? (
+            <button
+              onClick={createCollabSession}
+              disabled={collabLoading}
+              style={{ padding: '7px 14px', borderRadius: 8, border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.04)', color: 'rgba(255,255,255,0.5)', cursor: collabLoading ? 'wait' : 'pointer', fontSize: 12, fontFamily: "'Figtree',sans-serif" }}
+            >
+              {collabLoading ? 'Creating...' : 'Create invite link'}
+            </button>
+          ) : (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <code style={{ fontSize: 11, padding: '4px 10px', borderRadius: 6, background: 'rgba(74,222,128,0.08)', border: '1px solid rgba(74,222,128,0.15)', color: 'rgba(74,222,128,0.7)', fontFamily: 'monospace', userSelect: 'all' }}>
+                {collabSession.session_code}
+              </code>
+              <button
+                onClick={() => { navigator.clipboard.writeText(collabSession.session_code); notify('Code copied', 'success') }}
+                style={{ padding: '4px 10px', borderRadius: 6, border: '1px solid rgba(255,255,255,0.08)', background: 'transparent', color: 'rgba(255,255,255,0.4)', cursor: 'pointer', fontSize: 11, fontFamily: "'Figtree',sans-serif" }}
+              >
+                Copy
+              </button>
+            </div>
+          )}
+        </div>
+        {collabSession && (
+          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.2)', fontFamily: "'Figtree',sans-serif", marginTop: 8 }}>
+            Share this code. Collaborators enter it at whispacuts.com/join to access this episode.
+            {collabSession.participants?.length > 1 ? ` ${collabSession.participants.length - 1} collaborator(s) joined.` : ''}
+          </div>
+        )}
+      </div>
+
+      {/* ── Thumbnail Prompt ── */}
+      <div style={{ marginTop: 24, padding: '16px', borderRadius: 10, border: '1px solid rgba(74,222,128,0.1)', background: 'rgba(74,222,128,0.02)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: 'rgba(255,255,255,0.7)', fontFamily: "'Figtree',sans-serif" }}>Thumbnail Intelligence</div>
+            <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)', fontFamily: "'Figtree',sans-serif", marginTop: 2 }}>
+              Flux prompt + title options targeted to your audience
+            </div>
+          </div>
+          <button
+            onClick={generateThumbnailPrompt}
+            disabled={thumbLoading}
+            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px', borderRadius: 8, border: '1px solid rgba(74,222,128,0.25)', background: 'rgba(74,222,128,0.07)', color: 'rgba(74,222,128,0.8)', cursor: thumbLoading ? 'wait' : 'pointer', fontSize: 12, fontFamily: "'Figtree',sans-serif" }}
+          >
+            {thumbLoading ? 'Generating...' : '✦ Generate prompt'}
+          </button>
+        </div>
+
+        {thumbResult && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            {/* Flux prompt */}
+            <div>
+              <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.25)', textTransform: 'uppercase', letterSpacing: '0.08em', fontFamily: "'Figtree',sans-serif", marginBottom: 6 }}>Flux Prompt</div>
+              <div
+                style={{ fontSize: 12, color: 'rgba(255,255,255,0.6)', fontFamily: "'Figtree',sans-serif", lineHeight: 1.65, padding: '10px 12px', borderRadius: 8, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', cursor: 'pointer', userSelect: 'all' }}
+                onClick={() => { navigator.clipboard.writeText(thumbResult.fluxPrompt); notify('Copied', 'success') }}
+                title="Click to copy"
+              >
+                {thumbResult.fluxPrompt}
+              </div>
+              <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.2)', fontFamily: "'Figtree',sans-serif", marginTop: 4 }}>Click to copy · Paste into Flux, Ideogram, or Midjourney</div>
+            </div>
+
+            {/* Title options */}
+            {thumbResult.titleOptions?.length > 0 && (
+              <div>
+                <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.25)', textTransform: 'uppercase', letterSpacing: '0.08em', fontFamily: "'Figtree',sans-serif", marginBottom: 6 }}>Title Options</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {thumbResult.titleOptions.map((title, i) => (
+                    <div
+                      key={i}
+                      onClick={() => { navigator.clipboard.writeText(title); notify('Copied', 'success') }}
+                      style={{ fontSize: 13, color: 'rgba(255,255,255,0.65)', fontFamily: "'Figtree',sans-serif", padding: '8px 12px', borderRadius: 7, border: '1px solid rgba(255,255,255,0.06)', background: 'rgba(255,255,255,0.02)', cursor: 'pointer' }}
+                      title="Click to copy"
+                    >
+                      {title}
+                    </div>
+                  ))}
+                </div>
+                <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.2)', fontFamily: "'Figtree',sans-serif", marginTop: 4 }}>Click any title to copy</div>
+              </div>
+            )}
+
+            {/* Audience flag */}
+            {!thumbResult.audienceUsed && (
+              <div style={{ fontSize: 11, color: 'rgba(255,180,50,0.6)', fontFamily: "'Figtree',sans-serif" }}>
+                No audience data found — run Gemini research on the Analytics page for more targeted prompts.
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
     </div>
   )
 }

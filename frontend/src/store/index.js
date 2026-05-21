@@ -46,6 +46,10 @@ export const useStore = create((set, get) => ({
   // ── Categories ────────────────────────────────────────────
   categories:       [],
   activeCategoryId: (() => { try { return localStorage.getItem('sf_active_category') || null } catch { return null } })(),
+  activeEpisodeId:  null,
+  setActiveEpisodeId: (id) => set({ activeEpisodeId: id }),
+  // Clear KB context when workspace switches — prevents stale context bleeding across workspaces
+  clearWorkspaceContext: () => set({ activeEpisodeId: null }),
   categoryLoading:  false,
 
   setCategories: (categories) => set({ categories }),

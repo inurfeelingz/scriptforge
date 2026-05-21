@@ -25,7 +25,9 @@ const pushRoutes      = require('./routes/push')
 const editorRoutes    = require('./routes/editor')
 const sessionRoutes   = require('./routes/session')
 const soundRoutes     = require('./routes/sound')
-const creditRoutes    = require('./routes/credits')
+const creditRoutes        = require('./routes/credits')
+const episodeCommentsRoutes = require('./routes/episodeComments')
+const publicRoutes          = require('./routes/public')
 
 const { startSmartScheduler } = require('./services/smartScheduler')
 
@@ -243,7 +245,9 @@ process.on('uncaughtException', (err) => {
 
 process.on('SIGTERM', () => {
   console.log('[server] SIGTERM — draining connections...')
-  server.close(() => { console.log('[server] Clean exit'); process.exit(0) })
+  server.close(() => { console.log('[server] Clean exit');
+app.use('/api/episode-comments', episodeCommentsRoutes) process.exit(0) })
+app.use('/api/public',           publicRoutes);  // No auth — public endpoints
   setTimeout(() => process.exit(0), 25000)
 })
 process.on('SIGINT', () => process.emit('SIGTERM'))

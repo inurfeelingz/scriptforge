@@ -97,12 +97,31 @@ export default function AnalyticsPage() {
   const [ytStatus,       setYtStatus]       = useState(null)
   const [ytPulling,      setYtPulling]      = useState(false)
   const [ytConnecting,   setYtConnecting]   = useState(false)
+  const [audienceUploads,   setAudienceUploads]   = useState([])
+  const [audienceUploading, setAudienceUploading] = useState(false)
+  const [audienceExpanded,  setAudienceExpanded]  = useState(null)
+  const [audienceResearching,    setAudienceResearching]    = useState(false)
+  const [competitorResearching,  setCompetitorResearching]  = useState(false)
+  const [competitorIntel,        setCompetitorIntel]        = useState(null)
+  const [audienceModel,     setAudienceModel]     = useState(null)
 
   function loadData() {
     if (!activeCategoryId) return
     analyticsApi.list({ categoryId: activeCategoryId }).then(({ uploads }) => setUploads(uploads || []))
     analyticsApi.hookStats({ categoryId: activeCategoryId }).then(({ breakdown }) => setHookStats(breakdown || [])).catch(() => {})
     analyticsApi.youtubeStatus(activeCategoryId).then(s => setYtStatus(s)).catch(() => {})
+    import('../lib/supabase').then(({ supabase }) => {
+      supabase.from('categories').select('competitor_intel').eq('id', activeCategoryId).single()
+        .then(({ data }) => { if (data?.competitor_intel) setCompetitorIntel(data.competitor_intel) })
+        .catch(() => {})
+    })
+    // Load existing audience model from category
+    import('../lib/supabase').then(({ supabase }) => {
+      supabase.from('categories').select('audience_model').eq('id', activeCategoryId).single()
+        .then(({ data }) => { if (data?.audience_model?.geminiInsights) setAudienceModel(data.audience_model.geminiInsights) })
+        .catch(() => {})
+    })
+    analyticsApi.audienceUploads(activeCategoryId).then(({ uploads: au }) => setAudienceUploads(au || [])).catch(() => {})
   }
   useEffect(() => { loadData() }, [activeCategoryId])
 
@@ -143,6 +162,52 @@ export default function AnalyticsPage() {
     await analyticsApi.youtubeDisconnect(activeCategoryId)
     setYtStatus({ connected: false })
     notify('YouTube disconnected', 'info')
+  }
+
+  async function handleCompetitorResearch() {
+    if (!activeCategoryId || competitorResearching) return
+    setCompetitorResearching(true)
+    notify('Running competitor research — this takes 20-30 seconds...', 'info', 5000)
+    try {
+      const result = await analyticsApi.competitorResearch(activeCategoryId)
+      if (result.intel) setCompetitorIntel(result.intel)
+      notify('Competitor research complete', 'success')
+    } catch (err) {
+      notify('Research failed: ' + err.message, 'error')
+    }
+    setCompetitorResearching(false)
+  }
+
+  async function handleAudienceResearch() {
+    if (!activeCategoryId || audienceResearching) return
+    setAudienceResearching(true)
+    notify('Running audience research — this takes 20-30 seconds...', 'info', 5000)
+    try {
+      const result = await analyticsApi.audienceResearch(activeCategoryId)
+      if (result.audienceModel) setAudienceModel(result.audienceModel)
+      notify('Audience research complete', 'success')
+    } catch (err) {
+      notify('Research failed: ' + err.message, 'error')
+    }
+    setAudienceResearching(false)
+  }
+
+  async function handleAudienceUpload(e) {
+    const files = Array.from(e.target.files || [])
+    if (!files.length) return
+    if (!activeCategoryId) { notify('No workspace selected', 'error'); return }
+    setAudienceUploading(true)
+    try {
+      for (const file of files) {
+        const result = await analyticsApi.audienceUpload(file, activeCategoryId)
+        notify(`"${file.name}" processed — ${result.rowCount} records`, 'success')
+      }
+      loadData()
+    } catch (err) {
+      notify(err.message, 'error')
+    }
+    setAudienceUploading(false)
+    e.target.value = ''
   }
 
   async function handleUpload(e) {
@@ -267,6 +332,218 @@ export default function AnalyticsPage() {
             <input type="file" accept=".csv" multiple onChange={handleUpload} disabled={uploading} className="hidden"/>
           </label>
         </div>
+      </div>
+
+      {/* ── Audience Data Upload ── */}
+      <div style={{ padding:'16px', borderRadius:12, border:'1px solid rgba(74,222,128,0.08)', background:'rgba(74,222,128,0.03)', marginBottom:8 }}>
+        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:10 }}>
+          <div>
+            <div style={{ fontSize:13, fontWeight:600, color:'rgba(255,255,255,0.7)', fontFamily:"'Figtree',sans-serif", marginBottom:2 }}>
+              Audience Data
+            </div>
+            <div style={{ fontSize:11, color:'rgba(255,255,255,0.3)', fontFamily:"'Figtree',sans-serif" }}>
+              Upload persona files, user exports, or survey data. CSV or XLS/XLSX.
+            </div>
+          </div>
+          <label style={{ display:'flex', alignItems:'center', gap:7, padding:'8px 14px', borderRadius:8, background:'rgba(74,222,128,0.07)', border:'1px solid rgba(74,222,128,0.2)', color:'rgba(74,222,128,0.8)', cursor: audienceUploading ? 'wait' : 'pointer', fontSize:12, fontFamily:"'Figtree',sans-serif", flexShrink:0 }}>
+            <Upload size={12}/>
+            {audienceUploading ? 'Processing…' : 'Upload file'}
+            <input type="file" accept=".csv,.xlsx,.xls" multiple onChange={handleAudienceUpload} disabled={audienceUploading} className="hidden"/>
+          </label>
+        </div>
+
+        <div style={{ display:'flex', justifyContent:'flex-end', marginBottom:8 }}>
+          <button
+            onClick={handleAudienceResearch}
+            disabled={audienceResearching}
+            style={{ display:'flex', alignItems:'center', gap:6, padding:'6px 12px', borderRadius:7, border:'1px solid rgba(74,222,128,0.15)', background:'transparent', color: audienceResearching ? 'rgba(255,255,255,0.2)' : 'rgba(74,222,128,0.6)', cursor: audienceResearching ? 'wait' : 'pointer', fontSize:11, fontFamily:"'Figtree',sans-serif" }}
+          >
+            <Zap size={11}/>
+            {audienceResearching ? 'Researching...' : 'Run Gemini research'}
+          </button>
+        </div>
+
+        {audienceModel && (
+          <div style={{ padding:'16px', borderRadius:10, border:'1px solid rgba(74,222,128,0.1)', background:'rgba(74,222,128,0.02)', marginBottom:12 }}>
+            <div style={{ fontSize:10, color:'rgba(74,222,128,0.5)', textTransform:'uppercase', letterSpacing:'0.1em', fontFamily:"'Figtree',sans-serif", marginBottom:12 }}>
+              Audience Intelligence Brief · {audienceModel.researchedAt ? new Date(audienceModel.researchedAt).toLocaleDateString('en', { month:'short', day:'numeric', year:'numeric' }) : 'Recent'}
+            </div>
+
+            {/* Who they are */}
+            {audienceModel.primaryAudience && (
+              <div style={{ marginBottom:14 }}>
+                <div style={{ fontSize:10, color:'rgba(255,255,255,0.25)', textTransform:'uppercase', letterSpacing:'0.08em', fontFamily:"'Figtree',sans-serif", marginBottom:5 }}>Who they are</div>
+                <div style={{ fontSize:13, color:'rgba(255,255,255,0.65)', fontFamily:"'Figtree',sans-serif", lineHeight:1.6 }}>
+                  {[
+                    audienceModel.primaryAudience.ageRange,
+                    audienceModel.primaryAudience.genderSplit,
+                    audienceModel.primaryAudience.incomeLevel,
+                    audienceModel.primaryAudience.geographies?.slice(0,3).join(', '),
+                  ].filter(Boolean).join(' · ')}
+                </div>
+                {audienceModel.psychographics?.identityStatement && (
+                  <div style={{ fontSize:12, color:'rgba(255,255,255,0.35)', fontFamily:"'Figtree',sans-serif", marginTop:4, fontStyle:'italic' }}>
+                    "{audienceModel.psychographics.identityStatement}"
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Why they watch */}
+            {(audienceModel.psychographics?.corePainPoint || audienceModel.psychographics?.coreAspiration) && (
+              <div style={{ marginBottom:14 }}>
+                <div style={{ fontSize:10, color:'rgba(255,255,255,0.25)', textTransform:'uppercase', letterSpacing:'0.08em', fontFamily:"'Figtree',sans-serif", marginBottom:5 }}>Why they watch</div>
+                {audienceModel.psychographics.corePainPoint && (
+                  <div style={{ fontSize:13, color:'rgba(255,255,255,0.65)', fontFamily:"'Figtree',sans-serif", lineHeight:1.6, marginBottom:4 }}>
+                    <span style={{ color:'rgba(255,255,255,0.3)' }}>Pain: </span>{audienceModel.psychographics.corePainPoint}
+                  </div>
+                )}
+                {audienceModel.psychographics.coreAspiration && (
+                  <div style={{ fontSize:13, color:'rgba(255,255,255,0.65)', fontFamily:"'Figtree',sans-serif", lineHeight:1.6 }}>
+                    <span style={{ color:'rgba(255,255,255,0.3)' }}>Aspiration: </span>{audienceModel.psychographics.coreAspiration}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* When and how */}
+            {audienceModel.contentBehaviour && (
+              <div style={{ marginBottom:14 }}>
+                <div style={{ fontSize:10, color:'rgba(255,255,255,0.25)', textTransform:'uppercase', letterSpacing:'0.08em', fontFamily:"'Figtree',sans-serif", marginBottom:5 }}>When and how</div>
+                <div style={{ fontSize:13, color:'rgba(255,255,255,0.65)', fontFamily:"'Figtree',sans-serif", lineHeight:1.6 }}>
+                  {[
+                    audienceModel.contentBehaviour.peakWatchTimes,
+                    audienceModel.contentBehaviour.preferredContentLength,
+                    audienceModel.contentBehaviour.discoveryMethod,
+                  ].filter(Boolean).join(' · ')}
+                </div>
+              </div>
+            )}
+
+            {/* Thumbnail intelligence */}
+            {audienceModel.thumbnailPsychology && (
+              <div style={{ marginBottom:14 }}>
+                <div style={{ fontSize:10, color:'rgba(255,255,255,0.25)', textTransform:'uppercase', letterSpacing:'0.08em', fontFamily:"'Figtree',sans-serif", marginBottom:5 }}>What makes them click</div>
+                {audienceModel.thumbnailPsychology.emotionalTriggers?.length > 0 && (
+                  <div style={{ fontSize:13, color:'rgba(255,255,255,0.65)', fontFamily:"'Figtree',sans-serif", lineHeight:1.6, marginBottom:4 }}>
+                    <span style={{ color:'rgba(255,255,255,0.3)' }}>Emotional triggers: </span>
+                    {audienceModel.thumbnailPsychology.emotionalTriggers.join(', ')}
+                  </div>
+                )}
+                {audienceModel.thumbnailPsychology.visualPatterns && (
+                  <div style={{ fontSize:13, color:'rgba(255,255,255,0.65)', fontFamily:"'Figtree',sans-serif", lineHeight:1.6, marginBottom:4 }}>
+                    <span style={{ color:'rgba(255,255,255,0.3)' }}>Visual patterns: </span>
+                    {audienceModel.thumbnailPsychology.visualPatterns}
+                  </div>
+                )}
+                {audienceModel.thumbnailPsychology.titleFormulas?.length > 0 && (
+                  <div style={{ fontSize:13, color:'rgba(255,255,255,0.65)', fontFamily:"'Figtree',sans-serif", lineHeight:1.6, marginBottom:4 }}>
+                    <span style={{ color:'rgba(255,255,255,0.3)' }}>Title formulas: </span>
+                    {audienceModel.thumbnailPsychology.titleFormulas.join(' · ')}
+                  </div>
+                )}
+                {audienceModel.thumbnailPsychology.whatToAvoid && (
+                  <div style={{ fontSize:12, color:'rgba(255,100,100,0.5)', fontFamily:"'Figtree',sans-serif", lineHeight:1.6 }}>
+                    <span style={{ color:'rgba(255,100,100,0.4)' }}>Avoid: </span>
+                    {audienceModel.thumbnailPsychology.whatToAvoid}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Content gaps */}
+            {audienceModel.contentGaps?.length > 0 && (
+              <div>
+                <div style={{ fontSize:10, color:'rgba(255,255,255,0.25)', textTransform:'uppercase', letterSpacing:'0.08em', fontFamily:"'Figtree',sans-serif", marginBottom:5 }}>Content gaps to fill</div>
+                <div style={{ display:'flex', flexDirection:'column', gap:4 }}>
+                  {audienceModel.contentGaps.slice(0,5).map((gap, i) => (
+                    <div key={i} style={{ fontSize:12, color:'rgba(74,222,128,0.5)', fontFamily:"'Figtree',sans-serif", lineHeight:1.5 }}>
+                      · {gap}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {audienceUploads.length === 0 && !audienceUploading && !audienceModel && (
+          <div style={{ fontSize:12, color:'rgba(255,255,255,0.2)', fontFamily:"'Figtree',sans-serif", fontStyle:'italic' }}>
+            No audience data yet. Upload a CSV or XLS, or run Gemini research above.
+          </div>
+        )}
+
+        {audienceUploads.map((u, i) => (
+          <div key={u.id} style={{ marginBottom:6, borderRadius:8, border:'1px solid rgba(255,255,255,0.05)', overflow:'hidden' }}>
+            <button
+              onClick={() => setAudienceExpanded(audienceExpanded === i ? null : i)}
+              style={{ width:'100%', display:'flex', alignItems:'center', justifyContent:'space-between', padding:'10px 12px', background:'rgba(255,255,255,0.02)', border:'none', cursor:'pointer', textAlign:'left' }}
+            >
+              <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                <FileText size={12} style={{ color:'rgba(74,222,128,0.6)', flexShrink:0 }}/>
+                <div>
+                  <div style={{ fontSize:12, color:'rgba(255,255,255,0.6)', fontFamily:"'Figtree',sans-serif" }}>{u.file_name}</div>
+                  <div style={{ fontSize:10, color:'rgba(255,255,255,0.25)', fontFamily:"'Figtree',sans-serif" }}>
+                    {u.row_count?.toLocaleString()} records · {new Date(u.upload_date).toLocaleDateString('en', { month:'short', day:'numeric', year:'numeric' })}
+                  </div>
+                </div>
+              </div>
+              <ChevronDown size={12} style={{ color:'rgba(255,255,255,0.3)', transform: audienceExpanded === i ? 'rotate(180deg)' : 'none', transition:'transform 0.2s' }}/>
+            </button>
+            {audienceExpanded === i && u.persona_summary && (
+              <div style={{ padding:'10px 12px', borderTop:'1px solid rgba(255,255,255,0.04)', fontSize:12, color:'rgba(255,255,255,0.5)', fontFamily:"'Figtree',sans-serif", lineHeight:1.65 }}>
+                {u.persona_summary}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {/* ── Competitor Intelligence ── */}
+      <div style={{ padding:'16px', borderRadius:12, border:'1px solid rgba(255,255,255,0.05)', background:'rgba(255,255,255,0.01)', marginBottom:8 }}>
+        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:10 }}>
+          <div>
+            <div style={{ fontSize:13, fontWeight:600, color:'rgba(255,255,255,0.7)', fontFamily:"'Figtree',sans-serif", marginBottom:2 }}>Competitor Intelligence</div>
+            <div style={{ fontSize:11, color:'rgba(255,255,255,0.3)', fontFamily:"'Figtree',sans-serif" }}>What the niche is doing and what gaps you can own</div>
+          </div>
+          <button
+            onClick={handleCompetitorResearch}
+            disabled={competitorResearching}
+            style={{ display:'flex', alignItems:'center', gap:6, padding:'6px 12px', borderRadius:7, border:'1px solid rgba(255,255,255,0.1)', background:'transparent', color: competitorResearching ? 'rgba(255,255,255,0.2)' : 'rgba(255,255,255,0.5)', cursor: competitorResearching ? 'wait' : 'pointer', fontSize:11, fontFamily:"'Figtree',sans-serif" }}
+          >
+            <Zap size={11}/> {competitorResearching ? 'Researching...' : 'Run research'}
+          </button>
+        </div>
+        {competitorIntel ? (
+          <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+            <div style={{ fontSize:12, color:'rgba(255,255,255,0.5)', fontFamily:"'Figtree',sans-serif", lineHeight:1.65 }}>{competitorIntel.summary}</div>
+            {competitorIntel.contentGaps?.length > 0 && (
+              <div>
+                <div style={{ fontSize:10, color:'rgba(255,255,255,0.25)', textTransform:'uppercase', letterSpacing:'0.08em', fontFamily:"'Figtree',sans-serif", marginBottom:4 }}>Content gaps to own</div>
+                {competitorIntel.contentGaps.slice(0,3).map((g, i) => (
+                  <div key={i} style={{ fontSize:12, color:'rgba(74,222,128,0.6)', fontFamily:"'Figtree',sans-serif", marginBottom:3 }}>· {g}</div>
+                ))}
+              </div>
+            )}
+            {competitorIntel.opportunities?.length > 0 && (
+              <div>
+                <div style={{ fontSize:10, color:'rgba(255,255,255,0.25)', textTransform:'uppercase', letterSpacing:'0.08em', fontFamily:"'Figtree',sans-serif", marginBottom:4 }}>Opportunities</div>
+                {competitorIntel.opportunities.slice(0,3).map((o, i) => (
+                  <div key={i} style={{ fontSize:12, color:'rgba(255,255,255,0.45)', fontFamily:"'Figtree',sans-serif", marginBottom:3 }}>· {o}</div>
+                ))}
+              </div>
+            )}
+            {competitorIntel.researchedAt && (
+              <div style={{ fontSize:10, color:'rgba(255,255,255,0.15)', fontFamily:"'Figtree',sans-serif" }}>
+                Last researched: {new Date(competitorIntel.researchedAt).toLocaleDateString('en', { month:'short', day:'numeric', year:'numeric' })}
+              </div>
+            )}
+          </div>
+        ) : (
+          <div style={{ fontSize:12, color:'rgba(255,255,255,0.2)', fontFamily:"'Figtree',sans-serif", fontStyle:'italic' }}>
+            No competitor data yet. Click "Run research" to analyse your niche.
+          </div>
+        )}
       </div>
 
       {/* ── Overview stats ── */}
