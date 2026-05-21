@@ -246,7 +246,7 @@ process.on('uncaughtException', (err) => {
 process.on('SIGTERM', () => {
   console.log('[server] SIGTERM — draining connections...')
   server.close(() => { console.log('[server] Clean exit');
-app.use('/api/episode-comments', episodeCommentsRoutes) process.exit(0) })
+app.use('/api/episode-comments', episodeCommentsRoutes);
 app.use('/api/public',           publicRoutes);  // No auth — public endpoints
   setTimeout(() => process.exit(0), 25000)
 })
