@@ -424,8 +424,7 @@ async function pullCommentSentiment(accessToken, maxVideos = 10) {
     const prompt = `Analyse these YouTube comments from a music content creator's channel and extract audience sentiment.
 
 Comments (${allComments.length} total):
-${allComments.slice(0, 60).join('
-')}
+${allComments.slice(0, 60).join('\n')}
 
 Return ONLY valid JSON, no markdown:
 {

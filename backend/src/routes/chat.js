@@ -719,8 +719,7 @@ router.post('/thumbnail-prompt', async (req, res) => {
       audience.psychographics?.coreAspiration && `Aspiration: ${audience.psychographics.coreAspiration}`,
       audience.thumbnailPsychology?.emotionalTriggers?.length && `Click triggers: ${audience.thumbnailPsychology.emotionalTriggers.join(', ')}`,
       audience.thumbnailPsychology?.visualPatterns && `Visual patterns that work: ${audience.thumbnailPsychology.visualPatterns}`,
-    ].filter(Boolean).join('
-') : 'No audience data yet — using niche knowledge.'
+    ].filter(Boolean).join('\n') : 'No audience data yet — using niche knowledge.'
 
     const ytStr = ytAudience?.devices?.[0]
       ? `Primary device: ${ytAudience.devices[0].device} (${ytAudience.devices[0].pct}% of views)`
@@ -779,8 +778,7 @@ Write titles that speak directly to the pain point or aspiration. No clickbait, 
       }],
     })
 
-    const titleOptions = (titleRes.content[0]?.text || '').trim().split('
-').filter(Boolean)
+    const titleOptions = (titleRes.content[0]?.text || '').trim().split('\n').filter(Boolean)
 
     res.json({
       fluxPrompt,
