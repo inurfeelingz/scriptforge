@@ -547,16 +547,37 @@ export default function ChatPanel() {
     Promise.all([historyPromise, greetPromise]).then(([history, greetData]) => {
       setMessages(history)
 
-      // Show greeting if app was closed for 5+ mins
-      // greet:true  = returning user with history
-      // greet:false with message = first-time user needs orientation
-      if (greetData?.message) {
+      // Determine greeting message
+      let greetMsg = greetData?.message || null
+
+      // Fallback: if API failed or returned nothing, use a local greeting
+      if (!greetMsg) {
+        if (!history.length) {
+          // Brand new user
+          greetMsg = "I'm KB, your creative partner inside WhispaCuts. I can help you plan episodes, write scripts, build storyboards, and understand your audience. What are you working on?"
+        } else {
+          // Returning user — check last message age
+          const last = history[history.length - 1]
+          const minsAgo = last?.timestamp
+            ? Math.round((Date.now() - new Date(last.timestamp).getTime()) / 60000)
+            : 0
+          if (minsAgo >= 5) {
+            const lastUserMsg = [...history].reverse().find(m => m.role === 'user')
+            const snippet = lastUserMsg?.content?.slice(0, 60) || ''
+            greetMsg = snippet
+              ? `You were working on something earlier${snippet ? ` — "${snippet}"` : ''}. Want to pick that up, or start something new?`
+              : null
+          }
+        }
+      }
+
+      if (greetMsg) {
         setGreeted(true)
         setMessages(prev => [
           ...prev,
           {
             role:       'assistant',
-            content:    greetData.message,
+            content:    greetMsg,
             timestamp:  new Date().toISOString(),
             isGreeting: true,
           }
