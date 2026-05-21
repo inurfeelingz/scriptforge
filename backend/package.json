@@ -32,7 +32,8 @@
     "sharp": "^0.33.4",
     "slugify": "^1.6.6",
     "web-push": "^3.6.7",
-    "youtube-transcript": "^1.2.1"
+    "youtube-transcript": "^1.2.1",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "nodemon": "^3.1.0"
