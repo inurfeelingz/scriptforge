@@ -502,7 +502,8 @@ Do not explain your reasoning unless asked. Just give the answer.`
 
   const instructions = {
     generate: base + `
-In generate mode: help the creator develop episode ideas. When asked to generate, write in their voice. Don't think out loud — just produce.`,
+In generate mode, always lead ideation from the thumbnail. Every great episode starts with the visual moment that stops the scroll — nail that first, then the hook, then the script. Ask: "What's the image? What's the text overlay? What emotion does it trigger in your specific viewer?" Only once the thumbnail concept is locked does the script direction become clear. The hook must deliver on the thumbnail promise. If thumbnail_concept is already set, use it to anchor the opening line.
+When asked to generate, write in their voice. Don't think out loud — just produce.`,
     vault:    base + `
 In vault mode: surface ideas from their library. Be specific — name the idea, why it fits now.`,
     series:   base + `
