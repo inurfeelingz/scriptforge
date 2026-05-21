@@ -10,12 +10,11 @@
 import { Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { useState, useEffect, useRef } from 'react'
 import {
-  Mic, Music2, Settings, LogOut,
+  Mic, Music2, Settings, LogOut, Sparkles,
   Plus, RefreshCw, BarChart2, Calendar,
   X, BookMarked, Search,
   ChevronRight, Zap, Radio, Film,
 } from 'lucide-react'
-import KBOrb        from '../chat/KBOrb'
 import CompanionPanel  from './CompanionPanel'
 import CommandPalette  from './CommandPalette'
 import ChatPanel    from '../chat/ChatPanel'
@@ -401,32 +400,35 @@ export default function AppLayout() {
 
           <div style={{ width: 1, height: 20, background: 'rgba(255,255,255,0.06)', margin: '0 2px' }}/>
 
-          {/* KB Orb — hidden on home (KB is already full screen there) */}
-          {!isHome && <div
-            onClick={() => {
-              const opening = !chatOpen
-              setChatOpen(o => !o)
-              // When opening, dispatch kb:focus so ChatPanel auto-focuses the input
-              if (opening) setTimeout(() => window.dispatchEvent(new Event('kb:focus')), 350)
-            }}
-            style={{
-              cursor:     'pointer',
-              flexShrink: 0,
-              display:    'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              boxShadow:  chatOpen ? '0 0 16px rgba(74,222,128,0.25)' : 'none',
-              borderRadius: '50%',
-              transition: 'box-shadow 0.3s ease',
-            }}
-          >
-            <KBOrb
-              mood={chatOpen ? 'active' : 'idle'}
-              isOpen={chatOpen}
-              audioLevel={0}
-              size={38}
-            />
-          </div>}
+          {/* KB button — same style as other pill items, replaces the orb */}
+          {!isHome && (
+            <button
+              onClick={() => {
+                const opening = !chatOpen
+                setChatOpen(o => !o)
+                if (opening) setTimeout(() => window.dispatchEvent(new Event('kb:focus')), 350)
+              }}
+              style={{
+                display:        'flex',
+                flexDirection:  'column',
+                alignItems:     'center',
+                gap:            3,
+                padding:        isMobile ? '8px 12px' : '6px 14px',
+                background:     chatOpen ? GREEN_LOW : 'none',
+                border:         chatOpen ? `1px solid ${GREEN_MID}` : 'none',
+                borderRadius:   10,
+                color:          chatOpen ? GREEN : 'rgba(255,255,255,0.35)',
+                cursor:         'pointer',
+                flexShrink:     0,
+                transition:     'all 0.15s',
+              }}
+            >
+              <Sparkles size={15}/>
+              <span style={{ fontSize: 8, letterSpacing: '0.06em', textTransform: 'uppercase', fontFamily: "'Figtree', sans-serif", lineHeight: 1 }}>
+                KB
+              </span>
+            </button>
+          )}
 
           <div style={{ width: 1, height: 20, background: 'rgba(255,255,255,0.06)', margin: '0 2px' }}/>
 
