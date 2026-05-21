@@ -290,6 +290,7 @@ function UsageBar({ used, max, label }) {
 export default function SettingsPage() {
   const { profile, setProfile, activeCategoryId, activeCategory, notify, theme, setTheme } = useStore()
   const [reactionImages,   setReactionImages]   = useState([])
+  const [activeTab,        setActiveTab]        = useState('profile')
   const [cloningVoice,     setCloningVoice]     = useState(false)
   const [cloneVoiceId,     setCloneVoiceId]     = useState(cat?.voice_profile?.elevenLabsVoiceId || null)
   const [uploadingReaction,setUploadingReaction] = useState(false)
@@ -622,9 +623,47 @@ export default function SettingsPage() {
     studio: 'var(--accent)',
   }
 
+  const TABS = [
+    { key: 'profile',       label: 'Profile'      },
+    { key: 'voice',         label: 'Voice & Style' },
+    { key: 'integrations',  label: 'Integrations'  },
+    { key: 'notifications', label: 'Notifications' },
+    { key: 'danger',        label: 'Danger Zone'   },
+  ]
+
   return (
     <div style={{ maxWidth: 700, margin: '0 auto' }}>
-      <h1 style={{ marginBottom: '1.75rem' }}>Settings</h1>
+      <h1 style={{ marginBottom: '1.25rem' }}>Settings</h1>
+
+      {/* Tab bar */}
+      <div style={{ display: 'flex', gap: 2, marginBottom: 24, borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+        {TABS.map(t => {
+          const active = activeTab === t.key
+          return (
+            <button
+              key={t.key}
+              onClick={() => setActiveTab(t.key)}
+              style={{
+                padding: '8px 14px',
+                borderRadius: '8px 8px 0 0',
+                border: 'none',
+                borderBottom: active ? '2px solid rgba(74,222,128,1)' : '2px solid transparent',
+                background: active ? 'rgba(74,222,128,0.05)' : 'transparent',
+                color: active ? 'rgba(74,222,128,0.9)' : 'rgba(255,255,255,0.35)',
+                cursor: 'pointer',
+                fontSize: 12,
+                fontFamily: "'Figtree',sans-serif",
+                fontWeight: active ? 600 : 400,
+                transition: 'all 0.15s',
+                marginBottom: -1,
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {t.label}
+            </button>
+          )
+        })}
+      </div>
 
       {/* ── Profile ──────────────────────────────────────────────────────── */}
       <Section title="Profile" tab="profile" activeTab={activeTab}>
@@ -747,6 +786,7 @@ export default function SettingsPage() {
         <Section
           title="Admin — Cost & Credit Dashboard"
           subtitle="Live token spend and Anthropic API credit balance."
+          tab="profile" activeTab={activeTab}
         >
           {/* Anthropic balance */}
           <div style={{ marginBottom: 20 }}>
@@ -879,6 +919,7 @@ export default function SettingsPage() {
         <Section
           title="Admin — User Management"
           subtitle="You have admin access. Manage user tiers directly from here."
+          tab="profile" activeTab={activeTab}
         >
           <div style={{
             display: 'flex',
@@ -1055,6 +1096,7 @@ export default function SettingsPage() {
       <Section
         title="Notifications"
         subtitle="Get a message in Discord or Slack when a generation completes, even if you've closed the tab."
+        tab="notifications" activeTab={activeTab}
       >
         <div style={{ marginBottom: '1rem' }}>
           <p style={{ fontSize: '0.875rem', color: 'var(--text2)', lineHeight: 1.6 }}>
