@@ -709,12 +709,15 @@ router.get('/greet', async (req, res) => {
 
     // No history — first time user, send orientation greeting
     if (!history.length) {
-      const { data: cat } = await supabase
-        .from('categories')
-        .select('name, niche')
-        .eq('id', categoryId)
-        .single()
-        .catch(() => ({ data: null }))
+      let cat = null
+      try {
+        const { data } = await supabase
+          .from('categories')
+          .select('name, niche')
+          .eq('id', categoryId)
+          .single()
+        cat = data
+      } catch {}
 
       const greetRes = await client.messages.create({
         model:      process.env.CLAUDE_MODEL || 'claude-sonnet-4-5',
