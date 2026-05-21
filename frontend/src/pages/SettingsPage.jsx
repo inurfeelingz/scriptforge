@@ -627,7 +627,7 @@ export default function SettingsPage() {
       <h1 style={{ marginBottom: '1.75rem' }}>Settings</h1>
 
       {/* ── Profile ──────────────────────────────────────────────────────── */}
-      {activeTab === 'profile' && <><Section title="Profile" tab="profile" activeTab={activeTab}>
+      <Section title="Profile" tab="profile" activeTab={activeTab}>
         {profile?.display_name && (
           <div style={{ marginBottom: 16, padding: '10px 14px', borderRadius: 8, border: '1px solid rgba(74,222,128,0.1)', background: 'rgba(74,222,128,0.03)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <div>
