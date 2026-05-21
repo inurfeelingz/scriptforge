@@ -282,32 +282,35 @@ const STYLES = `
   .kb-empty-glyph { font-size: 32px; margin-bottom: 4px; opacity: 0.2; }
   .kb-empty-text { font-size: 13px; color: var(--text3); }
 
-  .kb-msg { display: flex; }
+  .kb-msg { display: flex; margin-bottom: 10px; }
   .kb-msg.user  { justify-content: flex-end; }
   .kb-msg.assistant { justify-content: flex-start; }
 
   .kb-bubble {
-    max-width: 82%;
-    padding: 10px 14px;
-    border-radius: 12px;
+    max-width: 100%;
+    padding: 11px 15px;
+    border-radius: 16px;
     font-family: 'Figtree', sans-serif;
     font-size: 14px;
-    line-height: 1.65;
+    line-height: 1.7;
     font-weight: 400;
   }
 
+  /* User bubble — dark, right-aligned, distinct pill shape */
   .kb-bubble.user {
-    border-bottom-right-radius: 3px;
-    background: rgba(255,255,255,0.05);
-    border: 1px solid rgba(255,255,255,0.08);
-    color: var(--text);
+    border-radius: 18px 18px 4px 18px;
+    background: rgba(255,255,255,0.10);
+    border: 1px solid rgba(255,255,255,0.14);
+    color: #ffffff;
+    font-weight: 500;
   }
 
+  /* KB bubble — green-tinted, immediately distinct */
   .kb-bubble.assistant {
-    border-bottom-left-radius: 3px;
-    background: rgba(255,255,255,0.02);
-    border: 1px solid rgba(255,255,255,0.04);
-    color: var(--text2);
+    border-radius: 4px 18px 18px 18px;
+    background: rgba(74,222,128,0.08);
+    border: 1px solid rgba(74,222,128,0.18);
+    color: rgba(74,222,128,0.95);
   }
 
   .kb-bubble.error {
@@ -492,6 +495,7 @@ export default function ChatPanel() {
   const [generated,   setGenerated]   = useState(null)
   const [genPct,      setGenPct]      = useState(0)
   const [showScrollBtn, setShowScrollBtn] = useState(false)
+  const [greeted,       setGreeted]       = useState(false)
   const genTimerRef = useRef(null)
   const bottomRef   = useRef(null)
   const inputRef    = useRef(null)
@@ -530,9 +534,28 @@ export default function ChatPanel() {
 
   useEffect(() => {
     if (!activeCategoryId) return
-    setMessages([]); setCommitted(null); setGenerated(null)
+    setMessages([]); setCommitted(null); setGenerated(null); setGreeted(false)
     chatApi.getHistory({ categoryId: activeCategoryId, mode })
-      .then(({ messages: h }) => setMessages(h || []))
+      .then(async ({ messages: h }) => {
+        setMessages(h || [])
+        // Call greet endpoint — only shows if app was closed for 5+ mins
+        try {
+          const greetData = await chatApi.greet({ categoryId: activeCategoryId, mode })
+          if (greetData?.greet && greetData?.message && !greeted) {
+            setGreeted(true)
+            // Inject KB greeting as the first visible message (not saved to history)
+            setMessages(prev => [
+              ...( prev || []),
+              {
+                role:      'assistant',
+                content:   greetData.message,
+                timestamp: new Date().toISOString(),
+                isGreeting: true,
+              }
+            ])
+          }
+        } catch {}
+      })
       .catch(() => {})
   }, [activeCategoryId, mode])
 
@@ -798,8 +821,8 @@ export default function ChatPanel() {
 
           {messages.map((msg, i) => (
             <div key={i} className={`kb-msg ${msg.role}`}>
-              <div style={{ position: 'relative' }} className="kb-msg-wrapper">
-                <div className={`kb-bubble ${msg.role} ${msg.isError ? 'error' : ''}`}>
+              <div style={{ position: 'relative', display: 'inline-block', maxWidth: '82%' }} className="kb-msg-wrapper">
+                <div className={`kb-bubble ${msg.role} ${msg.isError ? 'error' : ''}`} style={{ maxWidth: '100%' }}>
                   <MessageContent content={msg.content}/>
                   {msg.isGenerating && <span style={{ color: 'rgba(100,180,100,0.6)', marginLeft: 6 }}>✦</span>}
                 </div>

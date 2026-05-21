@@ -230,7 +230,7 @@ const STYLES = `
   .kb-empty-glyph { font-size: 32px; margin-bottom: 4px; opacity: 0.2; }
   .kb-empty-text { font-size: 13px; color: var(--text3); }
 
-  .kb-msg { display: flex; }
+  .kb-msg { display: flex; margin-bottom: 10px; }
   .kb-msg.user  { justify-content: flex-end; }
   .kb-msg.assistant { justify-content: flex-start; }
 
@@ -245,17 +245,18 @@ const STYLES = `
   }
 
   .kb-bubble.user {
-    border-bottom-right-radius: 3px;
-    background: rgba(255,255,255,0.05);
-    border: 1px solid rgba(255,255,255,0.08);
-    color: var(--text);
+    border-radius: 18px 18px 4px 18px;
+    background: rgba(255,255,255,0.10);
+    border: 1px solid rgba(255,255,255,0.14);
+    color: #ffffff;
+    font-weight: 500;
   }
 
   .kb-bubble.assistant {
-    border-bottom-left-radius: 3px;
-    background: rgba(255,255,255,0.02);
-    border: 1px solid rgba(255,255,255,0.04);
-    color: var(--text2);
+    border-radius: 4px 18px 18px 18px;
+    background: rgba(74,222,128,0.08);
+    border: 1px solid rgba(74,222,128,0.18);
+    color: rgba(74,222,128,0.95);
   }
 
   .kb-bubble.error {

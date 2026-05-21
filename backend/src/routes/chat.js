@@ -179,8 +179,29 @@ router.post('/message', async (req, res) => {
       ...dbHistory.slice(-30),
     ].map(m => ({ role: m.role, content: m.content }))
 
+    // If user responds to a greeting with "start fresh", "new chat" etc — clear history
+    const startFreshTriggers = ['start fresh', 'new chat', 'start over', 'fresh start', 'clear', 'reset chat']
+    if (startFreshTriggers.some(t => message.toLowerCase().includes(t)) && dbHistory.length <= 4) {
+      await saveHistory(req.user.id, categoryId, mode, [])
+      send('chunk', { text: "Clean slate. What are we working on?" })
+      send('done', { response: "Clean slate. What are we working on?" })
+      clearInterval(keepalive)
+      return res.end()
+    }
+
+    // First message in a new chat — inject a brief orientation so KB knows what to do
+    // without waiting for the user to explain it
+    const isNewChat = dbHistory.length === 0
+
     const claudeMessages = [
       ...historyForClaude,
+      ...(isNewChat ? [{
+        role: 'user',
+        content: '__SYSTEM_ORIENTATION__ The creator just opened a new KB chat. Do not respond to this message directly. Instead, greet them briefly (1-2 sentences max), tell them what you can see (their workspace, any recent episodes, vault ideas) and ask one specific question to get started — either about the thumbnail for their next episode, or pick up from wherever their pipeline left off. Be direct. No em dashes. No markdown.',
+      }, {
+        role: 'assistant',
+        content: 'Got it — orienting now.',
+      }] : []),
       { role: 'user', content: message },
     ]
 
@@ -661,6 +682,79 @@ router.post('/edit-frame', async (req, res) => {
 
   if (error) return res.status(500).json({ error: error.message })
   res.json({ frame: data })
+})
+
+// ── GET /api/chat/greet ───────────────────────────────────────────────────────
+// Called when the app loads (or reopens after 5+ minutes).
+// Returns a personalised greeting referencing the last conversation.
+// Frontend renders this as a KB message before the user types anything.
+
+router.get('/greet', async (req, res) => {
+  const { categoryId, mode = 'generate' } = req.query
+  if (!categoryId) return res.status(400).json({ error: 'categoryId required' })
+
+  try {
+    // Load last conversation history
+    const { messages: history } = await loadHistory(req.user.id, categoryId, mode)
+
+    // If no history, return a welcome message — the full KB orientation happens in /message
+    if (!history.length) {
+      return res.json({
+        greet: false,
+        message: null,
+      })
+    }
+
+    // Get the last exchange
+    const lastMessages = history.slice(-6)
+    const lastTimestamp = lastMessages[lastMessages.length - 1]?.timestamp
+    const lastMsg = lastMessages.filter(m => m.role === 'user').slice(-1)[0]
+    const lastKBMsg = lastMessages.filter(m => m.role === 'assistant').slice(-1)[0]
+
+    // Check how old the last message is
+    const minsAgo = lastTimestamp
+      ? Math.round((Date.now() - new Date(lastTimestamp).getTime()) / 60000)
+      : 9999
+
+    // Only greet if app was closed for more than 5 minutes
+    if (minsAgo < 5) {
+      return res.json({ greet: false, message: null })
+    }
+
+    // Build context summary for the greeting
+    const snippet = lastMsg?.content?.slice(0, 120) || ''
+    const kbSnippet = lastKBMsg?.content?.slice(0, 120) || ''
+    const timeLabel = minsAgo < 60
+      ? `${minsAgo} minutes ago`
+      : minsAgo < 1440
+        ? `${Math.round(minsAgo / 60)} hours ago`
+        : `${Math.round(minsAgo / 1440)} days ago`
+
+    // Ask Claude to write the greeting
+    const greetRes = await client.messages.create({
+      model:      process.env.CLAUDE_MODEL || 'claude-sonnet-4-5',
+      max_tokens: 150,
+      system:     'You are KB. Write a brief 1-2 sentence greeting for a creator returning to the app. Reference what you were last discussing. Then ask one clear question: do they want to continue that, or start fresh? Be warm but brief. No markdown. No em dashes. No "Welcome back" cliche.',
+      messages: [{
+        role: 'user',
+        content: `Last discussed (${timeLabel} ago): "${snippet}"
+KB last said: "${kbSnippet}"
+Write a natural greeting that picks up from this.`,
+      }],
+    })
+
+    const greeting = greetRes.content[0]?.text?.trim() || ''
+
+    res.json({
+      greet:   true,
+      message: greeting,
+      minsAgo,
+      lastSnippet: snippet,
+    })
+  } catch (err) {
+    console.error('[greet]', err.message)
+    res.json({ greet: false, message: null })
+  }
 })
 
 // ── POST /api/chat/thumbnail-prompt ──────────────────────────────────────────

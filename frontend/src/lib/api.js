@@ -222,6 +222,7 @@ export const shorts = {
 export const chat = {
   send:             (body, handlers, signal) => streamRequest('/chat/message', body, handlers, signal),
   getHistory:       (params) => req('GET', `/chat/history?${new URLSearchParams(params)}`),
+  greet:            (params) => req('GET', `/chat/greet?${new URLSearchParams(params)}`),
   clearHistory:     (body)   => req('DELETE', '/chat/history', body),
   onboard: (body, handlers) => streamRequest('/chat/onboard', body, handlers),
   commitEpisode:    (body)   => req('POST', '/chat/commit-episode', body),
