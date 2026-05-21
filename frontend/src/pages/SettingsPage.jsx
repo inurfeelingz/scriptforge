@@ -291,6 +291,10 @@ export default function SettingsPage() {
   const { profile, setProfile, activeCategoryId, activeCategory, notify, theme, setTheme } = useStore()
   const [reactionImages,   setReactionImages]   = useState([])
   const [activeTab,        setActiveTab]        = useState('profile')
+  const [resettingVoice,   setResettingVoice]   = useState(false)
+  const [clearingData,     setClearingData]     = useState(false)
+  const [deletingEpisodes, setDeletingEpisodes] = useState(false)
+  const [confirmAction,    setConfirmAction]    = useState(null)
   const [cloningVoice,     setCloningVoice]     = useState(false)
   const [cloneVoiceId,     setCloneVoiceId]     = useState(cat?.voice_profile?.elevenLabsVoiceId || null)
   const [uploadingReaction,setUploadingReaction] = useState(false)
@@ -399,6 +403,52 @@ export default function SettingsPage() {
     }
     setCloningVoice(false)
     e.target.value = ''
+  }
+
+  async function resetVoiceProfile() {
+    if (!activeCategoryId) return
+    setResettingVoice(true)
+    try {
+      const { supabase: sb } = await import('../lib/supabase')
+      await sb.from('categories').update({
+        voice_profile: null,
+        onboarded_at:  null,
+        updated_at:    new Date().toISOString(),
+      }).eq('id', activeCategoryId)
+      await loadCategories()
+      notify('Voice profile reset — KB will re-interview you on next visit', 'success')
+      setConfirmAction(null)
+    } catch (err) { notify(err.message, 'error') }
+    setResettingVoice(false)
+  }
+
+  async function clearAnalyticsData() {
+    if (!activeCategoryId) return
+    setClearingData(true)
+    try {
+      const { supabase: sb } = await import('../lib/supabase')
+      const { data: { user } } = await sb.auth.getUser()
+      await sb.from('analytics_uploads').delete().eq('user_id', user.id).eq('category_id', activeCategoryId)
+      await sb.from('audience_uploads').delete().eq('user_id', user.id).eq('category_id', activeCategoryId)
+      await sb.from('chat_history').delete().eq('user_id', user.id).eq('category_id', activeCategoryId)
+      await sb.from('kb_learnings').delete().eq('user_id', user.id).eq('category_id', activeCategoryId)
+      notify('Analytics data, chat history, and KB memory cleared', 'success')
+      setConfirmAction(null)
+    } catch (err) { notify(err.message, 'error') }
+    setClearingData(false)
+  }
+
+  async function deleteAllEpisodes() {
+    if (!activeCategoryId) return
+    setDeletingEpisodes(true)
+    try {
+      const { supabase: sb } = await import('../lib/supabase')
+      const { data: { user } } = await sb.auth.getUser()
+      await sb.from('episodes').delete().eq('user_id', user.id).eq('category_id', activeCategoryId)
+      notify('All episodes deleted', 'success')
+      setConfirmAction(null)
+    } catch (err) { notify(err.message, 'error') }
+    setDeletingEpisodes(false)
   }
 
   async function handleReactionUpload(e) {
@@ -1147,17 +1197,91 @@ export default function SettingsPage() {
       </Section>
 
       {/* ── Account ───────────────────────────────────────────────────────── */}
-      <Section title="Account" tab="danger" activeTab={activeTab}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+      <Section title="Danger Zone" tab="danger" activeTab={activeTab} subtitle="These actions are permanent and cannot be undone.">
+
+        {/* Confirm overlay */}
+        {confirmAction && (
+          <div style={{ marginBottom: 20, padding: '16px', borderRadius: 10, border: '1px solid rgba(248,113,113,0.3)', background: 'rgba(248,113,113,0.06)' }}>
+            <div style={{ fontSize: 13, color: '#f87171', fontFamily: "'Figtree',sans-serif", marginBottom: 10, fontWeight: 600 }}>
+              Are you sure? This cannot be undone.
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                onClick={() => {
+                  if (confirmAction === 'voice') resetVoiceProfile()
+                  if (confirmAction === 'data') clearAnalyticsData()
+                  if (confirmAction === 'episodes') deleteAllEpisodes()
+                }}
+                style={{ padding: '7px 14px', borderRadius: 7, border: 'none', background: '#f87171', color: '#080808', cursor: 'pointer', fontSize: 12, fontFamily: "'Figtree',sans-serif", fontWeight: 600 }}
+              >
+                Yes, delete
+              </button>
+              <button
+                onClick={() => setConfirmAction(null)}
+                style={{ padding: '7px 14px', borderRadius: 7, border: '1px solid rgba(255,255,255,0.1)', background: 'transparent', color: 'rgba(255,255,255,0.5)', cursor: 'pointer', fontSize: 12, fontFamily: "'Figtree',sans-serif" }}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Reset voice profile */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 0', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
           <div>
-            <div style={{ fontSize: '0.9375rem', fontWeight: 500, color: 'var(--text)' }}>Sign out</div>
-            <div style={{ fontSize: '0.8125rem', color: 'var(--text2)', marginTop: 2 }}>Sign out of your WhispaCuts account</div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: 'rgba(255,255,255,0.7)', fontFamily: "'Figtree',sans-serif" }}>Reset voice profile</div>
+            <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)', fontFamily: "'Figtree',sans-serif", marginTop: 2 }}>KB will re-interview you on next visit. All voice data for this workspace is cleared.</div>
+          </div>
+          <button
+            onClick={() => setConfirmAction('voice')}
+            disabled={resettingVoice}
+            style={{ padding: '7px 12px', borderRadius: 7, border: '1px solid rgba(248,113,113,0.3)', background: 'transparent', color: '#f87171', cursor: 'pointer', fontSize: 12, fontFamily: "'Figtree',sans-serif", flexShrink: 0, marginLeft: 12 }}
+          >
+            {resettingVoice ? 'Resetting...' : 'Reset'}
+          </button>
+        </div>
+
+        {/* Clear test data */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 0', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: 'rgba(255,255,255,0.7)', fontFamily: "'Figtree',sans-serif" }}>Clear analytics and memory</div>
+            <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)', fontFamily: "'Figtree',sans-serif", marginTop: 2 }}>Deletes uploaded analytics data, KB chat history, and all KB learnings for this workspace.</div>
+          </div>
+          <button
+            onClick={() => setConfirmAction('data')}
+            disabled={clearingData}
+            style={{ padding: '7px 12px', borderRadius: 7, border: '1px solid rgba(248,113,113,0.3)', background: 'transparent', color: '#f87171', cursor: 'pointer', fontSize: 12, fontFamily: "'Figtree',sans-serif", flexShrink: 0, marginLeft: 12 }}
+          >
+            {clearingData ? 'Clearing...' : 'Clear'}
+          </button>
+        </div>
+
+        {/* Delete all episodes */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 0', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: 'rgba(255,255,255,0.7)', fontFamily: "'Figtree',sans-serif" }}>Delete all episodes</div>
+            <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)', fontFamily: "'Figtree',sans-serif", marginTop: 2 }}>Permanently deletes all episodes in this workspace including scripts, storyboards, and retention data.</div>
+          </div>
+          <button
+            onClick={() => setConfirmAction('episodes')}
+            disabled={deletingEpisodes}
+            style={{ padding: '7px 12px', borderRadius: 7, border: '1px solid rgba(248,113,113,0.3)', background: 'transparent', color: '#f87171', cursor: 'pointer', fontSize: 12, fontFamily: "'Figtree',sans-serif", flexShrink: 0, marginLeft: 12 }}
+          >
+            {deletingEpisodes ? 'Deleting...' : 'Delete all'}
+          </button>
+        </div>
+
+        {/* Sign out */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 0' }}>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: 'rgba(255,255,255,0.7)', fontFamily: "'Figtree',sans-serif" }}>Sign out</div>
+            <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)', fontFamily: "'Figtree',sans-serif", marginTop: 2 }}>Sign out of your WhispaCuts account</div>
           </div>
           <button
             onClick={async () => { await signOut(); navigate('/auth') }}
-            style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 16px', borderRadius: 'var(--r-sm)', border: '1px solid rgba(248,113,113,0.3)', background: 'rgba(248,113,113,0.06)', color: '#f87171', cursor: 'pointer', fontFamily: 'inherit', fontSize: '0.875rem', fontWeight: 500 }}
+            style={{ padding: '7px 12px', borderRadius: 7, border: '1px solid rgba(248,113,113,0.3)', background: 'transparent', color: '#f87171', cursor: 'pointer', fontSize: 12, fontFamily: "'Figtree',sans-serif", display: 'flex', alignItems: 'center', gap: 6 }}
           >
-            <LogOut size={14}/> Sign out
+            <LogOut size={13}/> Sign out
           </button>
         </div>
       </Section>
