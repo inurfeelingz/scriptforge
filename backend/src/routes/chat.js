@@ -179,7 +179,17 @@ router.post('/message', async (req, res) => {
       ...dbHistory.slice(-30),
     ].map(m => ({ role: m.role, content: m.content }))
 
-    // If user responds to a greeting with "start fresh", "new chat" etc — clear history
+    // If user asks to see history — send a special action signal
+    const historyTriggers = ['show my history', 'past conversations', 'previous chats',
+      'what did we discuss', 'show history', 'my conversations', 'old chats', 'past sessions']
+    if (historyTriggers.some(t => message.toLowerCase().includes(t))) {
+      send('chunk', { text: "Here are your past conversations." })
+      send('done',  { response: "Here are your past conversations.", action: 'show_history' })
+      clearInterval(keepalive)
+      return res.end()
+    }
+
+    // If user responds to a greeting with "start fresh" , "new chat" etc — clear history
     const startFreshTriggers = ['start fresh', 'new chat', 'start over', 'fresh start', 'clear', 'reset chat']
     if (startFreshTriggers.some(t => message.toLowerCase().includes(t)) && dbHistory.length <= 4) {
       await saveHistory(req.user.id, categoryId, mode, [])
@@ -697,32 +707,48 @@ router.get('/greet', async (req, res) => {
     // Load last conversation history
     const { messages: history } = await loadHistory(req.user.id, categoryId, mode)
 
-    // If no history, return a welcome message — the full KB orientation happens in /message
+    // No history — first time user, send orientation greeting
     if (!history.length) {
+      const { data: cat } = await supabase
+        .from('categories')
+        .select('name, niche')
+        .eq('id', categoryId)
+        .single()
+        .catch(() => ({ data: null }))
+
+      const greetRes = await client.messages.create({
+        model:      process.env.CLAUDE_MODEL || 'claude-sonnet-4-5',
+        max_tokens: 120,
+        system:     'You are KB inside WhispaCuts. Write a 1-2 sentence greeting for a creator who just set up their workspace. Tell them what you can help with. Ask one specific question to get started — about their next episode idea or thumbnail concept. Direct, warm, no markdown, no em dashes.',
+        messages: [{
+          role: 'user',
+          content: `Creator workspace: "${cat?.name || 'New workspace'}" — niche: "${cat?.niche || 'content creation'}". Greet them and ask one question to kick things off.`,
+        }],
+      })
+
       return res.json({
-        greet: false,
-        message: null,
+        greet:   true,
+        message: greetRes.content[0]?.text?.trim() || '',
       })
     }
 
-    // Get the last exchange
-    const lastMessages = history.slice(-6)
+    // Returning user — check how long they were away
+    const lastMessages  = history.slice(-6)
     const lastTimestamp = lastMessages[lastMessages.length - 1]?.timestamp
-    const lastMsg = lastMessages.filter(m => m.role === 'user').slice(-1)[0]
-    const lastKBMsg = lastMessages.filter(m => m.role === 'assistant').slice(-1)[0]
+    const lastMsg       = lastMessages.filter(m => m.role === 'user').slice(-1)[0]
+    const lastKBMsg     = lastMessages.filter(m => m.role === 'assistant').slice(-1)[0]
 
-    // Check how old the last message is
     const minsAgo = lastTimestamp
       ? Math.round((Date.now() - new Date(lastTimestamp).getTime()) / 60000)
       : 9999
 
-    // Only greet if app was closed for more than 5 minutes
+    // Less than 5 minutes — still in session, no greeting needed
     if (minsAgo < 5) {
       return res.json({ greet: false, message: null })
     }
 
-    // Build context summary for the greeting
-    const snippet = lastMsg?.content?.slice(0, 120) || ''
+    // Been away — greet with context
+    const snippet   = lastMsg?.content?.slice(0, 120) || ''
     const kbSnippet = lastKBMsg?.content?.slice(0, 120) || ''
     const timeLabel = minsAgo < 60
       ? `${minsAgo} minutes ago`
@@ -730,26 +756,23 @@ router.get('/greet', async (req, res) => {
         ? `${Math.round(minsAgo / 60)} hours ago`
         : `${Math.round(minsAgo / 1440)} days ago`
 
-    // Ask Claude to write the greeting
     const greetRes = await client.messages.create({
       model:      process.env.CLAUDE_MODEL || 'claude-sonnet-4-5',
-      max_tokens: 150,
-      system:     'You are KB. Write a brief 1-2 sentence greeting for a creator returning to the app. Reference what you were last discussing. Then ask one clear question: do they want to continue that, or start fresh? Be warm but brief. No markdown. No em dashes. No "Welcome back" cliche.',
+      max_tokens: 120,
+      system:     'You are KB. Write a 1-2 sentence greeting for a creator returning to the app after being away. Briefly reference what you were last working on. Ask one clear question: continue that, or start something new? Warm, specific, no markdown, no em dashes, no "Welcome back".',
       messages: [{
         role: 'user',
-        content: `Last discussed (${timeLabel} ago): "${snippet}"
+        content: `Away for: ${timeLabel}
+Last discussed: "${snippet}"
 KB last said: "${kbSnippet}"
-Write a natural greeting that picks up from this.`,
+Write the greeting.`,
       }],
     })
 
-    const greeting = greetRes.content[0]?.text?.trim() || ''
-
     res.json({
       greet:   true,
-      message: greeting,
+      message: greetRes.content[0]?.text?.trim() || '',
       minsAgo,
-      lastSnippet: snippet,
     })
   } catch (err) {
     console.error('[greet]', err.message)

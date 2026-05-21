@@ -5,7 +5,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import {
   Send, Trash2, Loader2, BookmarkPlus, Check,
-  Plus, Clock, X, Sparkles, Mic, MicOff, Volume2, ChevronDown,
+  Plus, X, Sparkles, Mic, MicOff, Volume2, ChevronDown,
 } from 'lucide-react'
 import { useStore } from '../../store'
 import { chat as chatApi, vault as vaultApi } from '../../lib/api'
@@ -535,28 +535,34 @@ export default function ChatPanel() {
   useEffect(() => {
     if (!activeCategoryId) return
     setMessages([]); setCommitted(null); setGenerated(null); setGreeted(false)
-    chatApi.getHistory({ categoryId: activeCategoryId, mode })
-      .then(async ({ messages: h }) => {
-        setMessages(h || [])
-        // Call greet endpoint — only shows if app was closed for 5+ mins
-        try {
-          const greetData = await chatApi.greet({ categoryId: activeCategoryId, mode })
-          if (greetData?.greet && greetData?.message && !greeted) {
-            setGreeted(true)
-            // Inject KB greeting as the first visible message (not saved to history)
-            setMessages(prev => [
-              ...( prev || []),
-              {
-                role:      'assistant',
-                content:   greetData.message,
-                timestamp: new Date().toISOString(),
-                isGreeting: true,
-              }
-            ])
+
+    // Load history and greet in parallel
+    const historyPromise = chatApi.getHistory({ categoryId: activeCategoryId, mode })
+      .then(({ messages: h }) => h || [])
+      .catch(() => [])
+
+    const greetPromise = chatApi.greet({ categoryId: activeCategoryId, mode })
+      .catch(() => null)
+
+    Promise.all([historyPromise, greetPromise]).then(([history, greetData]) => {
+      setMessages(history)
+
+      // Show greeting if app was closed for 5+ mins
+      // greet:true  = returning user with history
+      // greet:false with message = first-time user needs orientation
+      if (greetData?.message) {
+        setGreeted(true)
+        setMessages(prev => [
+          ...prev,
+          {
+            role:       'assistant',
+            content:    greetData.message,
+            timestamp:  new Date().toISOString(),
+            isGreeting: true,
           }
-        } catch {}
-      })
-      .catch(() => {})
+        ])
+      }
+    })
   }, [activeCategoryId, mode])
 
   useEffect(() => {
@@ -622,11 +628,13 @@ export default function ChatPanel() {
         { categoryId: activeCategoryId, mode, message: text, messages: [], activeEpisodeId: activeEpisodeId || null },
         {
           chunk: ({ text: t }) => setStreamText(prev => prev + t),
-          done:  ({ response }) => {
+          done:  ({ response, action }) => {
             setMessages(prev => [...prev, { role: 'assistant', content: response, timestamp: new Date().toISOString() }])
             setStreamText('')
             setStreaming(false)
             if (voiceUsedRef.current) { voiceUsedRef.current = false; speak(response) }
+            // KB can trigger UI actions — e.g. show history view
+            if (action === 'show_history') setTimeout(() => setView('history'), 400)
           },
           error: ({ message: e }) => {
             setMessages(prev => [...prev, { role: 'assistant', content: `Error: ${e}`, isError: true, timestamp: new Date().toISOString() }])
@@ -935,13 +943,8 @@ export default function ChatPanel() {
           </div>
         )}
 
-        {/* Action row — save / history / new */}
+        {/* Action row — new chat only */}
         <div style={{ display:'flex', gap:6, padding:'0 12px 8px', justifyContent:'flex-end' }}>
-
-          <button onClick={() => setView('history')}
-            style={{ fontSize:10, padding:'3px 8px', borderRadius:6, border:'1px solid rgba(255,255,255,0.06)', background:'transparent', color:'rgba(255,255,255,0.3)', cursor:'pointer', fontFamily:"'Figtree',sans-serif", display:'flex', alignItems:'center', gap:4 }}>
-            <Clock size={9}/> History
-          </button>
           <button onClick={newChat}
             style={{ fontSize:10, padding:'3px 8px', borderRadius:6, border:'1px solid rgba(255,255,255,0.06)', background:'transparent', color:'rgba(255,255,255,0.3)', cursor:'pointer', fontFamily:"'Figtree',sans-serif", display:'flex', alignItems:'center', gap:4 }}>
             <Plus size={9}/> New
