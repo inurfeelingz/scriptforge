@@ -38,13 +38,7 @@ const PILL_ITEMS = [
   { to: '/schedule',  icon: Calendar,  label: 'Schedule'  },
 ]
 
-const MORE_ITEMS = [
-  { to: '/pipeline',  icon: Zap,       label: 'Pipeline'  },
-  { to: '/vault',     icon: BookMarked,label: 'Vault'     },
-  { to: '/analytics', icon: BarChart2, label: 'Insights'  },
-  { to: '/sound',     icon: Music2,    label: 'Sound'     },
-  { to: '/schedule',  icon: Calendar,  label: 'Schedule'  },
-]
+const MORE_ITEMS = []  // Mobile grid uses PILL_ITEMS directly — no duplicates
 
 const GREEN     = 'rgba(74,222,128,1)'
 const GREEN_DIM = 'rgba(74,222,128,0.7)'
@@ -603,7 +597,7 @@ export default function AppLayout() {
         flexDirection: 'column',
         minWidth: 0,
         paddingTop:    isCompanion ? 0 : 52,
-        paddingBottom: isCompanion ? 0 : 100,
+        paddingBottom: isCompanion ? 0 : isMobile ? 120 : 100,
       }}>
         <div style={{
           flex:      1,
