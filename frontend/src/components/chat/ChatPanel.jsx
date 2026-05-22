@@ -553,8 +553,15 @@ export default function ChatPanel() {
       // Fallback: if API failed or returned nothing, use a local greeting
       if (!greetMsg) {
         if (!history.length) {
-          // Brand new user
-          greetMsg = "I'm KB, your creative partner inside WhispaCuts. I can help you plan episodes, write scripts, build storyboards, and understand your audience. What are you working on?"
+          // Brand new user — vary the opener
+          const openers = [
+            "What are we making?",
+            "Your workspace is set up. What's the first episode about?",
+            "Let's build something. What's on your mind?",
+            "Ready when you are. What's the episode?",
+            "Start with the thumbnail — what's the image that stops the scroll?",
+          ]
+          greetMsg = openers[Math.floor(Math.random() * openers.length)]
         } else {
           // Returning user — check last message age
           const last = history[history.length - 1]

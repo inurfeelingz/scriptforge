@@ -11,7 +11,6 @@ import { users as usersApi, categories as catApi, episodes as episodesApi, testW
 // ── Sub-components ──────────────────────────────────────────────────────────
 
 function Section({ title, subtitle, children, accent, tab, activeTab }) {
-  // Hide section when tab doesn't match (if tab prop is set)
   if (tab && activeTab && tab !== activeTab) return null
   return (
     <div style={{ background:"var(--surface)", border:"1px solid var(--border)", borderRadius:"var(--r)", padding:"1.5rem", marginBottom:"1.25rem" }}>
@@ -37,69 +36,6 @@ function Section({ title, subtitle, children, accent, tab, activeTab }) {
         )}
       </div>
       {children}
-      {/* ── Voice Clone ── */}
-      <Section icon={<Mic size={16}/>} title="KB Voice Clone" tab="integrations" activeTab={activeTab} subtitle="Train KB to speak in your voice using ElevenLabs. Upload at least 30 minutes of clean audio.">
-        {cloneVoiceId ? (
-          <div style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 12px', borderRadius:8, border:'1px solid rgba(74,222,128,0.2)', background:'rgba(74,222,128,0.04)' }}>
-            <span style={{ fontSize:13, color:'rgba(74,222,128,0.8)', fontFamily:"'Figtree',sans-serif" }}>✓ Voice clone active</span>
-            <span style={{ fontSize:11, color:'rgba(255,255,255,0.25)', fontFamily:"'Figtree',sans-serif", fontFamily:'monospace' }}>{cloneVoiceId}</span>
-            <label style={{ marginLeft:'auto', display:'flex', alignItems:'center', gap:6, padding:'5px 10px', borderRadius:6, border:'1px solid rgba(255,255,255,0.1)', background:'transparent', color:'rgba(255,255,255,0.4)', cursor: cloningVoice ? 'wait' : 'pointer', fontSize:11, fontFamily:"'Figtree',sans-serif" }}>
-              {cloningVoice ? 'Uploading...' : 'Re-train'}
-              <input type="file" accept="audio/*,.mp3,.m4a,.wav" onChange={handleVoiceClone} disabled={cloningVoice} style={{ display:'none' }}/>
-            </label>
-          </div>
-        ) : (
-          <div>
-            <label style={{ display:'inline-flex', alignItems:'center', gap:7, padding:'8px 14px', borderRadius:8, background:'rgba(74,222,128,0.07)', border:'1px solid rgba(74,222,128,0.2)', color:'rgba(74,222,128,0.8)', cursor: cloningVoice ? 'wait' : 'pointer', fontSize:12, fontFamily:"'Figtree',sans-serif" }}>
-              <Upload size={12}/>
-              {cloningVoice ? 'Training voice clone...' : 'Upload voice sample'}
-              <input type="file" accept="audio/*,.mp3,.m4a,.wav" onChange={handleVoiceClone} disabled={cloningVoice} style={{ display:'none' }}/>
-            </label>
-            <div style={{ fontSize:11, color:'rgba(255,255,255,0.25)', fontFamily:"'Figtree',sans-serif", marginTop:6 }}>
-              MP3, M4A, or WAV. Minimum 30 minutes of clean speech. No music or background noise.
-            </div>
-          </div>
-        )}
-      </Section>
-
-      {/* ── Reaction Images ── */}
-      <Section icon={<User size={16}/>} title="Thumbnail Reaction Images" tab="integrations" activeTab={activeTab} subtitle="Upload photos of your reactions for thumbnail generation. Tag each one so KB can select the right expression.">
-        <div style={{ marginBottom:12 }}>
-          <label style={{ display:'inline-flex', alignItems:'center', gap:7, padding:'8px 14px', borderRadius:8, background:'rgba(74,222,128,0.07)', border:'1px solid rgba(74,222,128,0.2)', color:'rgba(74,222,128,0.8)', cursor: uploadingReaction ? 'wait' : 'pointer', fontSize:12, fontFamily:"'Figtree',sans-serif" }}>
-            <Upload size={12}/>
-            {uploadingReaction ? 'Uploading...' : 'Upload reaction photos'}
-            <input type="file" accept="image/*" multiple onChange={handleReactionUpload} disabled={uploadingReaction} style={{ display:'none' }}/>
-          </label>
-          <div style={{ fontSize:11, color:'rgba(255,255,255,0.25)', fontFamily:"'Figtree',sans-serif", marginTop:6 }}>
-            JPG or PNG. Name files by expression (e.g. "surprised.jpg", "confident.jpg") for auto-tagging.
-          </div>
-        </div>
-
-        {reactionImages.length === 0 && (
-          <div style={{ fontSize:12, color:'rgba(255,255,255,0.2)', fontFamily:"'Figtree',sans-serif", fontStyle:'italic' }}>
-            No reaction images yet. Upload photos of yourself that KB can reference when generating thumbnail prompts.
-          </div>
-        )}
-
-        <div style={{ display:'grid', gridTemplateColumns: isMobile ? 'repeat(2,1fr)' : 'repeat(4,1fr)', gap:10 }}>
-          {reactionImages.map(img => (
-            <div key={img.id} style={{ borderRadius:8, overflow:'hidden', border:'1px solid rgba(255,255,255,0.07)', background:'rgba(255,255,255,0.02)' }}>
-              <div style={{ aspectRatio:'1', overflow:'hidden', background:'#111' }}>
-                <img src={img.storage_url} alt={img.tag} style={{ width:'100%', height:'100%', objectFit:'cover' }}/>
-              </div>
-              <div style={{ padding:'6px 8px' }}>
-                <input
-                  value={img.tag}
-                  onChange={e => updateReactionTag(img.id, e.target.value)}
-                  placeholder="Tag (e.g. surprised)"
-                  style={{ width:'100%', background:'transparent', border:'none', borderBottom:'1px solid rgba(255,255,255,0.08)', color:'rgba(255,255,255,0.6)', fontSize:11, fontFamily:"'Figtree',sans-serif", outline:'none', padding:'2px 0', boxSizing:'border-box' }}
-                />
-              </div>
-            </div>
-          ))}
-        </div>
-      </Section>
-
     </div>
   )
 }
@@ -129,69 +65,6 @@ function Field({ label, value, onChange, placeholder, hint, wide, multiline }) {
           style={{ width:"100%", background:"var(--surface2)", border:"1px solid var(--border)", borderRadius:"var(--r-sm)", padding:"0.625rem 0.875rem", fontSize:"0.9375rem", color:"var(--text)", fontFamily:"inherit", outline:"none" }}
         />
       )}
-      {/* ── Voice Clone ── */}
-      <Section icon={<Mic size={16}/>} title="KB Voice Clone" tab="integrations" activeTab={activeTab} subtitle="Train KB to speak in your voice using ElevenLabs. Upload at least 30 minutes of clean audio.">
-        {cloneVoiceId ? (
-          <div style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 12px', borderRadius:8, border:'1px solid rgba(74,222,128,0.2)', background:'rgba(74,222,128,0.04)' }}>
-            <span style={{ fontSize:13, color:'rgba(74,222,128,0.8)', fontFamily:"'Figtree',sans-serif" }}>✓ Voice clone active</span>
-            <span style={{ fontSize:11, color:'rgba(255,255,255,0.25)', fontFamily:"'Figtree',sans-serif", fontFamily:'monospace' }}>{cloneVoiceId}</span>
-            <label style={{ marginLeft:'auto', display:'flex', alignItems:'center', gap:6, padding:'5px 10px', borderRadius:6, border:'1px solid rgba(255,255,255,0.1)', background:'transparent', color:'rgba(255,255,255,0.4)', cursor: cloningVoice ? 'wait' : 'pointer', fontSize:11, fontFamily:"'Figtree',sans-serif" }}>
-              {cloningVoice ? 'Uploading...' : 'Re-train'}
-              <input type="file" accept="audio/*,.mp3,.m4a,.wav" onChange={handleVoiceClone} disabled={cloningVoice} style={{ display:'none' }}/>
-            </label>
-          </div>
-        ) : (
-          <div>
-            <label style={{ display:'inline-flex', alignItems:'center', gap:7, padding:'8px 14px', borderRadius:8, background:'rgba(74,222,128,0.07)', border:'1px solid rgba(74,222,128,0.2)', color:'rgba(74,222,128,0.8)', cursor: cloningVoice ? 'wait' : 'pointer', fontSize:12, fontFamily:"'Figtree',sans-serif" }}>
-              <Upload size={12}/>
-              {cloningVoice ? 'Training voice clone...' : 'Upload voice sample'}
-              <input type="file" accept="audio/*,.mp3,.m4a,.wav" onChange={handleVoiceClone} disabled={cloningVoice} style={{ display:'none' }}/>
-            </label>
-            <div style={{ fontSize:11, color:'rgba(255,255,255,0.25)', fontFamily:"'Figtree',sans-serif", marginTop:6 }}>
-              MP3, M4A, or WAV. Minimum 30 minutes of clean speech. No music or background noise.
-            </div>
-          </div>
-        )}
-      </Section>
-
-      {/* ── Reaction Images ── */}
-      <Section icon={<User size={16}/>} title="Thumbnail Reaction Images" tab="integrations" activeTab={activeTab} subtitle="Upload photos of your reactions for thumbnail generation. Tag each one so KB can select the right expression.">
-        <div style={{ marginBottom:12 }}>
-          <label style={{ display:'inline-flex', alignItems:'center', gap:7, padding:'8px 14px', borderRadius:8, background:'rgba(74,222,128,0.07)', border:'1px solid rgba(74,222,128,0.2)', color:'rgba(74,222,128,0.8)', cursor: uploadingReaction ? 'wait' : 'pointer', fontSize:12, fontFamily:"'Figtree',sans-serif" }}>
-            <Upload size={12}/>
-            {uploadingReaction ? 'Uploading...' : 'Upload reaction photos'}
-            <input type="file" accept="image/*" multiple onChange={handleReactionUpload} disabled={uploadingReaction} style={{ display:'none' }}/>
-          </label>
-          <div style={{ fontSize:11, color:'rgba(255,255,255,0.25)', fontFamily:"'Figtree',sans-serif", marginTop:6 }}>
-            JPG or PNG. Name files by expression (e.g. "surprised.jpg", "confident.jpg") for auto-tagging.
-          </div>
-        </div>
-
-        {reactionImages.length === 0 && (
-          <div style={{ fontSize:12, color:'rgba(255,255,255,0.2)', fontFamily:"'Figtree',sans-serif", fontStyle:'italic' }}>
-            No reaction images yet. Upload photos of yourself that KB can reference when generating thumbnail prompts.
-          </div>
-        )}
-
-        <div style={{ display:'grid', gridTemplateColumns: isMobile ? 'repeat(2,1fr)' : 'repeat(4,1fr)', gap:10 }}>
-          {reactionImages.map(img => (
-            <div key={img.id} style={{ borderRadius:8, overflow:'hidden', border:'1px solid rgba(255,255,255,0.07)', background:'rgba(255,255,255,0.02)' }}>
-              <div style={{ aspectRatio:'1', overflow:'hidden', background:'#111' }}>
-                <img src={img.storage_url} alt={img.tag} style={{ width:'100%', height:'100%', objectFit:'cover' }}/>
-              </div>
-              <div style={{ padding:'6px 8px' }}>
-                <input
-                  value={img.tag}
-                  onChange={e => updateReactionTag(img.id, e.target.value)}
-                  placeholder="Tag (e.g. surprised)"
-                  style={{ width:'100%', background:'transparent', border:'none', borderBottom:'1px solid rgba(255,255,255,0.08)', color:'rgba(255,255,255,0.6)', fontSize:11, fontFamily:"'Figtree',sans-serif", outline:'none', padding:'2px 0', boxSizing:'border-box' }}
-                />
-              </div>
-            </div>
-          ))}
-        </div>
-      </Section>
-
     </div>
   )
 }
@@ -218,69 +91,6 @@ function UsageBar({ used, max, label }) {
           }}
         />
       </div>
-      {/* ── Voice Clone ── */}
-      <Section icon={<Mic size={16}/>} title="KB Voice Clone" tab="integrations" activeTab={activeTab} subtitle="Train KB to speak in your voice using ElevenLabs. Upload at least 30 minutes of clean audio.">
-        {cloneVoiceId ? (
-          <div style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 12px', borderRadius:8, border:'1px solid rgba(74,222,128,0.2)', background:'rgba(74,222,128,0.04)' }}>
-            <span style={{ fontSize:13, color:'rgba(74,222,128,0.8)', fontFamily:"'Figtree',sans-serif" }}>✓ Voice clone active</span>
-            <span style={{ fontSize:11, color:'rgba(255,255,255,0.25)', fontFamily:"'Figtree',sans-serif", fontFamily:'monospace' }}>{cloneVoiceId}</span>
-            <label style={{ marginLeft:'auto', display:'flex', alignItems:'center', gap:6, padding:'5px 10px', borderRadius:6, border:'1px solid rgba(255,255,255,0.1)', background:'transparent', color:'rgba(255,255,255,0.4)', cursor: cloningVoice ? 'wait' : 'pointer', fontSize:11, fontFamily:"'Figtree',sans-serif" }}>
-              {cloningVoice ? 'Uploading...' : 'Re-train'}
-              <input type="file" accept="audio/*,.mp3,.m4a,.wav" onChange={handleVoiceClone} disabled={cloningVoice} style={{ display:'none' }}/>
-            </label>
-          </div>
-        ) : (
-          <div>
-            <label style={{ display:'inline-flex', alignItems:'center', gap:7, padding:'8px 14px', borderRadius:8, background:'rgba(74,222,128,0.07)', border:'1px solid rgba(74,222,128,0.2)', color:'rgba(74,222,128,0.8)', cursor: cloningVoice ? 'wait' : 'pointer', fontSize:12, fontFamily:"'Figtree',sans-serif" }}>
-              <Upload size={12}/>
-              {cloningVoice ? 'Training voice clone...' : 'Upload voice sample'}
-              <input type="file" accept="audio/*,.mp3,.m4a,.wav" onChange={handleVoiceClone} disabled={cloningVoice} style={{ display:'none' }}/>
-            </label>
-            <div style={{ fontSize:11, color:'rgba(255,255,255,0.25)', fontFamily:"'Figtree',sans-serif", marginTop:6 }}>
-              MP3, M4A, or WAV. Minimum 30 minutes of clean speech. No music or background noise.
-            </div>
-          </div>
-        )}
-      </Section>
-
-      {/* ── Reaction Images ── */}
-      <Section icon={<User size={16}/>} title="Thumbnail Reaction Images" tab="integrations" activeTab={activeTab} subtitle="Upload photos of your reactions for thumbnail generation. Tag each one so KB can select the right expression.">
-        <div style={{ marginBottom:12 }}>
-          <label style={{ display:'inline-flex', alignItems:'center', gap:7, padding:'8px 14px', borderRadius:8, background:'rgba(74,222,128,0.07)', border:'1px solid rgba(74,222,128,0.2)', color:'rgba(74,222,128,0.8)', cursor: uploadingReaction ? 'wait' : 'pointer', fontSize:12, fontFamily:"'Figtree',sans-serif" }}>
-            <Upload size={12}/>
-            {uploadingReaction ? 'Uploading...' : 'Upload reaction photos'}
-            <input type="file" accept="image/*" multiple onChange={handleReactionUpload} disabled={uploadingReaction} style={{ display:'none' }}/>
-          </label>
-          <div style={{ fontSize:11, color:'rgba(255,255,255,0.25)', fontFamily:"'Figtree',sans-serif", marginTop:6 }}>
-            JPG or PNG. Name files by expression (e.g. "surprised.jpg", "confident.jpg") for auto-tagging.
-          </div>
-        </div>
-
-        {reactionImages.length === 0 && (
-          <div style={{ fontSize:12, color:'rgba(255,255,255,0.2)', fontFamily:"'Figtree',sans-serif", fontStyle:'italic' }}>
-            No reaction images yet. Upload photos of yourself that KB can reference when generating thumbnail prompts.
-          </div>
-        )}
-
-        <div style={{ display:'grid', gridTemplateColumns: isMobile ? 'repeat(2,1fr)' : 'repeat(4,1fr)', gap:10 }}>
-          {reactionImages.map(img => (
-            <div key={img.id} style={{ borderRadius:8, overflow:'hidden', border:'1px solid rgba(255,255,255,0.07)', background:'rgba(255,255,255,0.02)' }}>
-              <div style={{ aspectRatio:'1', overflow:'hidden', background:'#111' }}>
-                <img src={img.storage_url} alt={img.tag} style={{ width:'100%', height:'100%', objectFit:'cover' }}/>
-              </div>
-              <div style={{ padding:'6px 8px' }}>
-                <input
-                  value={img.tag}
-                  onChange={e => updateReactionTag(img.id, e.target.value)}
-                  placeholder="Tag (e.g. surprised)"
-                  style={{ width:'100%', background:'transparent', border:'none', borderBottom:'1px solid rgba(255,255,255,0.08)', color:'rgba(255,255,255,0.6)', fontSize:11, fontFamily:"'Figtree',sans-serif", outline:'none', padding:'2px 0', boxSizing:'border-box' }}
-                />
-              </div>
-            </div>
-          ))}
-        </div>
-      </Section>
-
     </div>
   )
 }
@@ -289,15 +99,6 @@ function UsageBar({ used, max, label }) {
 
 export default function SettingsPage() {
   const { profile, setProfile, activeCategoryId, activeCategory, notify, theme, setTheme } = useStore()
-  const [reactionImages,   setReactionImages]   = useState([])
-  const [activeTab,        setActiveTab]        = useState('profile')
-  const [resettingVoice,   setResettingVoice]   = useState(false)
-  const [clearingData,     setClearingData]     = useState(false)
-  const [deletingEpisodes, setDeletingEpisodes] = useState(false)
-  const [confirmAction,    setConfirmAction]    = useState(null)
-  const [cloningVoice,     setCloningVoice]     = useState(false)
-  const [cloneVoiceId,     setCloneVoiceId]     = useState(cat?.voice_profile?.elevenLabsVoiceId || null)
-  const [uploadingReaction,setUploadingReaction] = useState(false)
   const [isMobile, setIsMobile] = useState(typeof window !== 'undefined' && window.innerWidth < 768)
   // Update on resize
   useEffect(() => {
@@ -364,159 +165,6 @@ export default function SettingsPage() {
     })()
   }, [profile?.is_admin])
 
-  // Load reaction images for this category
-  useEffect(() => {
-    if (!activeCategoryId) return
-    supabase
-      .from('creator_assets')
-      .select('id, file_name, tag, storage_url, created_at')
-      .eq('user_id', profile?.id)
-      .eq('category_id', activeCategoryId)
-      .eq('asset_type', 'reaction')
-      .order('created_at', { ascending: false })
-      .then(({ data }) => setReactionImages(data || []))
-      .catch(() => {})
-  }, [activeCategoryId, profile?.id])
-
-  async function handleVoiceClone(e) {
-    const file = e.target.files?.[0]
-    if (!file || !activeCategoryId) return
-    setCloningVoice(true)
-    notify('Uploading voice sample — this may take a minute...', 'info', 8000)
-    try {
-      const { supabase: sb } = await import('../lib/supabase')
-      const { data: { session } } = await sb.auth.getSession()
-      const form = new FormData()
-      form.append('file', file)
-      form.append('categoryId', activeCategoryId)
-      const res = await fetch(`${import.meta.env.VITE_API_URL}/api/chat/voice-clone`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${session?.access_token}` },
-        body: form,
-      })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error)
-      setCloneVoiceId(data.voiceId)
-      notify('Voice clone created — KB now speaks in your voice', 'success')
-    } catch (err) {
-      notify('Voice clone failed: ' + err.message, 'error')
-    }
-    setCloningVoice(false)
-    e.target.value = ''
-  }
-
-  async function resetVoiceProfile() {
-    if (!activeCategoryId) return
-    setResettingVoice(true)
-    try {
-      const { supabase: sb } = await import('../lib/supabase')
-      await sb.from('categories').update({
-        voice_profile: null,
-        onboarded_at:  null,
-        updated_at:    new Date().toISOString(),
-      }).eq('id', activeCategoryId)
-      await loadCategories()
-      notify('Voice profile reset — KB will re-interview you on next visit', 'success')
-      setConfirmAction(null)
-    } catch (err) { notify(err.message, 'error') }
-    setResettingVoice(false)
-  }
-
-  async function clearAnalyticsData() {
-    if (!activeCategoryId) return
-    setClearingData(true)
-    try {
-      const { supabase: sb } = await import('../lib/supabase')
-      const { data: { user } } = await sb.auth.getUser()
-      await sb.from('analytics_uploads').delete().eq('user_id', user.id).eq('category_id', activeCategoryId)
-      await sb.from('audience_uploads').delete().eq('user_id', user.id).eq('category_id', activeCategoryId)
-      await sb.from('chat_history').delete().eq('user_id', user.id).eq('category_id', activeCategoryId)
-      await sb.from('kb_learnings').delete().eq('user_id', user.id).eq('category_id', activeCategoryId)
-      notify('Analytics data, chat history, and KB memory cleared', 'success')
-      setConfirmAction(null)
-    } catch (err) { notify(err.message, 'error') }
-    setClearingData(false)
-  }
-
-  async function deleteAllEpisodes() {
-    if (!activeCategoryId) return
-    setDeletingEpisodes(true)
-    try {
-      const { supabase: sb } = await import('../lib/supabase')
-      const { data: { user } } = await sb.auth.getUser()
-      await sb.from('episodes').delete().eq('user_id', user.id).eq('category_id', activeCategoryId)
-      notify('All episodes deleted', 'success')
-      setConfirmAction(null)
-    } catch (err) { notify(err.message, 'error') }
-    setDeletingEpisodes(false)
-  }
-
-  async function handleReactionUpload(e) {
-    const files = Array.from(e.target.files || [])
-    if (!files.length || !activeCategoryId) return
-    setUploadingReaction(true)
-    for (const file of files) {
-      try {
-        // Upload to Supabase storage
-        const ext      = file.name.split('.').pop()
-        const path     = `reactions/${profile?.id}/${activeCategoryId}/${Date.now()}.${ext}`
-        const { error: upErr } = await supabase.storage
-          .from('creator-assets')
-          .upload(path, file, { upsert: false })
-        if (upErr) throw upErr
-
-        const { data: urlData } = supabase.storage
-          .from('creator-assets')
-          .getPublicUrl(path)
-
-        // Default tag from filename
-        const defaultTag = file.name
-          .replace(/\.[^.]+$/, '')
-          .replace(/[_-]/g, ' ')
-          .toLowerCase()
-          .replace(/\w/g, c => c.toUpperCase())
-
-        // Save reference in DB
-        await supabase.from('creator_assets').insert({
-          user_id:     profile?.id,
-          category_id: activeCategoryId,
-          asset_type:  'reaction',
-          file_name:   file.name,
-          storage_url: urlData.publicUrl,
-          tag:         defaultTag,
-          created_at:  new Date().toISOString(),
-        })
-
-        notify(`${file.name} uploaded`, 'success')
-      } catch (err) {
-        notify(`${file.name} failed: ${err.message}`, 'error')
-      }
-    }
-    // Reload
-    const { data } = await supabase
-      .from('creator_assets')
-      .select('id, file_name, tag, storage_url, created_at')
-      .eq('user_id', profile?.id)
-      .eq('category_id', activeCategoryId)
-      .eq('asset_type', 'reaction')
-      .order('created_at', { ascending: false })
-    setReactionImages(data || [])
-    setUploadingReaction(false)
-    e.target.value = ''
-  }
-
-  async function updateReactionTag(id, tag) {
-    await supabase.from('creator_assets').update({ tag }).eq('id', id)
-    setReactionImages(prev => prev.map(r => r.id === id ? { ...r, tag } : r))
-  }
-
-  async function deleteReaction(id, storagePath) {
-    await supabase.storage.from('creator-assets').remove([storagePath])
-    await supabase.from('creator_assets').delete().eq('id', id)
-    setReactionImages(prev => prev.filter(r => r.id !== id))
-    notify('Removed', 'success')
-  }
-
   const vp = cat?.voice_profile || {}
   const vc = vp.voiceCharacteristics  || {}
   const sp = vp.structuralPatterns    || {}
@@ -566,6 +214,105 @@ export default function SettingsPage() {
 
   const csv = s => s.split(',').map(x => x.trim()).filter(Boolean)
   const setV = k => v => setVoice(prev => ({ ...prev, [k]: v }))
+
+  // Load voice clone ID and reaction images from category
+  useEffect(() => {
+    if (cat?.voice_profile?.elevenLabsVoiceId) setCloneVoiceId(cat.voice_profile.elevenLabsVoiceId)
+    if (cat?.reaction_images) setReactionImages(cat.reaction_images)
+  }, [cat?.id])
+
+  async function handleVoiceClone(e) {
+    const file = e.target.files?.[0]
+    if (!file || !activeCategoryId) return
+    setCloningVoice(true)
+    notify('Uploading voice sample...', 'info', 8000)
+    try {
+      const { supabase: sb } = await import('../lib/supabase')
+      const { data: { session } } = await sb.auth.getSession()
+      const form = new FormData()
+      form.append('file', file)
+      form.append('categoryId', activeCategoryId)
+      const res = await fetch(import.meta.env.VITE_API_URL + '/api/chat/voice-clone', {
+        method: 'POST', headers: { Authorization: 'Bearer ' + session?.access_token }, body: form,
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error)
+      setCloneVoiceId(data.voiceId)
+      notify('Voice clone created', 'success')
+    } catch (err) { notify('Voice clone failed: ' + err.message, 'error') }
+    setCloningVoice(false)
+    e.target.value = ''
+  }
+
+  async function handleReactionUpload(e) {
+    const file = e.target.files?.[0]
+    if (!file || !activeCategoryId) return
+    try {
+      const { supabase: sb } = await import('../lib/supabase')
+      const { data: { user } } = await sb.auth.getUser()
+      const path = user.id + '/reactions/' + Date.now() + '-' + file.name
+      await sb.storage.from('creator-assets').upload(path, file)
+      const { data: { publicUrl } } = sb.storage.from('creator-assets').getPublicUrl(path)
+      const tag = prompt('Tag this reaction (e.g. surprised, confident, curious):') || 'neutral'
+      const updated = [...reactionImages, { file_name: file.name, storage_url: publicUrl, tag }]
+      setReactionImages(updated)
+      await sb.from('categories').update({ reaction_images: updated, updated_at: new Date().toISOString() })
+        .eq('id', activeCategoryId).eq('user_id', user.id)
+      notify('Reaction image saved', 'success')
+    } catch (err) { notify(err.message, 'error') }
+    e.target.value = ''
+  }
+
+  async function deleteReactionImage(idx) {
+    const updated = reactionImages.filter((_, i) => i !== idx)
+    setReactionImages(updated)
+    const { supabase: sb } = await import('../lib/supabase')
+    const { data: { user } } = await sb.auth.getUser()
+    await sb.from('categories').update({ reaction_images: updated, updated_at: new Date().toISOString() })
+      .eq('id', activeCategoryId).eq('user_id', user.id)
+  }
+
+  async function resetVoiceProfile() {
+    if (!activeCategoryId) return
+    setResettingVoice(true)
+    try {
+      const { supabase: sb } = await import('../lib/supabase')
+      await sb.from('categories').update({ voice_profile: null, onboarded_at: null, updated_at: new Date().toISOString() }).eq('id', activeCategoryId)
+      await loadCategories()
+      notify('Voice profile reset', 'success')
+      setConfirmAction(null)
+    } catch (err) { notify(err.message, 'error') }
+    setResettingVoice(false)
+  }
+
+  async function clearAnalyticsData() {
+    if (!activeCategoryId) return
+    setClearingData(true)
+    try {
+      const { supabase: sb } = await import('../lib/supabase')
+      const { data: { user } } = await sb.auth.getUser()
+      await sb.from('analytics_uploads').delete().eq('user_id', user.id).eq('category_id', activeCategoryId)
+      await sb.from('audience_uploads').delete().eq('user_id', user.id).eq('category_id', activeCategoryId)
+      await sb.from('chat_history').delete().eq('user_id', user.id).eq('category_id', activeCategoryId)
+      await sb.from('kb_learnings').delete().eq('user_id', user.id).eq('category_id', activeCategoryId)
+      notify('Data cleared', 'success')
+      setConfirmAction(null)
+    } catch (err) { notify(err.message, 'error') }
+    setClearingData(false)
+  }
+
+  async function deleteAllEpisodes() {
+    if (!activeCategoryId) return
+    setDeletingEpisodes(true)
+    try {
+      const { supabase: sb } = await import('../lib/supabase')
+      const { data: { user } } = await sb.auth.getUser()
+      await sb.from('episodes').delete().eq('user_id', user.id).eq('category_id', activeCategoryId)
+      notify('All episodes deleted', 'success')
+      setConfirmAction(null)
+    } catch (err) { notify(err.message, 'error') }
+    setDeletingEpisodes(false)
+  }
 
   async function saveProfile() {
     setSaving(true)
@@ -686,29 +433,18 @@ export default function SettingsPage() {
       <h1 style={{ marginBottom: '1.25rem' }}>Settings</h1>
 
       {/* Tab bar */}
-      <div style={{ display: 'flex', gap: 2, marginBottom: 24, borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+      <div style={{ display: 'flex', gap: 2, marginBottom: 24, borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: 0 }}>
         {TABS.map(t => {
           const active = activeTab === t.key
           return (
-            <button
-              key={t.key}
-              onClick={() => setActiveTab(t.key)}
-              style={{
-                padding: '8px 14px',
-                borderRadius: '8px 8px 0 0',
-                border: 'none',
-                borderBottom: active ? '2px solid rgba(74,222,128,1)' : '2px solid transparent',
-                background: active ? 'rgba(74,222,128,0.05)' : 'transparent',
-                color: active ? 'rgba(74,222,128,0.9)' : 'rgba(255,255,255,0.35)',
-                cursor: 'pointer',
-                fontSize: 12,
-                fontFamily: "'Figtree',sans-serif",
-                fontWeight: active ? 600 : 400,
-                transition: 'all 0.15s',
-                marginBottom: -1,
-                whiteSpace: 'nowrap',
-              }}
-            >
+            <button key={t.key} onClick={() => setActiveTab(t.key)} style={{
+              padding: '8px 14px', borderRadius: '8px 8px 0 0', border: 'none',
+              borderBottom: active ? '2px solid rgba(74,222,128,1)' : '2px solid transparent',
+              background: active ? 'rgba(74,222,128,0.05)' : 'transparent',
+              color: active ? 'rgba(74,222,128,0.9)' : 'rgba(255,255,255,0.35)',
+              cursor: 'pointer', fontSize: 12, fontFamily: "'Figtree',sans-serif",
+              fontWeight: active ? 600 : 400, transition: 'all 0.15s', marginBottom: -1, whiteSpace: 'nowrap',
+            }}>
               {t.label}
             </button>
           )
@@ -718,15 +454,13 @@ export default function SettingsPage() {
       {/* ── Profile ──────────────────────────────────────────────────────── */}
       <Section title="Profile" tab="profile" activeTab={activeTab}>
         {profile?.display_name && (
-          <div style={{ marginBottom: 16, padding: '10px 14px', borderRadius: 8, border: '1px solid rgba(74,222,128,0.1)', background: 'rgba(74,222,128,0.03)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ marginBottom:16, padding:'10px 14px', borderRadius:8, border:'1px solid rgba(74,222,128,0.1)', background:'rgba(74,222,128,0.03)', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
             <div>
-              <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)', fontFamily: "'Figtree',sans-serif", marginBottom: 2 }}>Your public profile</div>
-              <div style={{ fontSize: 11, color: 'rgba(74,222,128,0.5)', fontFamily: 'monospace' }}>
-                whispacuts.com/u/{profile.display_name.toLowerCase()}
-              </div>
+              <div style={{ fontSize:12, color:'rgba(255,255,255,0.5)', fontFamily:"'Figtree',sans-serif", marginBottom:2 }}>Your public profile</div>
+              <div style={{ fontSize:11, color:'rgba(74,222,128,0.5)', fontFamily:'monospace' }}>whispacuts.com/u/{profile.display_name.toLowerCase()}</div>
             </div>
             <a href={'/u/' + profile.display_name.toLowerCase()} target="_blank" rel="noopener noreferrer"
-              style={{ fontSize: 11, padding: '5px 10px', borderRadius: 6, border: '1px solid rgba(74,222,128,0.15)', background: 'transparent', color: 'rgba(74,222,128,0.6)', textDecoration: 'none', fontFamily: "'Figtree',sans-serif" }}>
+              style={{ fontSize:11, padding:'5px 10px', borderRadius:6, border:'1px solid rgba(74,222,128,0.15)', color:'rgba(74,222,128,0.6)', textDecoration:'none', fontFamily:"'Figtree',sans-serif" }}>
               View
             </a>
           </div>
@@ -834,9 +568,8 @@ export default function SettingsPage() {
 
       {profile?.is_admin && (
         <Section
-          title="Admin — Cost & Credit Dashboard"
+          title="Admin — Cost & Credit Dashboard" tab="profile" activeTab={activeTab}
           subtitle="Live token spend and Anthropic API credit balance."
-          tab="profile" activeTab={activeTab}
         >
           {/* Anthropic balance */}
           <div style={{ marginBottom: 20 }}>
@@ -967,9 +700,8 @@ export default function SettingsPage() {
       {/* ── Admin: tier management ────────────────────────────────────────── */}
       {profile?.is_admin && (
         <Section
-          title="Admin — User Management"
+          title="Admin — User Management" tab="profile" activeTab={activeTab}
           subtitle="You have admin access. Manage user tiers directly from here."
-          tab="profile" activeTab={activeTab}
         >
           <div style={{
             display: 'flex',
@@ -1085,7 +817,7 @@ export default function SettingsPage() {
       {activeCategoryId && (
         <Section
           title={`Voice profile — ${cat?.name || ''}`}
-          subtitle="The more specific you are, the more KB writes in your actual voice rather than generic documentary style." tab="voice" activeTab={activeTab}
+          subtitle="The more specific you are, the more KB writes in your actual voice rather than generic documentary style."
         >
           <div style={{ marginBottom: '1rem' }}>
             <div style={{
@@ -1144,9 +876,8 @@ export default function SettingsPage() {
 
       {/* ── Notifications ─────────────────────────────────────────────────── */}
       <Section
-        title="Notifications"
+        title="Notifications" tab="notifications" activeTab={activeTab}
         subtitle="Get a message in Discord or Slack when a generation completes, even if you've closed the tab."
-        tab="notifications" activeTab={activeTab}
       >
         <div style={{ marginBottom: '1rem' }}>
           <p style={{ fontSize: '0.875rem', color: 'var(--text2)', lineHeight: 1.6 }}>
@@ -1197,157 +928,88 @@ export default function SettingsPage() {
       </Section>
 
       {/* ── Account ───────────────────────────────────────────────────────── */}
-      <Section title="Danger Zone" tab="danger" activeTab={activeTab} subtitle="These actions are permanent and cannot be undone.">
-
-        {/* Confirm overlay */}
-        {confirmAction && (
-          <div style={{ marginBottom: 20, padding: '16px', borderRadius: 10, border: '1px solid rgba(248,113,113,0.3)', background: 'rgba(248,113,113,0.06)' }}>
-            <div style={{ fontSize: 13, color: '#f87171', fontFamily: "'Figtree',sans-serif", marginBottom: 10, fontWeight: 600 }}>
-              Are you sure? This cannot be undone.
-            </div>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button
-                onClick={() => {
-                  if (confirmAction === 'voice') resetVoiceProfile()
-                  if (confirmAction === 'data') clearAnalyticsData()
-                  if (confirmAction === 'episodes') deleteAllEpisodes()
-                }}
-                style={{ padding: '7px 14px', borderRadius: 7, border: 'none', background: '#f87171', color: '#080808', cursor: 'pointer', fontSize: 12, fontFamily: "'Figtree',sans-serif", fontWeight: 600 }}
-              >
-                Yes, delete
-              </button>
-              <button
-                onClick={() => setConfirmAction(null)}
-                style={{ padding: '7px 14px', borderRadius: 7, border: '1px solid rgba(255,255,255,0.1)', background: 'transparent', color: 'rgba(255,255,255,0.5)', cursor: 'pointer', fontSize: 12, fontFamily: "'Figtree',sans-serif" }}
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Reset voice profile */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 0', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-          <div>
-            <div style={{ fontSize: 13, fontWeight: 600, color: 'rgba(255,255,255,0.7)', fontFamily: "'Figtree',sans-serif" }}>Reset voice profile</div>
-            <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)', fontFamily: "'Figtree',sans-serif", marginTop: 2 }}>KB will re-interview you on next visit. All voice data for this workspace is cleared.</div>
-          </div>
-          <button
-            onClick={() => setConfirmAction('voice')}
-            disabled={resettingVoice}
-            style={{ padding: '7px 12px', borderRadius: 7, border: '1px solid rgba(248,113,113,0.3)', background: 'transparent', color: '#f87171', cursor: 'pointer', fontSize: 12, fontFamily: "'Figtree',sans-serif", flexShrink: 0, marginLeft: 12 }}
-          >
-            {resettingVoice ? 'Resetting...' : 'Reset'}
-          </button>
-        </div>
-
-        {/* Clear test data */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 0', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-          <div>
-            <div style={{ fontSize: 13, fontWeight: 600, color: 'rgba(255,255,255,0.7)', fontFamily: "'Figtree',sans-serif" }}>Clear analytics and memory</div>
-            <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)', fontFamily: "'Figtree',sans-serif", marginTop: 2 }}>Deletes uploaded analytics data, KB chat history, and all KB learnings for this workspace.</div>
-          </div>
-          <button
-            onClick={() => setConfirmAction('data')}
-            disabled={clearingData}
-            style={{ padding: '7px 12px', borderRadius: 7, border: '1px solid rgba(248,113,113,0.3)', background: 'transparent', color: '#f87171', cursor: 'pointer', fontSize: 12, fontFamily: "'Figtree',sans-serif", flexShrink: 0, marginLeft: 12 }}
-          >
-            {clearingData ? 'Clearing...' : 'Clear'}
-          </button>
-        </div>
-
-        {/* Delete all episodes */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 0', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-          <div>
-            <div style={{ fontSize: 13, fontWeight: 600, color: 'rgba(255,255,255,0.7)', fontFamily: "'Figtree',sans-serif" }}>Delete all episodes</div>
-            <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)', fontFamily: "'Figtree',sans-serif", marginTop: 2 }}>Permanently deletes all episodes in this workspace including scripts, storyboards, and retention data.</div>
-          </div>
-          <button
-            onClick={() => setConfirmAction('episodes')}
-            disabled={deletingEpisodes}
-            style={{ padding: '7px 12px', borderRadius: 7, border: '1px solid rgba(248,113,113,0.3)', background: 'transparent', color: '#f87171', cursor: 'pointer', fontSize: 12, fontFamily: "'Figtree',sans-serif", flexShrink: 0, marginLeft: 12 }}
-          >
-            {deletingEpisodes ? 'Deleting...' : 'Delete all'}
-          </button>
-        </div>
-
-        {/* Sign out */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 0' }}>
-          <div>
-            <div style={{ fontSize: 13, fontWeight: 600, color: 'rgba(255,255,255,0.7)', fontFamily: "'Figtree',sans-serif" }}>Sign out</div>
-            <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)', fontFamily: "'Figtree',sans-serif", marginTop: 2 }}>Sign out of your WhispaCuts account</div>
-          </div>
-          <button
-            onClick={async () => { await signOut(); navigate('/auth') }}
-            style={{ padding: '7px 12px', borderRadius: 7, border: '1px solid rgba(248,113,113,0.3)', background: 'transparent', color: '#f87171', cursor: 'pointer', fontSize: 12, fontFamily: "'Figtree',sans-serif", display: 'flex', alignItems: 'center', gap: 6 }}
-          >
-            <LogOut size={13}/> Sign out
-          </button>
-        </div>
-      </Section>
       {/* ── Voice Clone ── */}
-      <Section icon={<Mic size={16}/>} title="KB Voice Clone" tab="integrations" activeTab={activeTab} subtitle="Train KB to speak in your voice using ElevenLabs. Upload at least 30 minutes of clean audio.">
+      <Section title="KB Voice Clone" tab="integrations" activeTab={activeTab} subtitle="Train KB to speak in your voice. Upload at least 30 minutes of clean audio.">
         {cloneVoiceId ? (
           <div style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 12px', borderRadius:8, border:'1px solid rgba(74,222,128,0.2)', background:'rgba(74,222,128,0.04)' }}>
             <span style={{ fontSize:13, color:'rgba(74,222,128,0.8)', fontFamily:"'Figtree',sans-serif" }}>✓ Voice clone active</span>
-            <span style={{ fontSize:11, color:'rgba(255,255,255,0.25)', fontFamily:"'Figtree',sans-serif", fontFamily:'monospace' }}>{cloneVoiceId}</span>
-            <label style={{ marginLeft:'auto', display:'flex', alignItems:'center', gap:6, padding:'5px 10px', borderRadius:6, border:'1px solid rgba(255,255,255,0.1)', background:'transparent', color:'rgba(255,255,255,0.4)', cursor: cloningVoice ? 'wait' : 'pointer', fontSize:11, fontFamily:"'Figtree',sans-serif" }}>
+            <label style={{ marginLeft:'auto', padding:'5px 10px', borderRadius:6, border:'1px solid rgba(255,255,255,0.1)', color:'rgba(255,255,255,0.4)', cursor:cloningVoice?'wait':'pointer', fontSize:11, fontFamily:"'Figtree',sans-serif" }}>
               {cloningVoice ? 'Uploading...' : 'Re-train'}
-              <input type="file" accept="audio/*,.mp3,.m4a,.wav" onChange={handleVoiceClone} disabled={cloningVoice} style={{ display:'none' }}/>
+              <input type="file" accept="audio/*" onChange={handleVoiceClone} disabled={cloningVoice} style={{ display:'none' }}/>
             </label>
           </div>
         ) : (
           <div>
-            <label style={{ display:'inline-flex', alignItems:'center', gap:7, padding:'8px 14px', borderRadius:8, background:'rgba(74,222,128,0.07)', border:'1px solid rgba(74,222,128,0.2)', color:'rgba(74,222,128,0.8)', cursor: cloningVoice ? 'wait' : 'pointer', fontSize:12, fontFamily:"'Figtree',sans-serif" }}>
-              <Upload size={12}/>
-              {cloningVoice ? 'Training voice clone...' : 'Upload voice sample'}
-              <input type="file" accept="audio/*,.mp3,.m4a,.wav" onChange={handleVoiceClone} disabled={cloningVoice} style={{ display:'none' }}/>
+            <label style={{ display:'inline-flex', alignItems:'center', gap:7, padding:'8px 14px', borderRadius:8, background:'rgba(74,222,128,0.07)', border:'1px solid rgba(74,222,128,0.2)', color:'rgba(74,222,128,0.8)', cursor:cloningVoice?'wait':'pointer', fontSize:12, fontFamily:"'Figtree',sans-serif" }}>
+              {cloningVoice ? 'Training...' : 'Upload voice sample'}
+              <input type="file" accept="audio/*" onChange={handleVoiceClone} disabled={cloningVoice} style={{ display:'none' }}/>
             </label>
-            <div style={{ fontSize:11, color:'rgba(255,255,255,0.25)', fontFamily:"'Figtree',sans-serif", marginTop:6 }}>
-              MP3, M4A, or WAV. Minimum 30 minutes of clean speech. No music or background noise.
-            </div>
+            <div style={{ fontSize:11, color:'rgba(255,255,255,0.25)', fontFamily:"'Figtree',sans-serif", marginTop:6 }}>MP3, M4A, or WAV. Minimum 30 minutes of clean speech.</div>
           </div>
         )}
       </Section>
 
       {/* ── Reaction Images ── */}
-      <Section icon={<User size={16}/>} title="Thumbnail Reaction Images" tab="integrations" activeTab={activeTab} subtitle="Upload photos of your reactions for thumbnail generation. Tag each one so KB can select the right expression.">
-        <div style={{ marginBottom:12 }}>
-          <label style={{ display:'inline-flex', alignItems:'center', gap:7, padding:'8px 14px', borderRadius:8, background:'rgba(74,222,128,0.07)', border:'1px solid rgba(74,222,128,0.2)', color:'rgba(74,222,128,0.8)', cursor: uploadingReaction ? 'wait' : 'pointer', fontSize:12, fontFamily:"'Figtree',sans-serif" }}>
-            <Upload size={12}/>
-            {uploadingReaction ? 'Uploading...' : 'Upload reaction photos'}
-            <input type="file" accept="image/*" multiple onChange={handleReactionUpload} disabled={uploadingReaction} style={{ display:'none' }}/>
-          </label>
-          <div style={{ fontSize:11, color:'rgba(255,255,255,0.25)', fontFamily:"'Figtree',sans-serif", marginTop:6 }}>
-            JPG or PNG. Name files by expression (e.g. "surprised.jpg", "confident.jpg") for auto-tagging.
-          </div>
-        </div>
-
-        {reactionImages.length === 0 && (
-          <div style={{ fontSize:12, color:'rgba(255,255,255,0.2)', fontFamily:"'Figtree',sans-serif", fontStyle:'italic' }}>
-            No reaction images yet. Upload photos of yourself that KB can reference when generating thumbnail prompts.
-          </div>
-        )}
-
-        <div style={{ display:'grid', gridTemplateColumns: isMobile ? 'repeat(2,1fr)' : 'repeat(4,1fr)', gap:10 }}>
-          {reactionImages.map(img => (
-            <div key={img.id} style={{ borderRadius:8, overflow:'hidden', border:'1px solid rgba(255,255,255,0.07)', background:'rgba(255,255,255,0.02)' }}>
-              <div style={{ aspectRatio:'1', overflow:'hidden', background:'#111' }}>
-                <img src={img.storage_url} alt={img.tag} style={{ width:'100%', height:'100%', objectFit:'cover' }}/>
-              </div>
-              <div style={{ padding:'6px 8px' }}>
-                <input
-                  value={img.tag}
-                  onChange={e => updateReactionTag(img.id, e.target.value)}
-                  placeholder="Tag (e.g. surprised)"
-                  style={{ width:'100%', background:'transparent', border:'none', borderBottom:'1px solid rgba(255,255,255,0.08)', color:'rgba(255,255,255,0.6)', fontSize:11, fontFamily:"'Figtree',sans-serif", outline:'none', padding:'2px 0', boxSizing:'border-box' }}
-                />
-              </div>
+      <Section title="Reaction Images" tab="integrations" activeTab={activeTab} subtitle="Upload your face shots for thumbnail generation.">
+        <label style={{ display:'inline-flex', alignItems:'center', gap:7, padding:'7px 14px', borderRadius:8, background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.08)', color:'rgba(255,255,255,0.5)', cursor:'pointer', fontSize:12, fontFamily:"'Figtree',sans-serif", marginBottom:12 }}>
+          + Add reaction image
+          <input type="file" accept="image/*" onChange={handleReactionUpload} style={{ display:'none' }}/>
+        </label>
+        {reactionImages.length === 0 && <div style={{ fontSize:12, color:'rgba(255,255,255,0.2)', fontFamily:"'Figtree',sans-serif" }}>No images yet.</div>}
+        <div style={{ display:'flex', flexWrap:'wrap', gap:8 }}>
+          {reactionImages.map((img, i) => (
+            <div key={i} style={{ position:'relative', width:64, height:64, borderRadius:8, overflow:'hidden', border:'1px solid rgba(255,255,255,0.08)' }}>
+              <img src={img.storage_url} alt={img.tag} style={{ width:'100%', height:'100%', objectFit:'cover' }}/>
+              <div style={{ position:'absolute', bottom:0, left:0, right:0, background:'rgba(0,0,0,0.7)', fontSize:9, color:'rgba(255,255,255,0.7)', textAlign:'center', padding:'2px 0', fontFamily:"'Figtree',sans-serif" }}>{img.tag}</div>
+              <button onClick={() => deleteReactionImage(i)} style={{ position:'absolute', top:2, right:2, width:16, height:16, borderRadius:'50%', background:'rgba(248,113,113,0.8)', border:'none', color:'#fff', cursor:'pointer', fontSize:10, display:'flex', alignItems:'center', justifyContent:'center' }}>×</button>
             </div>
           ))}
         </div>
       </Section>
 
+      {/* ── Danger Zone ── */}
+      <Section title="Danger Zone" tab="danger" activeTab={activeTab} subtitle="These actions are permanent and cannot be undone.">
+        {confirmAction && (
+          <div style={{ marginBottom:20, padding:'14px', borderRadius:10, border:'1px solid rgba(248,113,113,0.3)', background:'rgba(248,113,113,0.06)' }}>
+            <div style={{ fontSize:13, color:'#f87171', fontFamily:"'Figtree',sans-serif", marginBottom:10, fontWeight:600 }}>Are you sure? This cannot be undone.</div>
+            <div style={{ display:'flex', gap:8 }}>
+              <button onClick={() => { if(confirmAction==='voice')resetVoiceProfile(); if(confirmAction==='data')clearAnalyticsData(); if(confirmAction==='episodes')deleteAllEpisodes() }} style={{ padding:'7px 14px', borderRadius:7, border:'none', background:'#f87171', color:'#080808', cursor:'pointer', fontSize:12, fontFamily:"'Figtree',sans-serif", fontWeight:600 }}>Yes, delete</button>
+              <button onClick={() => setConfirmAction(null)} style={{ padding:'7px 14px', borderRadius:7, border:'1px solid rgba(255,255,255,0.1)', background:'transparent', color:'rgba(255,255,255,0.5)', cursor:'pointer', fontSize:12, fontFamily:"'Figtree',sans-serif" }}>Cancel</button>
+            </div>
+          </div>
+        )}
+        {[
+          { label:'Reset voice profile', sub:'KB will re-interview you. All voice data cleared.', action:'voice', loading:resettingVoice },
+          { label:'Clear analytics and memory', sub:'Deletes analytics, chat history, and KB learnings.', action:'data', loading:clearingData },
+          { label:'Delete all episodes', sub:'Permanently deletes all episodes in this workspace.', action:'episodes', loading:deletingEpisodes },
+        ].map(item => (
+          <div key={item.action} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'14px 0', borderBottom:'1px solid rgba(255,255,255,0.05)' }}>
+            <div>
+              <div style={{ fontSize:13, fontWeight:600, color:'rgba(255,255,255,0.7)', fontFamily:"'Figtree',sans-serif" }}>{item.label}</div>
+              <div style={{ fontSize:11, color:'rgba(255,255,255,0.3)', fontFamily:"'Figtree',sans-serif", marginTop:2 }}>{item.sub}</div>
+            </div>
+            <button onClick={() => setConfirmAction(item.action)} disabled={item.loading} style={{ padding:'7px 12px', borderRadius:7, border:'1px solid rgba(248,113,113,0.3)', background:'transparent', color:'#f87171', cursor:'pointer', fontSize:12, fontFamily:"'Figtree',sans-serif", flexShrink:0, marginLeft:12 }}>
+              {item.loading ? '...' : 'Delete'}
+            </button>
+          </div>
+        ))}
+      </Section>
+
+      {/* ── Account ── */}
+      <Section title="Account" tab="danger" activeTab={activeTab}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div>
+            <div style={{ fontSize: '0.9375rem', fontWeight: 500, color: 'var(--text)' }}>Sign out</div>
+            <div style={{ fontSize: '0.8125rem', color: 'var(--text2)', marginTop: 2 }}>Sign out of your WhispaCuts account</div>
+          </div>
+          <button
+            onClick={async () => { await signOut(); navigate('/auth') }}
+            style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 16px', borderRadius: 'var(--r-sm)', border: '1px solid rgba(248,113,113,0.3)', background: 'rgba(248,113,113,0.06)', color: '#f87171', cursor: 'pointer', fontFamily: 'inherit', fontSize: '0.875rem', fontWeight: 500 }}
+          >
+            <LogOut size={14}/> Sign out
+          </button>
+        </div>
+      </Section>
     </div>
   )
 }

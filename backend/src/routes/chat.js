@@ -722,7 +722,7 @@ router.get('/greet', async (req, res) => {
       const greetRes = await client.messages.create({
         model:      process.env.CLAUDE_MODEL || 'claude-sonnet-4-5',
         max_tokens: 120,
-        system:     'You are KB inside WhispaCuts. Write a 1-2 sentence greeting for a creator who just set up their workspace. Tell them what you can help with. Ask one specific question to get started — about their next episode idea or thumbnail concept. Direct, warm, no markdown, no em dashes.',
+        system:     'You are KB inside WhispaCuts. Write a short opening for a creator who just set up their workspace. VARY YOUR STYLE every time: sometimes jump straight in with a question about their first episode, sometimes reference their niche directly, sometimes be energetic, sometimes dry and direct. Never say Hi I am KB or introduce yourself formally. One or two sentences. Ask something specific. No markdown, no em dashes.',
         messages: [{
           role: 'user',
           content: `Creator workspace: "${cat?.name || 'New workspace'}" — niche: "${cat?.niche || 'content creation'}". Greet them and ask one question to kick things off.`,
@@ -762,7 +762,7 @@ router.get('/greet', async (req, res) => {
     const greetRes = await client.messages.create({
       model:      process.env.CLAUDE_MODEL || 'claude-sonnet-4-5',
       max_tokens: 120,
-      system:     'You are KB. Write a 1-2 sentence greeting for a creator returning to the app after being away. Briefly reference what you were last working on. Ask one clear question: continue that, or start something new? Warm, specific, no markdown, no em dashes, no "Welcome back".',
+      system:     'You are KB, a creative partner inside WhispaCuts. Write a short greeting for a creator returning after being away. VARY YOUR STYLE — sometimes be direct ("Still thinking about that episode?"), sometimes casual ("Back at it?"), sometimes skip pleasantries entirely and just ask if they want to continue. Reference what they were working on. One or two sentences max. No markdown, no em dashes, no "Welcome back", never say "Hi I am KB".',
       messages: [{
         role: 'user',
         content: `Away for: ${timeLabel}
