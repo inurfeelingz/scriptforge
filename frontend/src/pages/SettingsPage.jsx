@@ -110,7 +110,15 @@ export default function SettingsPage() {
   const cat = activeCategory?.()
 
   const [name,           setName]          = useState(profile?.display_name || '')
-  const [saving,         setSaving]        = useState(false)
+  const [saving,           setSaving]           = useState(false)
+  const [activeTab,        setActiveTab]        = useState('profile')
+  const [cloningVoice,     setCloningVoice]     = useState(false)
+  const [cloneVoiceId,     setCloneVoiceId]     = useState(null)
+  const [reactionImages,   setReactionImages]   = useState([])
+  const [resettingVoice,   setResettingVoice]   = useState(false)
+  const [clearingData,     setClearingData]     = useState(false)
+  const [deletingEpisodes, setDeletingEpisodes] = useState(false)
+  const [confirmAction,    setConfirmAction]    = useState(null)
   const [savingVoice,    setSavingVoice]   = useState(false)
   const [webhookTesting, setWebhookTesting]= useState(false)
   const [webhookStatus,  setWebhookStatus] = useState(null)
@@ -818,6 +826,7 @@ export default function SettingsPage() {
         <Section
           title={`Voice profile — ${cat?.name || ''}`}
           subtitle="The more specific you are, the more KB writes in your actual voice rather than generic documentary style."
+          tab="voice" activeTab={activeTab}
         >
           <div style={{ marginBottom: '1rem' }}>
             <div style={{
