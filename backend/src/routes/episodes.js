@@ -195,10 +195,21 @@ THUMBNAIL_TITLE_OPTIONS:
       }
     }
 
-    // Token usage for cost tracking (~$0.003/1K input, $0.015/1K output for Sonnet)
-    const usage = stream.finalMessage?.usage || {}
-    const inputTokens  = usage.input_tokens  || 0
-    const outputTokens = usage.output_tokens || 0
+    // Token usage — finalMessage is a method in SDK 0.39+, must be awaited
+    let inputTokens = 0
+    let outputTokens = 0
+    try {
+      const finalMsg = await stream.finalMessage()
+      inputTokens  = finalMsg?.usage?.input_tokens  || 0
+      outputTokens = finalMsg?.usage?.output_tokens || 0
+    } catch {
+      // Fallback: try reading from last message_delta event accumulated during stream
+      try {
+        const accumulated = stream.messages?.[stream.messages.length - 1]
+        inputTokens  = accumulated?.usage?.input_tokens  || 0
+        outputTokens = accumulated?.usage?.output_tokens || 0
+      } catch {}
+    }
     const estimatedCostUsd = (inputTokens * 0.000003) + (outputTokens * 0.000015)
 
     // Log to token_usage_log table for admin cost tracking
