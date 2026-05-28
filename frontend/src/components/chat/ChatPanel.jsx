@@ -5,9 +5,10 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import {
   Send, Trash2, Loader2, BookmarkPlus, Check,
-  Plus, X, Sparkles, Mic, MicOff, Volume2, ChevronDown,
+  Plus, X, Sparkles, Mic, MicOff, Volume2, ChevronDown, Zap,
 } from 'lucide-react'
 import { useStore } from '../../store'
+import { useNavigate } from 'react-router-dom'
 import { chat as chatApi, vault as vaultApi } from '../../lib/api'
 import useKBVoice from '../../hooks/useKBVoice'
 import { useLocation } from 'react-router-dom'
@@ -1044,14 +1045,41 @@ export default function ChatPanel() {
         )}
 
         {generated && (
-          <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'10px 14px',borderRadius:8,background:'rgba(212,168,83,0.07)',border:'1px solid rgba(212,168,83,0.2)'}}>
+          <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'10px 14px',borderRadius:8,background:'rgba(74,222,128,0.06)',border:'1px solid rgba(74,222,128,0.2)',cursor:'pointer'}} onClick={() => navigate('/pipeline')}>
             <div style={{display:'flex',alignItems:'center',gap:8}}>
               <Check size={12} style={{color:'rgba(74,222,128,1)',flexShrink:0}}/>
               <div>
-                <div style={{fontSize:12,fontWeight:600,color:'rgba(74,222,128,1)'}}>Episode ready</div>
-                <div style={{fontSize:10,color:'rgba(212,168,83,0.5)',marginTop:1}}>"{generated}" — check your episodes</div>
+                <div style={{fontSize:12,fontWeight:600,color:'rgba(74,222,128,1)'}}>Episode ready — tap to view</div>
+                <div style={{fontSize:10,color:'rgba(74,222,128,0.5)',marginTop:1}}>"{generated}" is in your pipeline</div>
               </div>
             </div>
+            <div style={{fontSize:11,color:'rgba(74,222,128,0.6)'}}>→</div>
+          </div>
+        )}
+
+        {/* Generate strip — appears after enough conversation */}
+        {isSeriesMode && messages.length >= 4 && !generating && (
+          <div className="kb-generate-strip">
+            <span className="kb-generate-text">
+              {generated ? `"${generated}" is ready` : 'Ready to generate from this conversation'}
+            </span>
+            {!generated && (
+              <button
+                className="kb-generate-btn"
+                onClick={generateEpisodeFromChat}
+                disabled={generating}
+              >
+                <Zap size={12}/> Generate episode
+              </button>
+            )}
+            {generated && (
+              <button
+                className="kb-generate-btn"
+                onClick={() => navigate('/pipeline')}
+              >
+                View in pipeline →
+              </button>
+            )}
           </div>
         )}
 

@@ -462,7 +462,7 @@ export default function AppLayout() {
 
           {/* + new episode */}
           <button
-            onClick={() => navigate('/generate')}
+            onClick={() => navigate('/')}
             style={{
               width: 36, height: 36, borderRadius: 50,
               background: 'none', border: 'none',

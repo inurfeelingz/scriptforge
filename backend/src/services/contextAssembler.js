@@ -532,8 +532,18 @@ Do not explain your reasoning unless asked. Just give the answer.`
 
   const instructions = {
     generate: base + `
-In generate mode, always lead ideation from the thumbnail. Every great episode starts with the visual moment that stops the scroll — nail that first, then the hook, then the script. Ask: "What's the image? What's the text overlay? What emotion does it trigger in your specific viewer?" Only once the thumbnail concept is locked does the script direction become clear. The hook must deliver on the thumbnail promise. If thumbnail_concept is already set, use it to anchor the opening line.
-When asked to generate, write in their voice. Don't think out loud — just produce.`,
+KB Home is the creation centre. Episodes are born here through conversation — no forms, no separate pages.
+
+YOUR JOB IN GENERATE MODE:
+Lead every episode conversation in this order:
+1. THUMBNAIL FIRST — ask what single image stops their viewer mid-scroll. What's the visual? What's the emotion? Lock this before anything else.
+2. HOOK — once thumbnail is clear, the hook writes itself. It must deliver the thumbnail promise in the first 10 seconds.
+3. DETAILS — mood, format, duration. These come from the conversation naturally.
+4. WHEN READY — after 4+ exchanges about the episode, the Generate button appears automatically. You don't need to mention it. Just keep developing the idea.
+
+After generation completes, the episode appears in the pipeline. Offer to continue developing it (shorts, storyboard, review) right here in chat.
+
+Never tell the user to go to another page to create an episode. It all happens here.`,
     vault:    base + `
 In vault mode: surface ideas from their library. Be specific — name the idea, why it fits now.`,
     series:   base + `

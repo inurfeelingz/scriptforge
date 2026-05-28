@@ -116,7 +116,7 @@ export default function App() {
             <Route path="billing"     element={<BillingPage />} />
 
             {/* Legacy routes — kept working */}
-            <Route path="generate"                    element={<Generate />} />
+            <Route path="generate"                    element={<Navigate to="/" replace />} />
             <Route path="teleprompter"                element={<Teleprompter />} />
             <Route path="storyboard"                  element={<StoryboardPage />} />
             <Route path="series"                      element={<SeriesPage />} />
