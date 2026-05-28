@@ -553,7 +553,7 @@ export default function AppLayout() {
                 color: profile?.tier === 'free' ? 'rgba(200,150,50,0.9)' : GREEN,
                 fontFamily: "'Figtree', sans-serif",
                 background: profile?.tier === 'free' ? 'rgba(200,150,50,0.08)' : GREEN_LOW,
-                cursor: 'pointer', border: 'none',
+                cursor: 'pointer',
                 display: 'flex', alignItems: 'center', gap: 4,
               }}
               title={profile?.tier === 'free' ? `${profile?.episodes_this_month || 0}/${profile?.max_episodes_pm || 3} episodes this month` : null}

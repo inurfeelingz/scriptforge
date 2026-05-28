@@ -558,8 +558,7 @@ export default function ChatPanel() {
       } else if (isCSV) {
         setIndexProgress('Reading analytics data...')
         const text = await file.text()
-        const rows = text.trim().split('
-').length - 1
+        const rows = text.trim().split('\n').length - 1
         // Upload via analytics route
         const fd = new FormData()
         fd.append('file', file)
