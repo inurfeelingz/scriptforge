@@ -186,6 +186,66 @@ Return ONLY the voice memo text, no preamble.`
 
   const voiceMemoText = response.content[0].text.trim()
 
+  // ── Energy/pacing analysis ──────────────────────────────────────────────────
+  // Read the energy values recorded throughout the session and extract
+  // the creator's creative state — what excited them, where they slowed down.
+  const energyEntries = entries.filter(e => e.energy != null && e.text)
+  if (energyEntries.length >= 3) {
+    try {
+      const avgEnergy = energyEntries.reduce((s, e) => s + parseFloat(e.energy || 0), 0) / energyEntries.length
+      const highMoments = energyEntries
+        .filter(e => parseFloat(e.energy) > 0.7)
+        .map(e => e.text.slice(0, 80))
+        .slice(0, 4)
+      const lowMoments = energyEntries
+        .filter(e => parseFloat(e.energy) < 0.3)
+        .map(e => e.text.slice(0, 80))
+        .slice(0, 3)
+
+      // Ask Claude to extract creative state insights
+      const insightRes = await client.messages.create({
+        model:      process.env.CLAUDE_MODEL || 'claude-sonnet-4-5',
+        max_tokens: 250,
+        system:     'Extract creative state insights. Return ONLY JSON: { "energyNote": string, "excitedAbout": string[], "struggling": string[] }. Max 2 items per array. Short, specific, actionable.',
+        messages: [{
+          role: 'user',
+          content: `Session energy avg: ${(avgEnergy * 100).toFixed(0)}%
+High energy moments: ${highMoments.join(' | ') || 'none'}
+Low energy moments:  ${lowMoments.join(' | ') || 'none'}
+Full memo: ${voiceMemoText.slice(0, 400)}`,
+        }],
+      })
+
+      const stateInsight = JSON.parse(
+        insightRes.content[0]?.text?.replace(/\`\`\`json|\`\`\`/g, '').trim() || '{}'
+      )
+
+      // Write to kb_learnings as voice notes about creative state
+      if (stateInsight.energyNote || stateInsight.excitedAbout?.length) {
+        const { categoryId: sessionCatId } = await supabase
+          .from('session_journals')
+          .select('category_id')
+          .eq('id', req.params.id)
+          .single()
+          .then(r => r.data || {})
+
+        if (sessionCatId) {
+          await supabase.from('kb_learnings').insert({
+            user_id:     req.user.id,
+            category_id: sessionCatId,
+            insights:    stateInsight.energyNote ? [`Session energy ${(avgEnergy*100).toFixed(0)}%: ${stateInsight.energyNote}`] : [],
+            preferences: [],
+            voice_notes: stateInsight.excitedAbout || [],
+            episode_ideas: [],
+            extracted_at: new Date().toISOString(),
+          })
+        }
+      }
+    } catch (err) {
+      console.warn('[session/energy] Analysis failed:', err.message)
+    }
+  }
+
   // Extract key moments (MARK entries)
   const keyMoments = entries
     .filter(e => e.type === 'marker')
@@ -386,4 +446,107 @@ function formatMs(ms) {
   return `${mins}:${String(secs).padStart(2, '0')}`
 }
 
- module.exports = router
+ // ── POST /api/session/index-audio ─────────────────────────────────────────────
+// Accepts a large audio file (extracted from video) and transcribes it in
+// sequential 20MB chunks. Returns full transcript with running timecodes.
+// Use this after exporting audio from DaVinci as MP3.
+
+const audioIndexUpload = require('multer')({
+  storage: require('multer').memoryStorage(),
+  limits: { fileSize: 500 * 1024 * 1024 },  // 500MB max
+})
+
+router.post('/index-audio', audioIndexUpload.single('audio'), async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'Audio file required' })
+  if (!process.env.OPENAI_API_KEY) return res.status(503).json({ error: 'OPENAI_API_KEY not configured' })
+
+  const { categoryId, title = 'Indexed Audio' } = req.body
+  if (!categoryId) return res.status(400).json({ error: 'categoryId required' })
+
+  const CHUNK_SIZE = 20 * 1024 * 1024  // 20MB per Whisper call
+  const totalSize  = req.file.size
+  const chunks     = Math.ceil(totalSize / CHUNK_SIZE)
+  const allSegments = []
+  let   runningOffsetSec = 0
+
+  console.log(`[index-audio] ${req.file.originalname} — ${Math.round(totalSize/1024/1024)}MB, ${chunks} chunks`)
+
+  const axios    = require('axios')
+  const FormData = require('form-data')
+  const rawMime  = req.file.mimetype || 'audio/mpeg'
+  const baseMime = rawMime.split(';')[0].trim()
+  const extMap   = { 'audio/mpeg':'mp3','audio/mp4':'mp4','audio/webm':'webm','audio/wav':'wav','audio/ogg':'ogg','audio/x-m4a':'m4a' }
+  const ext      = extMap[baseMime] || 'mp3'
+
+  try {
+    for (let i = 0; i < chunks; i++) {
+      const start  = i * CHUNK_SIZE
+      const end    = Math.min(start + CHUNK_SIZE, totalSize)
+      const chunk  = req.file.buffer.slice(start, end)
+
+      const form = new FormData()
+      form.append('file', chunk, { filename: `chunk_${i}.${ext}`, contentType: baseMime })
+      form.append('model', 'whisper-1')
+      form.append('language', 'en')
+      form.append('response_format', 'verbose_json')
+      form.append('timestamp_granularities[]', 'segment')
+
+      const response = await axios.post('https://api.openai.com/v1/audio/transcriptions', form, {
+        headers: { ...form.getHeaders(), Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
+        maxBodyLength: Infinity,
+        maxContentLength: Infinity,
+      })
+
+      const segs = response.data?.segments || []
+      for (const seg of segs) {
+        allSegments.push({
+          start: runningOffsetSec + seg.start,
+          end:   runningOffsetSec + seg.end,
+          text:  seg.text.trim(),
+        })
+      }
+
+      // Estimate offset for next chunk based on audio duration ratio
+      const chunkDuration = response.data?.duration || (CHUNK_SIZE / (128 * 1024 / 8))  // 128kbps estimate
+      runningOffsetSec += chunkDuration
+
+      console.log(`[index-audio] Chunk ${i+1}/${chunks} done — ${segs.length} segments`)
+    }
+
+    // Build full transcript with timecodes
+    const fullTranscript = allSegments
+      .map(s => {
+        const m = Math.floor(s.start / 60)
+        const sec = Math.floor(s.start % 60).toString().padStart(2, '0')
+        return '[' + m + ':' + sec + '] ' + s.text
+      })
+      .join('\n')
+
+    // Save as a session journal so KB can read it
+    const { data: session } = await supabase
+      .from('session_journals')
+      .insert({
+        user_id:         req.user.id,
+        category_id:     categoryId,
+        title:           title,
+        voice_memo_text: fullTranscript.slice(0, 8000),  // save up to 8K chars
+        transcript:      fullTranscript,
+        created_at:      new Date().toISOString(),
+      })
+      .select()
+      .single()
+
+    res.json({
+      success:     true,
+      segments:    allSegments.length,
+      duration:    Math.round(runningOffsetSec),
+      transcript:  fullTranscript,
+      sessionId:   session?.id,
+    })
+  } catch (err) {
+    console.error('[index-audio]', err.response?.data || err.message)
+    res.status(500).json({ error: err.response?.data?.error?.message || err.message })
+  }
+})
+
+module.exports = router

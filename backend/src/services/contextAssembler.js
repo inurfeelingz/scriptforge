@@ -109,10 +109,31 @@ async function assembleContext(userId, categoryId, options = {}) {
 
   // ── IDENTITY ──────────────────────────────────────────────
   sections.push(`# WHISPACUTS CONTEXT
-You are the AI creative layer inside WhispaCuts, a content production system for a solo creator.
+You are KB, the AI creative partner inside WhispaCuts.
 Current mode: ${mode.toUpperCase()}
 Creator niche: ${category.niche}
-Category: ${category.name}${episodeCtx?.targetDurationMinutes ? `
+Workspace: ${category.name}
+
+WHAT YOU CAN READ RIGHT NOW:
+- Voice profile and creator style guide (fully loaded)
+- Last 10 Companion voice memos and session journals (with full transcripts)
+- Full vault — all unused hooks, scripts, and ideas (up to 60 items)
+- All recent and published episodes with retention scores
+- Pipeline status — where every episode is in production right now
+- Storyboard frames for current episode
+- Sound library assets
+- Audience model (YouTube demographics, comment sentiment, Gemini research)
+- KB memory from past conversations
+- Series bible and daily brief
+- Trending data for your niche
+- Clip index of uploaded footage
+
+WHAT YOU CANNOT ACCESS:
+- Raw video files (only transcripts and metadata from indexed clips)
+- Live upload status (user must confirm when new footage is ready)
+- Real-time YouTube analytics (refreshed on demand, not live)
+
+Never tell the user you cannot access memos, vault, pipeline, or episode data — you have all of it above. If something is missing it means it hasn't been created or indexed yet, not that you lack access.${episodeCtx?.targetDurationMinutes ? `
 Target episode duration: ${episodeCtx.targetDurationMinutes} minutes (~${Math.round(episodeCtx.targetDurationMinutes * 130)} words VO)` : ''}`);
 
   // ── PUBLISHING SCHEDULE ─────────────────────────────────────
@@ -224,6 +245,15 @@ Rhythm note: ${vc.rhythmNote || 'not yet captured'}`);
     sections.push(ciText)
   }
 
+  // ── PIPELINE STATUS (where each episode is right now) ───────
+  const inPipeline = (recentEpisodes || []).filter(e => e.status !== 'published')
+  if (inPipeline.length) {
+    const pipelineLines = inPipeline.map(ep =>
+      'Ep ' + (ep.episode_number || '?') + ' "' + ep.track_name + '" — ' + ep.status
+    ).join('\n')
+    sections.push('## PIPELINE STATUS\n' + pipelineLines + '\nKB knows exactly where each episode is. Reference this when asked about production status.')
+  }
+
   // ── PERFORMANCE INTELLIGENCE ──────────────────────────────
   if (logInsights) {
     sections.push(`## WHAT WORKS FOR THIS CREATOR'S AUDIENCE
@@ -324,7 +354,7 @@ No published episodes with real performance data yet. Do not reference or invent
     sections.push(`## RECENT COMPANION SESSIONS (creator's raw captured ideas)
 These are voice sessions from the Companion app — the creator's unfiltered thinking.
 ${recentVoiceMemos.map(m => {
-  const memo = (m.voice_memo_text || '').slice(0, 300)
+  const memo = (m.voice_memo_text || '').slice(0, 600)
   const transcript = (m.transcript || '').slice(0, 400)
   const moments = (m.key_moments || []).slice(0, 3).map(k => `• ${k}`).join('\n')
   return `[${new Date(m.created_at).toLocaleDateString()}${m.title ? ` — ${m.title}` : ''}]
@@ -678,12 +708,12 @@ async function getRecentVoiceMemos(userId, categoryId) {
   try {
     const { data } = await supabase
       .from('session_journals')
-      .select('voice_memo_text, transcript, key_moments, created_at, title')
+      .select('voice_memo_text, transcript, key_moments, created_at, title, entries')
       .eq('user_id', userId)
       .eq('category_id', categoryId)
       .not('voice_memo_text', 'is', null)
       .order('created_at', { ascending: false })
-      .limit(3)
+      .limit(10)
     return data || []
   } catch { return [] }
 }

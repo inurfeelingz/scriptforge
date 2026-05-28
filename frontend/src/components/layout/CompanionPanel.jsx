@@ -44,6 +44,73 @@ const QUICK_MARKS = [
   { label:'🎯 Keep this',       icon:'🎯' },
 ]
 
+const LONG_PRESS_MS = 600
+
+function RecordButton({ recording, status, audioLevel, onPressStart, onPressEnd }) {
+  const [holdPct, setHoldPct] = useState(0)
+  const hRef = useRef(null)
+
+  function startHold() {
+    onPressStart()
+    const t = Date.now()
+    hRef.current = setInterval(() => {
+      const p = Math.min(100, (Date.now() - t) / LONG_PRESS_MS * 100)
+      setHoldPct(p)
+      if (p >= 100) { clearInterval(hRef.current); setHoldPct(0) }
+    }, 20)
+  }
+  function endHold() { clearInterval(hRef.current); onPressEnd(); setTimeout(() => setHoldPct(0), 200) }
+
+  const isRecording = recording
+  const isStarting  = status === 'starting'
+  const size        = 64
+  const radius      = 16
+  const iconSize    = 22
+  const bg     = isRecording ? 'rgba(224,48,48,0.12)' : 'rgba(255,255,255,0.05)'
+  const border = isRecording ? 'rgba(224,48,48,0.7)' : isStarting ? '#d4a853' : 'rgba(255,255,255,0.18)'
+  const color  = isRecording ? '#e03030' : 'rgba(255,255,255,0.85)'
+  const shadow = isRecording
+    ? '0 0 18px rgba(224,48,48,0.35), inset 0 1px 0 rgba(255,255,255,0.08)'
+    : 'inset 0 1px 0 rgba(255,255,255,0.08), 0 2px 8px rgba(0,0,0,0.4)'
+
+  return (
+    <button
+      onTouchStart={startHold} onTouchEnd={endHold}
+      onMouseDown={startHold} onMouseUp={endHold} onMouseLeave={endHold}
+      style={{
+        position: 'relative', width: size, height: size, flexShrink: 0,
+        borderRadius: radius, border: `1.5px solid ${border}`,
+        background: bg, color, display: 'flex', alignItems: 'center',
+        justifyContent: 'center', cursor: 'pointer',
+        transition: 'transform 80ms ease, background 200ms, border-color 200ms, box-shadow 200ms',
+        boxShadow: shadow,
+        transform: `scale(${isRecording ? 1 + audioLevel * 0.06 : 1})`,
+        WebkitTapHighlightColor: 'transparent',
+      }}
+    >
+      {holdPct > 0 && holdPct < 100 && (
+        <svg style={{ position:'absolute', inset:-3, width:'calc(100% + 6px)', height:'calc(100% + 6px)', pointerEvents:'none' }} viewBox="0 0 100 100">
+          <rect x="2" y="2" width="96" height="96" rx={radius * 1.5} ry={radius * 1.5}
+            fill="none" stroke="rgba(255,255,255,0.55)" strokeWidth="3"
+            strokeDasharray={`${holdPct * 3.76} 376`} strokeLinecap="round"
+            style={{ transformOrigin:'50% 50%', transform:'rotate(-90deg)' }}/>
+        </svg>
+      )}
+      {isRecording && (
+        <div style={{ position:'absolute', inset:-4, borderRadius:radius+4,
+          border:'1.5px solid rgba(224,48,48,0.3)',
+          animation:'rec-pulse 1.4s ease infinite', pointerEvents:'none' }}/>
+      )}
+      {isStarting
+        ? <Loader2 size={iconSize} style={{ animation:'spin 1s linear infinite' }}/>
+        : isRecording
+          ? <Square size={iconSize}/>
+          : <Mic size={iconSize}/>
+      }
+    </button>
+  )
+}
+
 export default function CompanionPanel({ onClose }) {
   const { activeCategoryId, activeCategory } = useStore()
   const cat = activeCategory?.()
@@ -142,18 +209,18 @@ export default function CompanionPanel({ onClose }) {
   async function transcribeChunk(sid) {
     const nc = chunksRef.current.splice(0)
     if (!nc.length || !sid) return
-    bufRef.current.push(...nc)
+    // Send only the new chunks — NOT cumulative — so sessions can run indefinitely
     const mime = mimeRef.current || 'audio/webm'
-    const blob = new Blob(bufRef.current, { type: mime })
+    const blob = new Blob(nc, { type: mime })
     const tsMs = Date.now() - (startRef.current || Date.now())
     const ext  = mime.split(';')[0].split('/')[1] || 'webm'
-    if (blob.size < 8000) return
+    if (blob.size < 4000) return  // skip silent/empty chunks
     try {
       const sess = await getSession()
       const fd   = new FormData()
       fd.append('audio', blob, `recording.${ext}`)
       fd.append('timestampMs', String(tsMs))
-      fd.append('isCumulative', 'true')
+      fd.append('isCumulative', 'false')
       const res = await fetch(`${import.meta.env.VITE_API_URL || '/api'}/session/${sid}/transcribe`, {
         method: 'POST', headers: { Authorization: `Bearer ${sess?.access_token}` }, body: fd,
       })
@@ -320,25 +387,26 @@ export default function CompanionPanel({ onClose }) {
           )}
 
           <div style={{ display: 'flex', gap: 8 }}>
-            {/* Record / Stop */}
-            {(state.status === 'idle' || state.status === 'error') && (
-              <button onClick={startSession} style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, padding: '11px', borderRadius: 9, border: '1px solid rgba(224,48,48,0.3)', background: 'rgba(224,48,48,0.08)', color: 'rgba(224,48,48,0.9)', cursor: 'pointer', fontSize: 13, fontFamily: "'Figtree',sans-serif", fontWeight: 600 }}>
-                <Mic size={14}/> Start recording
-              </button>
-            )}
-            {(state.status === 'starting') && (
-              <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, padding: '11px', borderRadius: 9, border: '1px solid rgba(255,255,255,0.08)', background: 'transparent', color: 'rgba(255,255,255,0.3)', fontSize: 13, fontFamily: "'Figtree',sans-serif" }}>
-                <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }}/> Connecting mic...
-              </div>
-            )}
-            {state.status === 'recording' && (
-              <button onClick={stopSession} style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, padding: '11px', borderRadius: 9, border: '1px solid rgba(224,48,48,0.5)', background: 'rgba(224,48,48,0.12)', color: '#e03030', cursor: 'pointer', fontSize: 13, fontFamily: "'Figtree',sans-serif", fontWeight: 600 }}>
-                <Square size={14}/> Stop
-              </button>
-            )}
-            {state.status === 'stopping' && (
-              <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, padding: '11px', borderRadius: 9, border: '1px solid rgba(255,255,255,0.08)', background: 'transparent', color: 'rgba(255,255,255,0.3)', fontSize: 13, fontFamily: "'Figtree',sans-serif" }}>
-                <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }}/> Saving...
+            {/* Tape recorder style RecordButton */}
+            {(state.status === 'idle' || state.status === 'error' || state.status === 'starting' || state.status === 'recording' || state.status === 'stopping') && (
+              <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <RecordButton
+                  recording={state.recording}
+                  status={state.status}
+                  audioLevel={state.audioLevel}
+                  onPressStart={() => { if (!state.recording && state.status !== 'starting') startSession() }}
+                  onPressEnd={() => { if (state.recording) stopSession() }}
+                />
+                {!state.recording && state.status === 'idle' && (
+                  <div style={{ marginLeft: 12, fontSize: 11, color: 'rgba(255,255,255,0.25)', fontFamily: "'Figtree',sans-serif" }}>
+                    Hold to record
+                  </div>
+                )}
+                {state.status === 'stopping' && (
+                  <div style={{ marginLeft: 12, fontSize: 11, color: 'rgba(255,255,255,0.25)', fontFamily: "'Figtree',sans-serif" }}>
+                    Saving...
+                  </div>
+                )}
               </div>
             )}
             {state.status === 'ready' && !state.processing && (

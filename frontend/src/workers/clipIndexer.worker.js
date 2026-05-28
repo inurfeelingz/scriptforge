@@ -242,10 +242,38 @@ function detectType(filename) {
 }
 
 // ─── MAIN INDEX FUNCTION ──────────────────────────────────────────────────────
+const MAX_INDEXABLE_BYTES = 500 * 1024 * 1024  // 500MB hard limit — above this crashes the browser tab
+
 async function indexClip(file, categoryId) {
   if (cancelFlag) return null
   const clipType = detectType(file.name)
   const filepath = file.webkitRelativePath || file.relativePath || file.name
+
+  // Safety check: files over 500MB cannot be safely loaded into browser memory
+  // Index metadata only — transcript will be empty until audio is extracted externally
+  if (file.size > MAX_INDEXABLE_BYTES) {
+    const sizeMB = Math.round(file.size / 1024 / 1024)
+    postMessage({ type: 'PROGRESS', payload: { filename: file.name, step: 'metadata-only', pct: 50 } })
+    const durationMs = await getDuration(file.name).catch(() => 0)
+    postMessage({
+      type: 'CLIP_INDEXED',
+      payload: {
+        filename:        file.name,
+        filepath,
+        clip_type:       clipType,
+        fileSizeBytes:   file.size,
+        fileModifiedAt:  file.lastModified || null,
+        durationMs,
+        transcript:      '',
+        visual_tags:     [],
+        thumbnail_b64:   null,
+        categoryId,
+        notes:           sizeMB + 'MB — too large for browser indexing. Export audio as MP3 and re-index for transcript.',
+      }
+    })
+    postMessage({ type: 'COMPLETE', payload: { filename: file.name } })
+    return
+  }
 
   try {
     // Read file buffer ONCE — pass slices to each function to avoid re-reading

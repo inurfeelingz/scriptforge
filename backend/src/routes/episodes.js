@@ -21,7 +21,7 @@ const client = new Anthropic.Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY }
 router.post('/generate', tierGate('generate_episode'), creditGate('generate_episode'), async (req, res) => {
   const {
     categoryId, episodeNumber: rawEpisodeNumber, trackContext,
-    voiceMemoText, clipInventory = [],
+    voiceMemoText, clipInventory = [], episodeId: existingEpisodeId,
   } = req.body;
 
   // Parse episodeNumber safely — empty string or missing becomes null,
@@ -30,8 +30,16 @@ router.post('/generate', tierGate('generate_episode'), creditGate('generate_epis
     ? parseInt(rawEpisodeNumber, 10) || null
     : null;
 
-  if (!categoryId || !trackContext?.name) {
-    return res.status(400).json({ error: 'categoryId and trackContext.name are required' });
+  if (!categoryId) {
+    return res.status(400).json({ error: 'categoryId is required' });
+  }
+  if (!trackContext?.name && !existingEpisodeId) {
+    return res.status(400).json({ error: 'trackContext.name is required for new episodes' });
+  }
+  // If re-generating existing episode, fill in name from DB
+  if (existingEpisodeId && !trackContext?.name) {
+    const { data: existingEp } = await supabase.from('episodes').select('track_name').eq('id', existingEpisodeId).single();
+    if (existingEp?.track_name) trackContext = { ...trackContext, name: existingEp.track_name };
   }
 
   // Prevent concurrent generation of same episode number (race condition guard)
@@ -260,7 +268,7 @@ THUMBNAIL_TITLE_OPTIONS:
         episode_number:  resolvedEpisodeNumber,
         slug,
         status:          'ready',
-        track_name:      trackContext.name,
+        track_name:      trackContext.name || 'Untitled',
         track_mood:      trackContext.mood,
         track_genre:     trackContext.genre,
         track_bpm:       trackContext.bpm,
@@ -278,6 +286,7 @@ THUMBNAIL_TITLE_OPTIONS:
           outputTokens,
           estimatedCostUsd,
         },
+        thumbnail_concept: trackContext.thumbnailConcept || null,
         updated_at: new Date().toISOString(),
       }, { onConflict: 'user_id,category_id,episode_number' })
       .select()
@@ -540,8 +549,16 @@ Return ONLY a minute-by-minute energy score (1–10) with a one-line annotation 
 
 router.post('/hook-variants', async (req, res) => {
   const { categoryId, trackContext, voiceMemoText } = req.body;
-  if (!categoryId || !trackContext?.name) {
-    return res.status(400).json({ error: 'categoryId and trackContext.name are required' });
+  if (!categoryId) {
+    return res.status(400).json({ error: 'categoryId is required' });
+  }
+  if (!trackContext?.name && !existingEpisodeId) {
+    return res.status(400).json({ error: 'trackContext.name is required for new episodes' });
+  }
+  // If re-generating existing episode, fill in name from DB
+  if (existingEpisodeId && !trackContext?.name) {
+    const { data: existingEp } = await supabase.from('episodes').select('track_name').eq('id', existingEpisodeId).single();
+    if (existingEp?.track_name) trackContext = { ...trackContext, name: existingEp.track_name };
   }
 
   try {

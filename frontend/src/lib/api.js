@@ -223,6 +223,14 @@ export const chat = {
   send:             (body, handlers, signal) => streamRequest('/chat/message', body, handlers, signal),
   getHistory:       (params) => req('GET', `/chat/history?${new URLSearchParams(params)}`),
   greet:            (params) => req('GET', `/chat/greet?${new URLSearchParams(params)}`),
+  indexAudio:       (formData) => {
+    // Special multipart upload — bypass req() helper
+    return fetch((import.meta.env?.VITE_API_URL || '/api') + '/session/index-audio', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer ' + (window.__supabaseToken || '') },
+      body: formData,
+    }).then(r => r.json())
+  },
   clearHistory:     (body)   => req('DELETE', '/chat/history', body),
   onboard: (body, handlers) => streamRequest('/chat/onboard', body, handlers),
   commitEpisode:    (body)   => req('POST', '/chat/commit-episode', body),

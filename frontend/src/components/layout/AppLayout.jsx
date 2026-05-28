@@ -394,7 +394,7 @@ export default function AppLayout() {
 
           <div style={{ width: 1, height: 20, background: 'rgba(255,255,255,0.06)', margin: '0 2px' }}/>
 
-          {/* KB button — same style as other pill items, replaces the orb */}
+          {/* KB button */}
           {!isHome && (
             <button
               onClick={() => {
@@ -403,18 +403,18 @@ export default function AppLayout() {
                 if (opening) setTimeout(() => window.dispatchEvent(new Event('kb:focus')), 350)
               }}
               style={{
-                display:        'flex',
-                flexDirection:  'column',
-                alignItems:     'center',
-                gap:            3,
-                padding:        isMobile ? '8px 12px' : '6px 14px',
-                background:     chatOpen ? GREEN_LOW : 'none',
-                border:         chatOpen ? `1px solid ${GREEN_MID}` : 'none',
-                borderRadius:   10,
-                color:          chatOpen ? GREEN : 'rgba(255,255,255,0.35)',
-                cursor:         'pointer',
-                flexShrink:     0,
-                transition:     'all 0.15s',
+                display:       'flex',
+                flexDirection: 'column',
+                alignItems:    'center',
+                gap:           3,
+                padding:       isMobile ? '8px 12px' : '6px 14px',
+                background:    chatOpen ? GREEN_LOW : 'none',
+                border:        chatOpen ? `1px solid ${GREEN_MID}` : 'none',
+                borderRadius:  10,
+                color:         chatOpen ? GREEN : 'rgba(255,255,255,0.35)',
+                cursor:        'pointer',
+                flexShrink:    0,
+                transition:    'all 0.15s',
               }}
             >
               <Sparkles size={15}/>
@@ -460,18 +460,19 @@ export default function AppLayout() {
 
           {!isMobile && <div style={{ width: 1, height: 20, background: 'rgba(255,255,255,0.06)', margin: '0 2px' }}/>}
 
-          {/* + more */}
+          {/* + new episode */}
           <button
-            onClick={() => setPillExpanded(o => !o)}
+            onClick={() => navigate('/generate')}
             style={{
               width: 36, height: 36, borderRadius: 50,
-              background: pillExpanded ? GREEN_LOW : 'none',
-              border: pillExpanded ? `1px solid ${GREEN_MID}` : 'none',
-              color: pillExpanded ? GREEN : 'rgba(255,255,255,0.35)',
-              cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.15s',
+              background: 'none', border: 'none',
+              color: 'rgba(255,255,255,0.35)',
+              cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 3, transition: 'all 0.15s',
             }}
+            title="New episode"
           >
-            <Plus size={15} style={{ transform: pillExpanded ? 'rotate(45deg)' : 'none', transition: 'transform 0.2s' }}/>
+            <Plus size={15}/>
+            <span style={{ fontSize: 8, letterSpacing: '0.06em', textTransform: 'uppercase', fontFamily: "'Figtree', sans-serif", lineHeight: 1 }}>New</span>
           </button>
         </div>
       </div>
