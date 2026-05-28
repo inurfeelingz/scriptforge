@@ -839,12 +839,16 @@ export default function ChatPanel() {
               return [...prev, { role: 'assistant', content: message, isGenerating: true }]
             })
           },
-          done: ({ parsed }) => {
+          done: ({ parsed, episodeId, slug }) => {
             clearInterval(genTimerRef.current); setGenPct(100)
             setTimeout(() => setGenPct(0), 600)
             setMessages(prev => prev.filter(m => !m.isGenerating))
-            setGenerated(parsed?.metadata?.trackName || 'Your episode')
-            notify(`Episode generated!`, 'success')
+            // slug is the reliable name source — convert back to readable title
+            const epName = slug
+              ? slug.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+              : 'Your episode'
+            setGenerated({ name: epName, id: episodeId })
+            notify('Episode generated!', 'success')
             setGenerating(false)
           },
           error: ({ message: e }) => {
@@ -1045,12 +1049,12 @@ export default function ChatPanel() {
         )}
 
         {generated && (
-          <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'10px 14px',borderRadius:8,background:'rgba(74,222,128,0.06)',border:'1px solid rgba(74,222,128,0.2)',cursor:'pointer'}} onClick={() => navigate('/pipeline')}>
+          <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'10px 14px',borderRadius:8,background:'rgba(74,222,128,0.06)',border:'1px solid rgba(74,222,128,0.2)',cursor:'pointer'}} onClick={() => generated?.id ? navigate('/episode/' + generated.id) : navigate('/pipeline')}>
             <div style={{display:'flex',alignItems:'center',gap:8}}>
               <Check size={12} style={{color:'rgba(74,222,128,1)',flexShrink:0}}/>
               <div>
-                <div style={{fontSize:12,fontWeight:600,color:'rgba(74,222,128,1)'}}>Episode ready — tap to view</div>
-                <div style={{fontSize:10,color:'rgba(74,222,128,0.5)',marginTop:1}}>"{generated}" is in your pipeline</div>
+                <div style={{fontSize:12,fontWeight:600,color:'rgba(74,222,128,1)'}}>Episode ready — tap to open</div>
+                <div style={{fontSize:10,color:'rgba(74,222,128,0.5)',marginTop:1}}>"{generated?.name || 'Your episode'}"</div>
               </div>
             </div>
             <div style={{fontSize:11,color:'rgba(74,222,128,0.6)'}}>→</div>
@@ -1061,7 +1065,7 @@ export default function ChatPanel() {
         {isSeriesMode && messages.length >= 4 && !generating && (
           <div className="kb-generate-strip">
             <span className="kb-generate-text">
-              {generated ? `"${generated}" is ready` : 'Ready to generate from this conversation'}
+              {generated ? `"${generated?.name || 'Episode'}" is ready` : 'Ready to generate from this conversation'}
             </span>
             {!generated && (
               <button
@@ -1075,9 +1079,9 @@ export default function ChatPanel() {
             {generated && (
               <button
                 className="kb-generate-btn"
-                onClick={() => navigate('/pipeline')}
+                onClick={() => generated?.id ? navigate('/episode/' + generated.id) : navigate('/pipeline')}
               >
-                View in pipeline →
+                Open episode →
               </button>
             )}
           </div>
