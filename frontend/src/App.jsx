@@ -41,10 +41,17 @@ function useKeepAlive() {
 }
 
 function AuthGuard({ children }) {
-  const { user, profile, initialized } = useStore()
+  const { user, profile, initialized, categories, categoryLoading } = useStore()
   if (!initialized) return <SplashScreen />
   if (!user) return <Navigate to="/auth" replace />
   if (!profile) return <SplashScreen />
+  // Still loading categories — wait before deciding
+  if (categoryLoading) return <SplashScreen />
+  // New user with no workspace — send to onboard
+  // (skip if already on /onboard to avoid redirect loop)
+  if (categories !== undefined && categories.length === 0 && !window.location.pathname.startsWith('/onboard')) {
+    return <Navigate to="/onboard" replace />
+  }
   return children
 }
 
