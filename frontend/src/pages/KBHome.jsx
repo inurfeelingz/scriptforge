@@ -122,7 +122,7 @@ export default function KBHome() {
           {[
             { n: '1', title: 'KB interviews you', body: 'First KB will ask about your show — your voice, style, and what you create. Be specific.' },
             { n: '2', title: 'Connect YouTube', body: 'Then visit Insights to connect YouTube. KB learns your audience from real data.' },
-            { n: '3', title: 'Record in Companion', body: 'Hit the Radio button anytime you're working. Talk through your ideas. KB reads every memo.' },
+            { n: '3', title: 'Record in Companion', body: "Hit the Radio button anytime you're working. Talk through your ideas. KB reads every memo." },
           ].map(step => (
             <div key={step.n} style={{ display: 'flex', gap: 14, textAlign: 'left', maxWidth: 320, marginBottom: 14, width: '100%' }}>
               <div style={{ width: 28, height: 28, borderRadius: '50%', background: 'rgba(74,222,128,0.08)', border: '1px solid rgba(74,222,128,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, color: 'rgba(74,222,128,0.8)', flexShrink: 0, fontFamily: "'Syne',sans-serif" }}>{step.n}</div>
