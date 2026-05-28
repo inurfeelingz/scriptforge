@@ -571,7 +571,7 @@ export default function ChatPanel() {
         setIndexProgress('')
         setMessages(prev => [...prev, {
           role: 'assistant',
-          content: 'Got the analytics CSV — ' + rows + ' rows of data uploaded. I'll use this to inform your next episode recommendations and hook strategy. Want a breakdown of what I'm seeing?',
+          content: "Got the analytics CSV — " + rows + " rows of data uploaded. I'll use this to inform your next episode recommendations and hook strategy. Want a breakdown of what I'm seeing?",
           timestamp: new Date().toISOString(),
         }])
 
@@ -592,7 +592,7 @@ export default function ChatPanel() {
         setIndexProgress('')
         setMessages(prev => [...prev, {
           role: 'assistant',
-          content: 'Script saved to vault — ' + wordCount + ' words. Want me to review it for hook strength, pacing, or retention points?',
+          content: "Script saved to vault — " + wordCount + " words. Want me to review it for hook strength, pacing, or retention points?",
           timestamp: new Date().toISOString(),
         }])
 
