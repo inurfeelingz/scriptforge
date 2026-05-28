@@ -496,6 +496,9 @@ export default function ChatPanel() {
   const [genPct,      setGenPct]      = useState(0)
   const [showScrollBtn, setShowScrollBtn] = useState(false)
   const [greeted,       setGreeted]       = useState(false)
+  const [indexingAudio, setIndexingAudio] = useState(false)
+  const [voiceError,    setVoiceError]    = useState('')
+  const [indexProgress, setIndexProgress] = useState('')
   const genTimerRef = useRef(null)
   const bottomRef   = useRef(null)
   const inputRef    = useRef(null)
@@ -505,15 +508,111 @@ export default function ChatPanel() {
   const { listening, speaking, audioLevel: voiceLevel, supported: voiceSupported,
           startListening, stopListening, speak, stopSpeaking } = useKBVoice({
     onTranscript: ({ text, isFinal, interim }) => {
-      // Show words appearing in real time as feedback
+      setVoiceError('')
       setInput(text || interim || '')
-      // Only send when speech recognition gives a final result
       if (isFinal && text.trim()) {
         voiceUsedRef.current = true
         sendMessage(text.trim())
       }
     },
+    onError: (err) => {
+      setVoiceError(err === 'not-allowed' ? 'Mic permission denied — allow microphone access in browser settings' : 'Voice error: ' + err)
+    },
   })
+
+  async function handleFileUpload(e) {
+    const file = e.target.files?.[0]
+    if (!file || !activeCategoryId) return
+
+    const name = file.name.toLowerCase()
+    const isAudio   = file.type.startsWith('audio/') || /\.(mp3|m4a|wav|aac|ogg|flac)$/i.test(name)
+    const isVideo   = file.type.startsWith('video/') || /\.(mp4|mov|mkv|webm)$/i.test(name)
+    const isCSV     = /\.csv$/i.test(name)
+    const isScript  = /\.(txt|md|fdx|fountain)$/i.test(name)
+
+    setIndexingAudio(true)
+
+    try {
+      const { supabase: sb } = await import('../../lib/supabase')
+      const { data: { session: sess } } = await sb.auth.getSession()
+      const BASE = import.meta.env.VITE_API_URL || '/api'
+
+      if (isAudio || isVideo) {
+        setIndexProgress('Transcribing audio... this takes 1-2 min per hour')
+        const fd = new FormData()
+        fd.append('audio', file)
+        fd.append('categoryId', activeCategoryId)
+        fd.append('title', file.name.replace(/\.[^.]+$/i, ''))
+        const res  = await fetch(BASE + '/session/index-audio', {
+          method: 'POST', headers: { Authorization: 'Bearer ' + sess?.access_token }, body: fd
+        })
+        const data = await res.json()
+        if (!res.ok) throw new Error(data.error)
+        setIndexProgress('')
+        setMessages(prev => [...prev, {
+          role: 'assistant',
+          content: 'Indexed "' + file.name + '" — ' + Math.round((data.duration || 0) / 60) + ' min transcribed across ' + (data.segments || 0) + ' segments with timecodes. I can now reference everything you said in this session. Want to talk through it?',
+          timestamp: new Date().toISOString(),
+        }])
+
+      } else if (isCSV) {
+        setIndexProgress('Reading analytics data...')
+        const text = await file.text()
+        const rows = text.trim().split('
+').length - 1
+        // Upload via analytics route
+        const fd = new FormData()
+        fd.append('file', file)
+        fd.append('categoryId', activeCategoryId)
+        const res = await fetch(BASE + '/analytics/upload', {
+          method: 'POST', headers: { Authorization: 'Bearer ' + sess?.access_token }, body: fd
+        })
+        const data = await res.json()
+        if (!res.ok) throw new Error(data.error || 'Analytics upload failed')
+        setIndexProgress('')
+        setMessages(prev => [...prev, {
+          role: 'assistant',
+          content: 'Got the analytics CSV — ' + rows + ' rows of data uploaded. I'll use this to inform your next episode recommendations and hook strategy. Want a breakdown of what I'm seeing?',
+          timestamp: new Date().toISOString(),
+        }])
+
+      } else if (isScript) {
+        setIndexProgress('Reading script...')
+        const text = await file.text()
+        const wordCount = text.trim().split(/\s+/).length
+        // Save as a vault entry
+        const { error } = await sb.from('vault_entries').insert({
+          user_id:     sess.user.id,
+          category_id: activeCategoryId,
+          type:        'script',
+          title:       file.name.replace(/\.[^.]+$/i, ''),
+          content:     text.slice(0, 10000),
+          tags:        ['uploaded'],
+        })
+        if (error) throw new Error(error.message)
+        setIndexProgress('')
+        setMessages(prev => [...prev, {
+          role: 'assistant',
+          content: 'Script saved to vault — ' + wordCount + ' words. Want me to review it for hook strength, pacing, or retention points?',
+          timestamp: new Date().toISOString(),
+        }])
+
+      } else {
+        throw new Error('File type not supported. Upload MP3/M4A for audio, CSV for analytics, or TXT/MD for scripts.')
+      }
+
+    } catch (err) {
+      setIndexProgress('')
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        content: err.message,
+        isError: true,
+        timestamp: new Date().toISOString(),
+      }])
+    }
+    setIndexingAudio(false)
+    e.target.value = ''
+  }
 
   // Auto-focus input on mount — opens keyboard immediately when chat sheet opens
   useEffect(() => {
@@ -971,8 +1070,31 @@ export default function ChatPanel() {
           </div>
         )}
 
-        {/* Action row — new chat only */}
-        <div style={{ display:'flex', gap:6, padding:'0 12px 8px', justifyContent:'flex-end' }}>
+        {/* Voice error */}
+        {voiceError && (
+          <div style={{ padding:'4px 14px 0', fontSize:10, color:'rgba(248,113,113,0.8)', fontFamily:"'Figtree',sans-serif" }}>
+            ⚠ {voiceError}
+          </div>
+        )}
+
+        {/* Index progress */}
+        {indexProgress && (
+          <div style={{ padding:'4px 14px 0', fontSize:10, color:'rgba(74,222,128,0.6)', fontFamily:"'Figtree',sans-serif" }}>
+            ◈ {indexProgress}
+          </div>
+        )}
+
+        {/* Action row */}
+        <div style={{ display:'flex', gap:6, padding:'0 12px 8px', justifyContent:'space-between', alignItems:'center' }}>
+          {/* Audio upload */}
+          <label
+            title="Upload to KB — audio/video (transcribe), CSV (analytics), TXT/MD (script)"
+            style={{ fontSize:10, padding:'3px 8px', borderRadius:6, border:'1px solid rgba(255,255,255,0.06)', background:'transparent', color: indexingAudio ? 'rgba(74,222,128,0.6)' : 'rgba(255,255,255,0.3)', cursor: indexingAudio ? 'wait' : 'pointer', fontFamily:"'Figtree',sans-serif", display:'flex', alignItems:'center', gap:4 }}
+          >
+            <Plus size={9}/> {indexingAudio ? 'Uploading...' : 'Upload'}
+            <input type="file" accept="audio/*,video/*,.mp3,.m4a,.wav,.aac,.csv,.txt,.md,.fountain,.fdx" onChange={handleFileUpload} disabled={indexingAudio} style={{ display:'none' }}/>
+          </label>
+
           <button onClick={newChat}
             style={{ fontSize:10, padding:'3px 8px', borderRadius:6, border:'1px solid rgba(255,255,255,0.06)', background:'transparent', color:'rgba(255,255,255,0.3)', cursor:'pointer', fontFamily:"'Figtree',sans-serif", display:'flex', alignItems:'center', gap:4 }}>
             <Plus size={9}/> New

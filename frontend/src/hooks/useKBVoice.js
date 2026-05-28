@@ -9,7 +9,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
 import { getSession } from '../lib/supabase'
 
-export default function useKBVoice({ onTranscript, enabled = true }) {
+export default function useKBVoice({ onTranscript, onError, enabled = true }) {
   const [listening,   setListening]   = useState(false)
   const [speaking,    setSpeaking]    = useState(false)
   const [audioLevel,  setAudioLevel]  = useState(0)
@@ -60,29 +60,40 @@ export default function useKBVoice({ onTranscript, enabled = true }) {
     if (!SpeechRecognition) return
 
     const rec = new SpeechRecognition()
-    rec.continuous      = false  // stops after natural speech pause
+    rec.continuous      = true   // keep listening until user stops manually
     rec.interimResults  = true   // show words appearing as feedback only
     rec.lang            = 'en-US'
     recognitionRef.current = rec
 
+    let accumulated = ''
     rec.onresult = (e) => {
-      // Show interim words in input as visual feedback — don't send yet
       let interim = ''
-      let final = ''
+      // Accumulate all final results so far
       for (let i = 0; i < e.results.length; i++) {
-        if (e.results[i].isFinal) final += e.results[i][0].transcript
-        else interim += e.results[i][0].transcript
+        if (e.results[i].isFinal) {
+          accumulated += e.results[i][0].transcript + ' '
+        } else {
+          interim += e.results[i][0].transcript
+        }
       }
-      onTranscript?.({ text: final || interim, isFinal: !!final, interim })
+      // Show live feedback — don't send yet, wait for user to stop
+      onTranscript?.({ text: accumulated.trim(), isFinal: false, interim: interim || accumulated.trim() })
     }
+    // When recognition ends (user tapped stop), send the full accumulated text
     rec.onend = () => {
       setListening(false)
       stopAnalysis()
+      if (accumulated.trim()) {
+        onTranscript?.({ text: accumulated.trim(), isFinal: true, interim: '' })
+      }
+      accumulated = ''
     }
+
     rec.onerror = (e) => {
       console.warn('[voice] error:', e.error)
       setListening(false)
       stopAnalysis()
+      onError?.(e.error)
     }
 
     navigator.mediaDevices?.getUserMedia({ audio: true }).then(stream => {
@@ -153,9 +164,10 @@ export default function useKBVoice({ onTranscript, enabled = true }) {
 
       await audio.play()
 
-    } catch {
+    } catch (err) {
       setSpeaking(false)
       setAudioLevel(0)
+      onError?.('TTS failed — check ELEVENLABS_API_KEY is set in Railway')
     }
   }, [enabled])
 
