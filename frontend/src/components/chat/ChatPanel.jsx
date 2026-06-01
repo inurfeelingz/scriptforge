@@ -503,30 +503,40 @@ export default function ChatPanel() {
 
     Promise.all([historyPromise, greetPromise]).then(([history, greetData]) => {
       setMessages(history)
+
+      // If backend explicitly says greet:false (session still active, < 5 mins)
+      // trust it — do not append any greeting, just show the history as-is
+      if (greetData?.greet === false) return
+
       let greetMsg = greetData?.message || null
 
-      if (!greetMsg) {
-        if (!history.length) {
-          const openers = [
-            "What are we making?",
-            "Your workspace is set up. What's the first episode about?",
-            "Let's build something. What's on your mind?",
-            "Ready when you are. What's the episode?",
-            "Start with the thumbnail — what's the image that stops the scroll?",
-          ]
-          greetMsg = openers[Math.floor(Math.random() * openers.length)]
-        } else {
-          const last = history[history.length - 1]
-          const minsAgo = last?.timestamp
-            ? Math.round((Date.now() - new Date(last.timestamp).getTime()) / 60000)
-            : 0
-          if (minsAgo >= 5) {
-            const lastUserMsg = [...history].reverse().find(m => m.role === 'user')
-            const snippet = lastUserMsg?.content?.slice(0, 60) || ''
-            greetMsg = snippet
-              ? `You were working on something earlier — "${snippet}". Want to pick that up, or start something new?`
-              : null
-          }
+      // Only generate a fallback greeting if backend didn't return one AND
+      // this is a genuinely new chat with no history
+      if (!greetMsg && !history.length) {
+        const openers = [
+          "What are we making?",
+          "Your workspace is set up. What's the first episode about?",
+          "Let's build something. What's on your mind?",
+          "Ready when you are. What's the episode?",
+          "Start with the thumbnail — what's the image that stops the scroll?",
+        ]
+        greetMsg = openers[Math.floor(Math.random() * openers.length)]
+      }
+
+      // If there's history but no backend greeting (backend returned null message
+      // with greet:true meaning it wanted to greet but had nothing specific) —
+      // show a minimal re-entry prompt only if > 30 mins away
+      if (!greetMsg && history.length) {
+        const last = history[history.length - 1]
+        const minsAgo = last?.timestamp
+          ? Math.round((Date.now() - new Date(last.timestamp).getTime()) / 60000)
+          : 0
+        if (minsAgo >= 30) {
+          const lastUserMsg = [...history].reverse().find(m => m.role === 'user')
+          const snippet = lastUserMsg?.content?.slice(0, 60) || ''
+          greetMsg = snippet
+            ? `Welcome back — you were working on "${snippet}". Want to pick that up?`
+            : null
         }
       }
 
