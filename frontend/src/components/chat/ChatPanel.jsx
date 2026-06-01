@@ -9,7 +9,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import {
   Send, Trash2, Loader2, BookmarkPlus, Check,
-  Plus, X, Sparkles, Mic, MicOff, Volume2, ChevronDown, Zap,
+  Plus, X, Sparkles, Mic, MicOff, Volume2, ChevronDown,
 } from 'lucide-react'
 import { useStore }    from '../../store'
 import { useNavigate } from 'react-router-dom'
@@ -250,14 +250,10 @@ export default function ChatPanel() {
   const [streamText,    setStreamText]    = useState('')
   const [committing,    setCommitting]    = useState(false)
   const [committed,     setCommitted]     = useState(null)
-  const [generating,    setGenerating]    = useState(false)
-  const [generated,     setGenerated]     = useState(null)
-  const [genPct,        setGenPct]        = useState(0)
   const [showScrollBtn, setShowScrollBtn] = useState(false)
   const [greeted,       setGreeted]       = useState(false)
   const [indexingAudio, setIndexingAudio] = useState(false)
   const [indexProgress, setIndexProgress] = useState('')
-  const genTimerRef   = useRef(null)
   const bottomRef     = useRef(null)
   const inputRef      = useRef(null)
   const abortRef      = useRef(null)
@@ -526,12 +522,12 @@ export default function ChatPanel() {
             setMessages(prev => [...prev, { role: 'assistant', content: response, timestamp: new Date().toISOString() }])
             setStreamText('')
             setStreaming(false)
-            // Speak the response — silently ignore if TTS not configured
             if (voiceUsedRef.current) {
               voiceUsedRef.current = false
               speak(response).catch(() => {})
             }
             if (action === 'show_history') setTimeout(() => setView('history'), 400)
+            if (action === 'generate_episode') setTimeout(() => generateEpisodeFromChat(), 400)
           },
           error: ({ message: e }) => {
             setMessages(prev => [...prev, { role: 'assistant', content: `Error: ${e}`, isError: true, timestamp: new Date().toISOString() }])
@@ -566,19 +562,18 @@ export default function ChatPanel() {
 
   async function newChat() {
     await chatApi.clearHistory({ categoryId: activeCategoryId, mode })
-    setMessages([]); setCommitted(null); setGenerated(null)
+    setMessages([]); setCommitted(null)
     setView('chat')
     setTimeout(() => inputRef.current?.focus(), 100)
   }
 
   async function generateEpisodeFromChat() {
-    if (!activeCategoryId || generating) return
-    setGenerating(true); setGenerated(null); setGenPct(0)
-
+    if (!activeCategoryId) return
     let pct = 0
+    const genTimerRef = { current: null }
     genTimerRef.current = setInterval(() => {
       pct = pct < 60 ? pct + 1.5 : pct < 80 ? pct + 0.5 : pct < 92 ? pct + 0.15 : pct
-      setGenPct(Math.min(pct, 92))
+      // progress shown via KB message stream — timer just drives the message updates
     }, 300)
 
     abortRef.current?.abort()
@@ -597,32 +592,34 @@ export default function ChatPanel() {
             })
           },
           done: ({ parsed, episodeId, slug }) => {
-            clearInterval(genTimerRef.current); setGenPct(100)
-            setTimeout(() => setGenPct(0), 600)
+            clearInterval(genTimerRef.current)
             setMessages(prev => prev.filter(m => !m.isGenerating))
             const epName = slug
               ? slug.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
               : 'Your episode'
-            setGenerated({ name: epName, id: episodeId })
+            // Show completion as a KB message, not a strip
+            setMessages(prev => [...prev, {
+              role: 'assistant',
+              content: `Episode ready — "${epName}". Tap here to open it.`,
+              isEpisodeReady: true,
+              episodeId,
+              timestamp: new Date().toISOString(),
+            }])
             notify('Episode generated!', 'success')
-            setGenerating(false)
           },
           error: ({ message: e }) => {
-            clearInterval(genTimerRef.current); setGenPct(0)
+            clearInterval(genTimerRef.current)
             setMessages(prev => prev.filter(m => !m.isGenerating))
-            notify(e, 'error'); setGenerating(false)
+            notify(e, 'error')
           },
         },
         controller.signal,
       )
     } catch (err) {
-      clearInterval(genTimerRef.current); setGenPct(0)
+      clearInterval(genTimerRef.current)
       if (err.name !== 'AbortError') notify(err.message, 'error')
-      setGenerating(false)
     }
   }
-
-  const isSeriesMode = mode === 'series' || mode === 'generate'
 
   // ── HISTORY VIEW ──────────────────────────────────────────────────────────
   if (view === 'history') {
@@ -703,11 +700,16 @@ export default function ChatPanel() {
           {messages.map((msg, i) => (
             <div key={i} className={`kb-msg ${msg.role}`}>
               <div style={{ position:'relative', display:'inline-block', maxWidth:'82%' }} className="kb-msg-wrapper">
-                <div className={`kb-bubble ${msg.role} ${msg.isError ? 'error' : ''}`} style={{ maxWidth:'100%' }}>
+                <div
+                  className={`kb-bubble ${msg.role} ${msg.isError ? 'error' : ''}`}
+                  style={{ maxWidth:'100%', cursor: msg.isEpisodeReady ? 'pointer' : 'default' }}
+                  onClick={msg.isEpisodeReady ? () => navigate('/episode/' + msg.episodeId) : undefined}
+                >
                   <MessageContent content={msg.content}/>
                   {msg.isGenerating && <span style={{ color:'rgba(100,180,100,0.6)', marginLeft:6 }}>✦</span>}
+                  {msg.isEpisodeReady && <span style={{ marginLeft:8, fontSize:11, opacity:0.7 }}>→</span>}
                 </div>
-                {msg.role === 'assistant' && !msg.isError && !msg.isGenerating && (
+                {msg.role === 'assistant' && !msg.isError && !msg.isGenerating && !msg.isEpisodeReady && (
                   <button
                     onClick={() => saveToVault(msg.content)}
                     title="Save to vault"
@@ -765,38 +767,6 @@ export default function ChatPanel() {
             <div style={{ height:2, background:'rgba(255,255,255,0.06)', borderRadius:2, overflow:'hidden' }}>
               <div style={{ height:'100%', width:`${genPct}%`, background:'linear-gradient(90deg,rgba(74,222,128,1),rgba(74,222,128,0.6))', borderRadius:2, transition:'width 0.3s ease' }}/>
             </div>
-          </div>
-        )}
-
-        {generated && (
-          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'10px 14px', borderRadius:8, background:'rgba(74,222,128,0.06)', border:'1px solid rgba(74,222,128,0.2)', cursor:'pointer' }} onClick={() => generated?.id ? navigate('/episode/' + generated.id) : navigate('/pipeline')}>
-            <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-              <Check size={12} style={{ color:'rgba(74,222,128,1)', flexShrink:0 }}/>
-              <div>
-                <div style={{ fontSize:12, fontWeight:600, color:'rgba(74,222,128,1)' }}>Episode ready — tap to open</div>
-                <div style={{ fontSize:10, color:'rgba(74,222,128,0.5)', marginTop:1 }}>"{generated?.name || 'Your episode'}"</div>
-              </div>
-            </div>
-            <div style={{ fontSize:11, color:'rgba(74,222,128,0.6)' }}>→</div>
-          </div>
-        )}
-
-        {/* Generate strip */}
-        {isSeriesMode && messages.length >= 4 && !generating && (
-          <div className="kb-generate-strip">
-            <span className="kb-generate-text">
-              {generated ? `"${generated?.name || 'Episode'}" is ready` : 'Ready to generate from this conversation'}
-            </span>
-            {!generated && (
-              <button className="kb-generate-btn" onClick={generateEpisodeFromChat} disabled={generating}>
-                <Zap size={12}/> Generate episode
-              </button>
-            )}
-            {generated && (
-              <button className="kb-generate-btn" onClick={() => generated?.id ? navigate('/episode/' + generated.id) : navigate('/pipeline')}>
-                Open episode →
-              </button>
-            )}
           </div>
         )}
 

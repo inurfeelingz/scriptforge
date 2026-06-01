@@ -172,6 +172,17 @@ router.post('/message', async (req, res) => {
       return res.end()
     }
 
+    // Generate episode triggers — KB confirms then fires generation
+    const generateTriggers = ['generate the episode', 'generate episode', 'build it', 'build the episode',
+      'make the episode', 'create the episode', 'generate now', 'go ahead and generate',
+      'yes generate', 'generate this', 'make it', 'build this now']
+    if (generateTriggers.some(t => message.toLowerCase().includes(t))) {
+      send('chunk', { text: "On it — generating the episode now." })
+      send('done',  { response: "On it — generating the episode now.", action: 'generate_episode' })
+      clearInterval(keepalive)
+      return res.end()
+    }
+
     const startFreshTriggers = ['start fresh', 'new chat', 'start over', 'fresh start', 'clear', 'reset chat']
     if (startFreshTriggers.some(t => message.toLowerCase().includes(t)) && dbHistory.length <= 4) {
       await saveHistory(req.user.id, categoryId, mode, [])
