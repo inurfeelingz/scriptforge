@@ -183,6 +183,90 @@ router.post('/message', async (req, res) => {
       return res.end()
     }
 
+    // ── EDL conversation flow ────────────────────────────────────────────────
+    // KB detects EDL intent, loads session list, and walks through sync + build.
+    // The action string carries all params needed by ChatPanel's handleEdlAction.
+
+    const msgLower = message.toLowerCase()
+
+    // Step 1: User wants an EDL — show available sessions
+    const edlListTriggers = [
+      'build the edl', 'make the edl', 'create the edl', 'build an edl',
+      'cut for retention', 'edit this session', 'make my edit', 'build my edit',
+      'cut this down', 'sync the audio', 'sync my sessions', 'sync and build',
+      'i want an edl', 'need an edl',
+    ]
+    if (edlListTriggers.some(t => msgLower.includes(t))) {
+      send('chunk', { text: "Let me check what indexed sessions you have." })
+      send('done',  { response: "Let me check what indexed sessions you have.", action: 'edl:list_sessions' })
+      clearInterval(keepalive)
+      return res.end()
+    }
+
+    // Step 2: User has confirmed which sessions and clip names — run sync then build
+    // Pattern: user says something like "screen is SESSION_A, camera is SESSION_B, clips are SCREEN.mp4 and CAM.mp4"
+    // We use Claude to extract the session IDs and clip names from the conversation, then fire the action
+    const edlBuildTriggers = [
+      'screen is', 'camera is', "that's the screen", "that's the camera",
+      'screen capture is', 'use session', 'sync those', 'go ahead and sync',
+      'yes sync', 'build it now', 'cut those', 'yes build',
+    ]
+    const hasBuildIntent = edlBuildTriggers.some(t => msgLower.includes(t))
+
+    if (hasBuildIntent) {
+      const { supabase } = require('../../utils/supabase')
+      const { data: sessions } = await supabase
+        .from('session_journals')
+        .select('id, title')
+        .eq('user_id', req.user.id)
+        .eq('category_id', categoryId)
+        .eq('status', 'ready')
+        .order('created_at', { ascending: false })
+        .limit(10)
+
+      const recentConvo = dbHistory.slice(-6).map(m => `${m.role}: ${m.content}`).join('\n')
+      const extractRes  = await client.messages.create({
+        model:      process.env.CLAUDE_MODEL || 'claude-sonnet-4-5',
+        max_tokens: 300,
+        system:     'Extract EDL build parameters from this conversation. Return ONLY valid JSON, no preamble. Fields: { "sessionIdA": "id of screen capture session", "sessionIdB": "id of camera session or null", "clipNameA": "filename of screen capture video", "clipNameB": "filename of camera video", "targetMinutes": 8 }. If you cannot confidently identify a field, use null.',
+        messages: [{
+          role:    'user',
+          content: `Available sessions:\n${(sessions || []).map(s => `ID: ${s.id} — "${s.title}"`).join('\n')}\n\nConversation:\n${recentConvo}\n\nLatest message: ${message}\n\nExtract the EDL parameters.`,
+        }],
+      })
+
+      let params = {}
+      try {
+        params = JSON.parse((extractRes.content[0]?.text || '{}').replace(/```json|```/g, '').trim())
+      } catch { params = {} }
+
+      if (!params.sessionIdA) {
+        const clarify = `I need a bit more to go on. Tell me:\n1. Which session is the screen capture? (from the list above)\n2. Which is the camera footage?\n3. What are the actual video filenames on your drive? (e.g. WRITING_A_SONG_SCREEN.mp4)`
+        send('chunk', { text: clarify })
+        send('done',  { response: clarify })
+        clearInterval(keepalive)
+        return res.end()
+      }
+
+      const sidA  = params.sessionIdA
+      const sidB  = params.sessionIdB || 'none'
+      const clipA = encodeURIComponent(params.clipNameA || 'SCREEN_CAPTURE.mp4')
+      const clipB = encodeURIComponent(params.clipNameB || 'CAMERA_FOOTAGE.mp4')
+      const mins  = params.targetMinutes || 8
+
+      if (sidB !== 'none') {
+        const syncMsg = `Syncing "${sessions?.find(s=>s.id===sidA)?.title || 'screen'}" and "${sessions?.find(s=>s.id===sidB)?.title || 'camera'}" — matching word sequences…`
+        send('chunk', { text: syncMsg })
+        send('done',  { response: syncMsg, action: `edl:sync_then_build:${sidA}:${sidB}:${clipA}:${clipB}:${mins}` })
+      } else {
+        const buildMsg = 'Building EDL from single audio source…'
+        send('chunk', { text: buildMsg })
+        send('done',  { response: buildMsg, action: `edl:build:${sidA}:none:0:${clipA}:${clipB}:${mins}` })
+      }
+      clearInterval(keepalive)
+      return res.end()
+    }
+
     const startFreshTriggers = ['start fresh', 'new chat', 'start over', 'fresh start', 'clear', 'reset chat']
     if (startFreshTriggers.some(t => message.toLowerCase().includes(t)) && dbHistory.length <= 4) {
       await saveHistory(req.user.id, categoryId, mode, [])

@@ -9,7 +9,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import {
   Send, Trash2, Loader2, BookmarkPlus, Check,
-  Plus, X, Sparkles, Mic, MicOff, Volume2, ChevronDown,
+  Plus, X, Sparkles, Mic, MicOff, Volume2, ChevronDown, Download, FileText, Image,
 } from 'lucide-react'
 import { useStore }    from '../../store'
 import { useNavigate } from 'react-router-dom'
@@ -254,6 +254,7 @@ export default function ChatPanel() {
   const [greeted,       setGreeted]       = useState(false)
   const [indexingAudio, setIndexingAudio] = useState(false)
   const [indexProgress, setIndexProgress] = useState('')
+  const [edlState,      setEdlState]      = useState(null)  // null | 'syncing' | 'building' | { exportId, filename, cutCount, totalMinutes }
   const bottomRef     = useRef(null)
   const inputRef      = useRef(null)
   const abortRef      = useRef(null)
@@ -290,11 +291,26 @@ export default function ChatPanel() {
     const file = e.target.files?.[0]
     if (!file || !activeCategoryId) return
 
-    const name    = file.name.toLowerCase()
-    const isAudio = file.type.startsWith('audio/') || /\.(mp3|m4a|wav|aac|ogg|flac)$/i.test(name)
-    const isVideo = file.type.startsWith('video/') || /\.(mp4|mov|mkv|webm)$/i.test(name)
-    const isCSV   = /\.csv$/i.test(name)
+    const name     = file.name.toLowerCase()
+    const isAudio  = file.type.startsWith('audio/') || /\.(mp3|m4a|wav|aac|ogg|flac)$/i.test(name)
+    const isVideo  = file.type.startsWith('video/') || /\.(mp4|mov|mkv|webm)$/i.test(name)
+    const isCSV    = /\.csv$/i.test(name)
     const isScript = /\.(txt|md|fdx|fountain)$/i.test(name)
+    const isImage  = file.type.startsWith('image/') || /\.(jpg|jpeg|png|gif|webp|heic|heif)$/i.test(name)
+    const isDoc    = /\.(pdf|doc|docx)$/i.test(name)
+    const isXLS    = /\.(xls|xlsx)$/i.test(name)
+
+    // Block video — too large, use audio extraction workflow instead
+    if (isVideo) {
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        content: "Video files are too large to index directly. Export the audio track from DaVinci (File \u2192 Export Audio \u2192 MP3) and upload that instead \u2014 I'll transcribe the full session with timecodes.",
+        isError: true,
+        timestamp: new Date().toISOString(),
+      }])
+      e.target.value = ''
+      return
+    }
 
     setIndexingAudio(true)
     setIndexProgress('Uploading…')
@@ -304,8 +320,8 @@ export default function ChatPanel() {
       const { data: { session: sess } } = await sb.auth.getSession()
       const BASE = import.meta.env.VITE_API_URL || '/api'
 
-      if (isAudio || isVideo) {
-        // Step 1: upload and get jobId back immediately
+      if (isAudio) {
+        // Async job — returns immediately, polls for completion
         const fd = new FormData()
         fd.append('audio', file)
         fd.append('categoryId', activeCategoryId)
@@ -323,16 +339,11 @@ export default function ChatPanel() {
         const fileMB    = Math.round(file.size / 1024 / 1024)
         setIndexProgress(`Transcribing ${fileMB}MB — checking progress…`)
 
-        // Step 2: poll until done
         const result = await pollIndexAudioJob(
           jobId,
           sess?.access_token,
           (progress, total) => {
-            setIndexProgress(
-              total > 0
-                ? `Transcribing… chunk ${progress}/${total}`
-                : 'Transcribing…'
-            )
+            setIndexProgress(total > 0 ? `Transcribing… chunk ${progress}/${total}` : 'Transcribing…')
           }
         )
 
@@ -341,6 +352,70 @@ export default function ChatPanel() {
         setMessages(prev => [...prev, {
           role: 'assistant',
           content: `Indexed "${file.name}" — ${mins} min transcribed across ${result.segments || 0} segments with timecodes. I can now reference everything in this session. Want to talk through it?`,
+          sessionId: result.sessionId,
+          timestamp: new Date().toISOString(),
+        }])
+
+      } else if (isImage) {
+        setIndexProgress('Reading image…')
+        // Convert to base64 and send to KB as vision context
+        const reader = new FileReader()
+        const base64 = await new Promise((res, rej) => {
+          reader.onload = () => res(reader.result.split(',')[1])
+          reader.onerror = rej
+          reader.readAsDataURL(file)
+        })
+        // Save as vault entry with image data + ask KB to describe/analyse
+        const { error } = await sb.from('vault_entries').insert({
+          user_id:     sess.user.id,
+          category_id: activeCategoryId,
+          type:        'image',
+          title:       file.name.replace(/\.[^.]+$/i, ''),
+          content:     `[IMAGE: ${file.name}]`,
+          image_b64:   base64.slice(0, 200000), // cap at ~200KB base64
+          tags:        ['uploaded', 'image'],
+        })
+        if (error) throw new Error(error.message)
+        setIndexProgress('')
+        setMessages(prev => [...prev, {
+          role:      'assistant',
+          content:   `Got the image "${file.name}" — saved to vault. What do you want me to do with it? I can analyse it for thumbnail composition, reference it for styling, or use it to inform episode content.`,
+          timestamp: new Date().toISOString(),
+        }])
+
+      } else if (isDoc) {
+        setIndexProgress('Reading document…')
+        const fd = new FormData()
+        fd.append('file', file)
+        fd.append('categoryId', activeCategoryId)
+        fd.append('title', file.name.replace(/\.[^.]+$/i, ''))
+
+        const res  = await fetch(BASE + '/kb/index-doc', {
+          method: 'POST', headers: { Authorization: 'Bearer ' + sess?.access_token }, body: fd,
+        })
+        const data = await res.json()
+        if (!res.ok) throw new Error(data.error || 'Document indexing failed')
+        setIndexProgress('')
+        setMessages(prev => [...prev, {
+          role:      'assistant',
+          content:   `Indexed "${file.name}" — ${data.wordCount || 0} words extracted. I can now reference this document in our conversations. What do you want to do with it?`,
+          timestamp: new Date().toISOString(),
+        }])
+
+      } else if (isXLS) {
+        setIndexProgress('Reading spreadsheet…')
+        const fd = new FormData()
+        fd.append('file', file)
+        fd.append('categoryId', activeCategoryId)
+        const res  = await fetch(BASE + '/analytics/upload', {
+          method: 'POST', headers: { Authorization: 'Bearer ' + sess?.access_token }, body: fd,
+        })
+        const data = await res.json()
+        if (!res.ok) throw new Error(data.error || 'Spreadsheet upload failed')
+        setIndexProgress('')
+        setMessages(prev => [...prev, {
+          role:      'assistant',
+          content:   `Got the spreadsheet "${file.name}" — ${data.videoCount || 0} rows processed. Want me to break down what I'm seeing?`,
           timestamp: new Date().toISOString(),
         }])
 
@@ -357,8 +432,8 @@ export default function ChatPanel() {
         const rows = (await file.text()).trim().split('\n').length - 1
         setIndexProgress('')
         setMessages(prev => [...prev, {
-          role: 'assistant',
-          content: `Got the analytics CSV — ${rows} rows uploaded. I'll use this to inform your next episode recommendations. Want a breakdown?`,
+          role:      'assistant',
+          content:   `Got the analytics CSV — ${rows} rows uploaded. I'll use this to inform your next episode recommendations. Want a breakdown?`,
           timestamp: new Date().toISOString(),
         }])
 
@@ -377,19 +452,19 @@ export default function ChatPanel() {
         if (error) throw new Error(error.message)
         setIndexProgress('')
         setMessages(prev => [...prev, {
-          role: 'assistant',
-          content: `Script saved to vault — ${wordCount} words. Want me to review it for hook strength, pacing, or retention points?`,
+          role:      'assistant',
+          content:   `Script saved to vault — ${wordCount} words. Want me to review it for hook strength, pacing, or retention points?`,
           timestamp: new Date().toISOString(),
         }])
 
       } else {
-        throw new Error('File type not supported. Upload MP3/M4A for audio, CSV for analytics, or TXT/MD for scripts.')
+        throw new Error('File type not supported. Upload audio, image, PDF, DOC, XLS, CSV, or script files.')
       }
 
     } catch (err) {
       setIndexProgress('')
       setMessages(prev => [...prev, {
-        role: 'assistant',
+        role:    'assistant',
         content: err.message,
         isError: true,
         timestamp: new Date().toISOString(),
@@ -526,8 +601,9 @@ export default function ChatPanel() {
               voiceUsedRef.current = false
               speak(response).catch(() => {})
             }
-            if (action === 'show_history') setTimeout(() => setView('history'), 400)
+            if (action === 'show_history')    setTimeout(() => setView('history'), 400)
             if (action === 'generate_episode') setTimeout(() => generateEpisodeFromChat(), 400)
+            if (action?.startsWith?.('edl:'))   handleEdlAction(action, response)
           },
           error: ({ message: e }) => {
             setMessages(prev => [...prev, { role: 'assistant', content: `Error: ${e}`, isError: true, timestamp: new Date().toISOString() }])
@@ -621,6 +697,205 @@ export default function ChatPanel() {
     }
   }
 
+
+  // ── EDL CONVERSATION HANDLER ──────────────────────────────────────────────
+  // KB sends action: 'edl:sync' or 'edl:build:sessionIdA:sessionIdB:offsetMs:clipA:clipB'
+  // This function executes the actual API call and shows the result as a chat bubble.
+
+  async function handleEdlAction(action, kbMessage) {
+    const parts = action.split(':')
+    const BASE  = import.meta.env.VITE_API_URL || '/api'
+
+    try {
+      const { supabase: sb } = await import('../../lib/supabase')
+      const { data: { session: sess } } = await sb.auth.getSession()
+      const auth = { Authorization: 'Bearer ' + sess?.access_token }
+
+      if (parts[1] === 'list_sessions') {
+        // KB wants to show which sessions are available to sync
+        const res  = await fetch(`${BASE}/editor/sessions?categoryId=${activeCategoryId}`, { headers: auth })
+        const data = await res.json()
+        const sessions = data.sessions || []
+        if (!sessions.length) {
+          setMessages(prev => [...prev, {
+            role: 'assistant',
+            content: 'No indexed sessions found. Upload your screen capture audio and camera audio first using the Upload button, then come back and ask me to build the EDL.',
+            timestamp: new Date().toISOString(),
+          }])
+          return
+        }
+        setMessages(prev => [...prev, {
+          role:        'assistant',
+          content:     `I can see ${sessions.length} indexed session${sessions.length > 1 ? 's' : ''}:\n${sessions.map((s, i) => `${i+1}. "${s.title}" — ${Math.round((s.duration_ms || 0) / 60000)}min`).join('\n')}\n\nTell me which is the screen capture and which is the camera footage, and what to call the original video files (e.g. "screen is SESSION_CAM.mp4, camera is WRITING_A_SONG_CAM.mp4").`,
+          isSessionList: true,
+          sessions,
+          timestamp:   new Date().toISOString(),
+        }])
+        return
+      }
+
+      if (parts[1] === 'sync') {
+        const [,, sessionIdA, sessionIdB] = parts
+        setEdlState('syncing')
+        setMessages(prev => [...prev, {
+          role:      'assistant',
+          content:   'Syncing audio tracks — matching word sequences between both transcripts…',
+          isWorking: true,
+          timestamp: new Date().toISOString(),
+        }])
+
+        const res  = await fetch(`${BASE}/editor/sync-audio`, {
+          method: 'POST', headers: { ...auth, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sessionIdA, sessionIdB, categoryId: activeCategoryId }),
+        })
+        const data = await res.json()
+        if (!res.ok) throw new Error(data.error)
+
+        setEdlState(null)
+        setMessages(prev => prev.filter(m => !m.isWorking))
+        setMessages(prev => [...prev, {
+          role:      'assistant',
+          content:   `Sync complete. ${data.summary}\n\nOffset is ${data.offsetMs}ms. Ready to build the EDL — just confirm the target length (default 8 min) and I'll cut it for retention.`,
+          syncResult: data,
+          timestamp: new Date().toISOString(),
+        }])
+        return
+      }
+
+      if (parts[1] === 'sync_then_build') {
+        // Sync two sessions first, then immediately build the EDL with the offset
+        const [,, sessionIdA, sessionIdB, clipNameA, clipNameB, targetMins] = parts
+        setEdlState('syncing')
+        setMessages(prev => [...prev, {
+          role: 'assistant', content: 'Syncing audio tracks…', isWorking: true, timestamp: new Date().toISOString(),
+        }])
+
+        // Step 1: sync
+        const syncRes  = await fetch(`${BASE}/editor/sync-audio`, {
+          method: 'POST', headers: { ...auth, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sessionIdA, sessionIdB, categoryId: activeCategoryId }),
+        })
+        const syncData = await syncRes.json()
+        if (!syncRes.ok) throw new Error(syncData.error)
+
+        setMessages(prev => prev.filter(m => !m.isWorking))
+        setMessages(prev => [...prev, {
+          role: 'assistant', content: `Sync done — ${syncData.summary}`, timestamp: new Date().toISOString(),
+        }])
+
+        // Step 2: build with the real offset
+        setEdlState('building')
+        setMessages(prev => [...prev, {
+          role: 'assistant', content: 'Cutting for retention…', isWorking: true, timestamp: new Date().toISOString(),
+        }])
+
+        const buildRes = await fetch(`${BASE}/editor/build-session-edl`, {
+          method: 'POST', headers: { ...auth, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            categoryId:    activeCategoryId,
+            sessionIdA,
+            sessionIdB,
+            offsetMs:      syncData.offsetMs || 0,
+            clipNameA:     decodeURIComponent(clipNameA || 'SCREEN_CAPTURE.mp4'),
+            clipNameB:     decodeURIComponent(clipNameB || 'CAMERA_FOOTAGE.mp4'),
+            targetMinutes: parseInt(targetMins) || 8,
+          }),
+        })
+        if (!buildRes.ok) { const e = await buildRes.json(); throw new Error(e.error) }
+
+        let summary = {}
+        try { summary = JSON.parse(buildRes.headers.get('X-EDL-Summary') || '{}') } catch {}
+        const blob     = await buildRes.blob()
+        const url      = URL.createObjectURL(blob)
+        const exportId = `edl-${Date.now()}`
+        window.__edlDownloads = window.__edlDownloads || {}
+        window.__edlDownloads[exportId] = { url, filename: summary.filename || 'edit.edl' }
+
+        setEdlState(null)
+        setMessages(prev => prev.filter(m => !m.isWorking))
+        setMessages(prev => [...prev, {
+          role: 'assistant',
+          content: `EDL ready. Cut ${summary.cutCount || '?'} segments — ${summary.originalMinutes || '?'}min down to ${summary.totalMinutes || '?'}min.`,
+          isEdlReady:   true,
+          exportId,
+          filename:     summary.filename || 'edit.edl',
+          cutCount:     summary.cutCount,
+          totalMinutes: summary.totalMinutes,
+          origMinutes:  summary.originalMinutes,
+          timestamp:    new Date().toISOString(),
+        }])
+        return
+      }
+
+      if (parts[1] === 'build') {
+        const [,, sessionIdA, sessionIdB, offsetMs, clipNameA, clipNameB, targetMins] = parts
+        setEdlState('building')
+        setMessages(prev => [...prev, {
+          role:      'assistant',
+          content:   'Building EDL — analysing both transcripts and cutting for retention…',
+          isWorking: true,
+          timestamp: new Date().toISOString(),
+        }])
+
+        const res = await fetch(`${BASE}/editor/build-session-edl`, {
+          method: 'POST', headers: { ...auth, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            categoryId:    activeCategoryId,
+            sessionIdA,
+            sessionIdB:    sessionIdB !== 'none' ? sessionIdB : null,
+            offsetMs:      parseInt(offsetMs) || 0,
+            clipNameA:     decodeURIComponent(clipNameA || 'SCREEN_CAPTURE.mp4'),
+            clipNameB:     decodeURIComponent(clipNameB || 'CAMERA_FOOTAGE.mp4'),
+            targetMinutes: parseInt(targetMins) || 8,
+          }),
+        })
+
+        if (!res.ok) {
+          const errData = await res.json()
+          throw new Error(errData.error)
+        }
+
+        // Parse summary from header
+        let summary = {}
+        try { summary = JSON.parse(res.headers.get('X-EDL-Summary') || '{}') } catch {}
+
+        // Get the EDL content as blob for download
+        const blob    = await res.blob()
+        const url     = URL.createObjectURL(blob)
+        const exportId = `edl-${Date.now()}`
+
+        // Store blob URL temporarily for download
+        window.__edlDownloads = window.__edlDownloads || {}
+        window.__edlDownloads[exportId] = { url, filename: summary.filename || 'edit.edl' }
+
+        setEdlState(null)
+        setMessages(prev => prev.filter(m => !m.isWorking))
+        setMessages(prev => [...prev, {
+          role:         'assistant',
+          content:      `EDL ready. Cut ${summary.cutCount || '?'} segments — ${summary.originalMinutes || '?'}min down to ${summary.totalMinutes || '?'}min.`,
+          isEdlReady:   true,
+          exportId,
+          filename:     summary.filename || 'edit.edl',
+          cutCount:     summary.cutCount,
+          totalMinutes: summary.totalMinutes,
+          origMinutes:  summary.originalMinutes,
+          timestamp:    new Date().toISOString(),
+        }])
+        return
+      }
+
+    } catch (err) {
+      setEdlState(null)
+      setMessages(prev => prev.filter(m => !m.isWorking))
+      setMessages(prev => [...prev, {
+        role:      'assistant',
+        content:   `EDL error: ${err.message}`,
+        isError:   true,
+        timestamp: new Date().toISOString(),
+      }])
+    }
+  }
+
   // ── HISTORY VIEW ──────────────────────────────────────────────────────────
   if (view === 'history') {
     return (
@@ -700,6 +975,39 @@ export default function ChatPanel() {
           {messages.map((msg, i) => (
             <div key={i} className={`kb-msg ${msg.role}`}>
               <div style={{ position:'relative', display:'inline-block', maxWidth:'82%' }} className="kb-msg-wrapper">
+                {/* EDL ready — download button */}
+                {msg.isEdlReady && (
+                  <div style={{ padding:'12px 14px', borderRadius:10, border:'1px solid rgba(74,222,128,0.2)', background:'rgba(74,222,128,0.05)', marginBottom:4 }}>
+                    <div style={{ fontSize:13, color:'rgba(74,222,128,0.9)', fontFamily:"'Figtree',sans-serif", marginBottom:6, fontWeight:600 }}>
+                      ✓ EDL ready — {msg.origMinutes}min → {msg.totalMinutes}min · {msg.cutCount} cuts
+                    </div>
+                    <div style={{ fontSize:11, color:'rgba(255,255,255,0.35)', fontFamily:"'Figtree',sans-serif", marginBottom:10 }}>
+                      {msg.filename} · Import via DaVinci: File → Import Timeline → Import EDL
+                    </div>
+                    <button
+                      onClick={() => {
+                        const dl = window.__edlDownloads?.[msg.exportId]
+                        if (!dl) return
+                        const a = document.createElement('a')
+                        a.href = dl.url; a.download = dl.filename; a.click()
+                      }}
+                      style={{ display:'flex', alignItems:'center', gap:7, padding:'8px 16px', borderRadius:8, border:'none', background:'rgba(74,222,128,1)', color:'#080808', cursor:'pointer', fontSize:13, fontWeight:600, fontFamily:"'Figtree',sans-serif" }}
+                    >
+                      <Download size={13}/> Download EDL
+                    </button>
+                  </div>
+                )}
+
+                {/* Working indicator */}
+                {msg.isWorking && (
+                  <div style={{ display:'flex', alignItems:'center', gap:8, padding:'10px 14px', borderRadius:9, border:'1px solid rgba(74,222,128,0.1)', background:'rgba(74,222,128,0.03)' }}>
+                    <Loader2 size={13} style={{ color:'rgba(74,222,128,0.6)', animation:'spin 1s linear infinite' }}/>
+                    <span style={{ fontSize:13, color:'rgba(74,222,128,0.7)', fontFamily:"'Figtree',sans-serif" }}>{msg.content}</span>
+                  </div>
+                )}
+
+                {/* Normal bubble for non-special messages */}
+                {!msg.isEdlReady && !msg.isWorking && (
                 <div
                   className={`kb-bubble ${msg.role} ${msg.isError ? 'error' : ''}`}
                   style={{ maxWidth:'100%', cursor: msg.isEpisodeReady ? 'pointer' : 'default' }}
@@ -709,7 +1017,8 @@ export default function ChatPanel() {
                   {msg.isGenerating && <span style={{ color:'rgba(100,180,100,0.6)', marginLeft:6 }}>✦</span>}
                   {msg.isEpisodeReady && <span style={{ marginLeft:8, fontSize:11, opacity:0.7 }}>→</span>}
                 </div>
-                {msg.role === 'assistant' && !msg.isError && !msg.isGenerating && !msg.isEpisodeReady && (
+                )}
+                {msg.role === 'assistant' && !msg.isError && !msg.isGenerating && !msg.isEpisodeReady && !msg.isEdlReady && !msg.isWorking && (
                   <button
                     onClick={() => saveToVault(msg.content)}
                     title="Save to vault"
@@ -755,20 +1064,7 @@ export default function ChatPanel() {
           </button>
         )}
 
-        {/* Generation progress bar */}
-        {generating && genPct > 0 && (
-          <div style={{ padding:'0 4px' }}>
-            <div style={{ display:'flex', justifyContent:'space-between', marginBottom:4 }}>
-              <span style={{ fontSize:10, color:'rgba(255,255,255,0.3)', letterSpacing:'0.06em', textTransform:'uppercase' }}>
-                {genPct < 25 ? 'Reading the conversation...' : genPct < 50 ? 'Structuring the episode...' : genPct < 75 ? 'Writing your VO script...' : 'Compiling the package...'}
-              </span>
-              <span style={{ fontSize:10, color:'rgba(255,255,255,0.3)' }}>{Math.round(genPct)}%</span>
-            </div>
-            <div style={{ height:2, background:'rgba(255,255,255,0.06)', borderRadius:2, overflow:'hidden' }}>
-              <div style={{ height:'100%', width:`${genPct}%`, background:'linear-gradient(90deg,rgba(74,222,128,1),rgba(74,222,128,0.6))', borderRadius:2, transition:'width 0.3s ease' }}/>
-            </div>
-          </div>
-        )}
+
 
         {/* Quick prompts */}
         {messages.length === 0 && !streaming && QUICK_PROMPTS[mode]?.length > 0 && (
@@ -794,11 +1090,11 @@ export default function ChatPanel() {
         {/* Action row */}
         <div style={{ display:'flex', gap:6, padding:'0 12px 8px', justifyContent:'space-between', alignItems:'center' }}>
           <label
-            title="Upload to KB — audio/video (transcribe), CSV (analytics), TXT/MD (script)"
+            title="Upload to KB — audio, image, PDF, DOC, XLS, CSV, or script"
             style={{ fontSize:10, padding:'3px 8px', borderRadius:6, border:'1px solid rgba(255,255,255,0.06)', background:'transparent', color: indexingAudio ? 'rgba(74,222,128,0.6)' : 'rgba(255,255,255,0.3)', cursor: indexingAudio ? 'wait' : 'pointer', fontFamily:"'Figtree',sans-serif", display:'flex', alignItems:'center', gap:4 }}
           >
             <Plus size={9}/> {indexingAudio ? indexProgress || 'Processing…' : 'Upload'}
-            <input type="file" accept="audio/*,video/*,.mp3,.m4a,.wav,.aac,.csv,.txt,.md,.fountain,.fdx" onChange={handleFileUpload} disabled={indexingAudio} style={{ display:'none' }}/>
+            <input type="file" accept="audio/*,.mp3,.m4a,.wav,.aac,.ogg,.flac,image/*,.jpg,.jpeg,.png,.gif,.webp,.heic,.pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,.md,.fountain,.fdx" onChange={handleFileUpload} disabled={indexingAudio} style={{ display:'none' }}/>
           </label>
 
           <button onClick={newChat}

@@ -28,6 +28,7 @@ const soundRoutes           = require('./routes/sound')
 const creditRoutes          = require('./routes/credits')
 const episodeCommentsRoutes = require('./routes/episodeComments')
 const publicRoutes          = require('./routes/public')
+const kbRoutes              = require('./routes/kb')
 
 const { startSmartScheduler } = require('./services/smartScheduler')
 
@@ -141,6 +142,7 @@ app.use('/api/editor',          authMiddleware, editorRoutes)
 app.use('/api/session',         authMiddleware, sessionRoutes)
 app.use('/api/sound',           authMiddleware, soundRoutes)
 app.use('/api/episode-comments', episodeCommentsRoutes)
+app.use('/api/kb',               authMiddleware, kbRoutes)
 app.use('/api/public',           publicRoutes)  // No auth — public endpoints
 
 app.get('/api/ping', authMiddleware, (req, res) => {
