@@ -1,16 +1,20 @@
 // frontend/src/components/chat/ChatPanel.jsx
 // KB — editorial dark glass aesthetic
-// Left meta column + wide conversation area
+// Fixes in this version:
+//   - sendMessageRef pattern so voice auto-sends without stale closure
+//   - handleFileUpload uses async job pattern for index-audio (polls for completion)
+//   - TTS speak() errors silently swallowed — no error shown to user for TTS
+//     (voice input still works; TTS is just bonus output when ElevenLabs is configured)
 
 import { useState, useRef, useEffect, useCallback } from 'react'
 import {
   Send, Trash2, Loader2, BookmarkPlus, Check,
   Plus, X, Sparkles, Mic, MicOff, Volume2, ChevronDown, Zap,
 } from 'lucide-react'
-import { useStore } from '../../store'
+import { useStore }    from '../../store'
 import { useNavigate } from 'react-router-dom'
 import { chat as chatApi, vault as vaultApi } from '../../lib/api'
-import useKBVoice from '../../hooks/useKBVoice'
+import useKBVoice      from '../../hooks/useKBVoice'
 import { useLocation } from 'react-router-dom'
 
 const MODE_MAP = {
@@ -27,12 +31,8 @@ const MODE_MAP = {
   '/schedule':     'analytics',
 }
 
-// Dynamic mode for episode workspace
 function getModeFromPathname(pathname) {
-  if (pathname.startsWith('/episode/')) {
-    // KB in generate mode when inside an episode — most useful default
-    return 'generate'
-  }
+  if (pathname.startsWith('/episode/')) return 'generate'
   return MODE_MAP[pathname] || 'generate'
 }
 
@@ -61,7 +61,6 @@ const QUICK_PROMPTS = {
 // ── CSS injected once ─────────────────────────────────────────────────────────
 const STYLES = `
   .kb-panel * { box-sizing: border-box; }
-
   .kb-panel {
     font-family: 'Figtree', system-ui, sans-serif;
     background: rgba(10,12,18,0.97);
@@ -70,8 +69,6 @@ const STYLES = `
     width: 100%;
     position: relative;
   }
-
-  /* Neon green top separator — the glow line that floats the panel */
   .kb-panel::before {
     content: '';
     position: absolute;
@@ -80,8 +77,6 @@ const STYLES = `
     background: linear-gradient(90deg, transparent 0%, rgba(74,222,128,0.0) 10%, rgba(74,222,128,0.7) 35%, rgba(74,222,128,1) 50%, rgba(74,222,128,0.7) 65%, rgba(74,222,128,0.0) 90%, transparent 100%);
     z-index: 2;
   }
-
-  /* Glow bloom behind the line */
   .kb-panel::after {
     content: '';
     position: absolute;
@@ -91,388 +86,152 @@ const STYLES = `
     pointer-events: none;
     z-index: 1;
   }
-
-  .kb-sidebar {
-    width: 196px;
-    flex-shrink: 0;
-    border-right: 1px solid rgba(255,255,255,0.05);
-    display: flex;
-    flex-direction: column;
-    padding: 20px 16px;
-    background: rgba(8,10,16,0.5);
-    transition: width 0.25s cubic-bezier(0.4,0,0.2,1), opacity 0.2s, padding 0.25s;
-    overflow: hidden;
-  }
-
-  .kb-sidebar.collapsed {
-    width: 0;
-    padding: 0;
-    opacity: 0;
-    border-right: none;
-  }
-
-  .kb-sidebar-toggle {
-    position: absolute;
-    top: 12px;
-    left: 12px;
-    width: 26px;
-    height: 26px;
-    border-radius: 6px;
-    border: 1px solid rgba(255,255,255,0.08);
-    background: rgba(255,255,255,0.03);
-    color: rgba(255,255,255,0.4);
-    cursor: pointer;
-    display: none;
-    align-items: center;
-    justify-content: center;
-    font-size: 12px;
-    transition: all 0.15s;
-    z-index: 3;
-  }
-  .kb-sidebar-toggle:hover { background: rgba(255,255,255,0.07); color: rgba(255,255,255,0.7); }
-
-  @media (max-width: 600px) {
-    .kb-sidebar-toggle { display: flex; }
-    .kb-sidebar-toggle.sidebar-open { left: 208px; }
-  }
-
-  .kb-mode-glyph {
-    font-size: 22px;
-    line-height: 1;
-    margin-bottom: 4px;
-  }
-
-  .kb-mode-name {
-    font-family: 'Figtree', sans-serif;
-    font-size: 10px;
-    font-weight: 500;
-    letter-spacing: 0.10em;
-    text-transform: uppercase;
-    color: var(--text3);
-    margin-bottom: 2px;
-  }
-
-  .kb-mode-label {
-    font-family: 'Syne', sans-serif;
-    font-size: 17px;
-    font-weight: 600;
-    color: var(--text);
-    margin-bottom: 20px;
-    letter-spacing: -0.01em;
-  }
-
-  .kb-quick-label {
-    font-size: 10px;
-    font-weight: 500;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    color: var(--text3);
-    margin-bottom: 6px;
-    opacity: 0.6;
-  }
-
-  .kb-quick-btn {
-    font-family: 'Figtree', sans-serif;
-    font-size: 13px;
-    font-weight: 400;
-    line-height: 1.45;
-    text-align: left;
-    padding: 8px 10px;
-    border-radius: 7px;
-    border: 1px solid rgba(255,255,255,0.04);
-    background: transparent;
-    cursor: pointer;
-    margin-bottom: 3px;
-    transition: all 0.15s;
-    color: var(--text3);
-    width: 100%;
-  }
-  .kb-quick-btn:hover { color: var(--text2); border-color: rgba(255,255,255,0.09); background: rgba(255,255,255,0.025); }
-
-  .kb-action-btn {
-    font-family: 'Figtree', sans-serif;
-    font-size: 13px;
-    font-weight: 400;
-    text-align: left;
-    padding: 7px 10px;
-    border-radius: 6px;
-    border: 1px solid rgba(255,255,255,0.05);
-    background: transparent;
-    cursor: pointer;
-    transition: all 0.15s;
-    width: 100%;
-    margin-bottom: 3px;
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    color: var(--text3);
-  }
-  .kb-action-btn:hover { color: var(--text2); background: rgba(255,255,255,0.03); }
-  .kb-action-btn.accent { color: var(--text2); }
-  .kb-action-btn.accent:hover { color: var(--text); }
-
+  .kb-main { flex: 1; display: flex; flex-direction: column; min-width: 0; position: relative; }
   .kb-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 10px 16px;
-    border-bottom: 1px solid rgba(255,255,255,0.05);
-    flex-shrink: 0;
-    position: sticky;
-    top: 0;
-    background: rgba(10,12,18,0.97);
-    z-index: 2;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 16px; border-bottom: 1px solid rgba(255,255,255,0.05);
+    flex-shrink: 0; position: sticky; top: 0;
+    background: rgba(10,12,18,0.97); z-index: 2;
   }
-
   .kb-header-mode {
-    display: flex;
-    align-items: center;
-    gap: 7px;
-    font-family: 'Figtree', sans-serif;
-    font-size: 11px;
-    font-weight: 500;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: rgba(255,255,255,0.35);
+    display: flex; align-items: center; gap: 7px;
+    font-family: 'Figtree', sans-serif; font-size: 11px;
+    font-weight: 500; letter-spacing: 0.08em;
+    text-transform: uppercase; color: rgba(255,255,255,0.35);
   }
-
   .kb-header-close {
-    width: 26px;
-    height: 26px;
-    border-radius: 50%;
+    width: 26px; height: 26px; border-radius: 50%;
     border: 1px solid rgba(255,255,255,0.08);
-    background: rgba(255,255,255,0.03);
-    color: rgba(255,255,255,0.35);
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition: all 0.15s;
-    touch-action: manipulation;
+    background: rgba(255,255,255,0.03); color: rgba(255,255,255,0.35);
+    cursor: pointer; display: flex; align-items: center;
+    justify-content: center; transition: all 0.15s; touch-action: manipulation;
   }
   .kb-header-close:hover { background: rgba(255,255,255,0.07); color: rgba(255,255,255,0.7); }
-
-  .kb-main {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    min-width: 0;
-    position: relative;
-  }
-
   .kb-messages {
-    flex: 1;
-    overflow-y: auto;
-    padding: 20px 24px;
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-    scrollbar-width: thin;
-    scrollbar-color: rgba(255,255,255,0.05) transparent;
+    flex: 1; overflow-y: auto; padding: 20px 24px;
+    display: flex; flex-direction: column; gap: 12px;
+    scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.05) transparent;
   }
-
-  .kb-empty {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    height: 100%;
-    text-align: center;
-    gap: 6px;
-  }
+  .kb-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; text-align: center; gap: 6px; }
   .kb-empty-glyph { font-size: 32px; margin-bottom: 4px; opacity: 0.2; }
   .kb-empty-text { font-size: 13px; color: var(--text3); }
-
   .kb-msg { display: flex; margin-bottom: 10px; }
-  .kb-msg.user  { justify-content: flex-end; }
+  .kb-msg.user { justify-content: flex-end; }
   .kb-msg.assistant { justify-content: flex-start; }
-
   .kb-bubble {
-    max-width: 100%;
-    padding: 11px 15px;
-    border-radius: 16px;
-    font-family: 'Figtree', sans-serif;
-    font-size: 14px;
-    line-height: 1.7;
-    font-weight: 400;
+    max-width: 100%; padding: 11px 15px; border-radius: 16px;
+    font-family: 'Figtree', sans-serif; font-size: 14px;
+    line-height: 1.7; font-weight: 400;
   }
-
-  /* User bubble — dark, right-aligned, distinct pill shape */
   .kb-bubble.user {
     border-radius: 18px 18px 4px 18px;
-    background: rgba(255,255,255,0.10);
-    border: 1px solid rgba(255,255,255,0.14);
-    color: #ffffff;
-    font-weight: 500;
+    background: rgba(255,255,255,0.10); border: 1px solid rgba(255,255,255,0.14);
+    color: #ffffff; font-weight: 500;
   }
-
-  /* KB bubble — green-tinted, immediately distinct */
   .kb-bubble.assistant {
     border-radius: 4px 18px 18px 18px;
-    background: rgba(74,222,128,0.08);
-    border: 1px solid rgba(74,222,128,0.18);
+    background: rgba(74,222,128,0.08); border: 1px solid rgba(74,222,128,0.18);
     color: rgba(74,222,128,0.95);
   }
-
-  .kb-bubble.error {
-    background: rgba(180,60,60,0.07);
-    border-color: rgba(180,60,60,0.12);
-    color: #bf7070;
-  }
-
+  .kb-bubble.error { background: rgba(180,60,60,0.07); border-color: rgba(180,60,60,0.12); color: #bf7070; }
   .kb-bubble strong { color: var(--text); font-weight: 600; }
   .kb-bubble code {
-    font-family: 'Figtree', monospace;
-    font-size: 12px;
-    background: rgba(255,255,255,0.06);
-    padding: 1px 5px;
-    border-radius: 3px;
-    color: var(--text2);
+    font-family: 'Figtree', monospace; font-size: 12px;
+    background: rgba(255,255,255,0.06); padding: 1px 5px;
+    border-radius: 3px; color: var(--text2);
   }
-
-  .kb-thinking {
-    display: flex;
-    gap: 5px;
-    padding: 10px 0;
-  }
-  .kb-dot {
-    width: 4px; height: 4px; border-radius: 50%;
-    animation: kb-bounce 0.8s infinite;
-  }
+  .kb-thinking { display: flex; gap: 5px; padding: 10px 0; }
+  .kb-dot { width: 4px; height: 4px; border-radius: 50%; animation: kb-bounce 0.8s infinite; }
   .kb-dot:nth-child(2) { animation-delay: 0.15s; }
   .kb-dot:nth-child(3) { animation-delay: 0.3s; }
-  @keyframes kb-bounce {
-    0%, 80%, 100% { transform: translateY(0); opacity: 0.25; }
-    40% { transform: translateY(-4px); opacity: 0.9; }
-  }
-
-  .kb-cursor {
-    display: inline-block;
-    width: 2px; height: 12px;
-    border-radius: 1px;
-    margin-left: 2px;
-    vertical-align: middle;
-    animation: kb-blink 1s infinite;
-  }
+  @keyframes kb-bounce { 0%, 80%, 100% { transform: translateY(0); opacity: 0.25; } 40% { transform: translateY(-4px); opacity: 0.9; } }
+  .kb-cursor { display: inline-block; width: 2px; height: 12px; border-radius: 1px; margin-left: 2px; vertical-align: middle; animation: kb-blink 1s infinite; }
   @keyframes kb-blink { 0%,100% { opacity: 0 } 50% { opacity: 1 } }
-
-  .kb-committed-bar {
-    padding: 8px 20px;
-    font-size: 13px;
-    display: flex;
-    align-items: center;
-    gap: 7px;
-    border-top: 1px solid rgba(74,222,128,0.08);
-    background: rgba(74,222,128,0.04);
-    color: rgba(74,222,128,0.7);
-  }
-
-  .kb-input-area {
-    padding: 12px 16px 16px;
-    border-top: 1px solid rgba(255,255,255,0.04);
-  }
-
+  .kb-input-area { padding: 12px 16px 16px; border-top: 1px solid rgba(255,255,255,0.04); }
   .kb-input-wrap {
-    display: flex;
-    gap: 8px;
-    background: rgba(255,255,255,0.025);
-    border: 1px solid rgba(255,255,255,0.07);
-    border-radius: 10px;
-    padding: 8px 12px;
-    transition: border-color 0.2s;
+    display: flex; gap: 8px; background: rgba(255,255,255,0.025);
+    border: 1px solid rgba(255,255,255,0.07); border-radius: 10px;
+    padding: 8px 12px; transition: border-color 0.2s;
   }
   .kb-input-wrap:focus-within { border-color: rgba(255,255,255,0.12); }
-
   .kb-textarea {
-    flex: 1;
-    background: transparent;
-    border: none;
-    outline: none;
-    resize: none;
-    font-family: 'Figtree', sans-serif;
-    font-size: 14px;
-    line-height: 1.5;
-    color: var(--text);
+    flex: 1; background: transparent; border: none; outline: none;
+    resize: none; font-family: 'Figtree', sans-serif; font-size: 14px;
+    line-height: 1.5; color: var(--text);
   }
   .kb-textarea::placeholder { color: var(--text3); }
-
   .kb-send {
-    align-self: flex-end;
-    width: 30px; height: 30px;
-    border-radius: 7px;
-    border: none;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition: all 0.15s;
-    flex-shrink: 0;
-    touch-action: manipulation;
-    -webkit-tap-highlight-color: transparent;
-    user-select: none;
+    align-self: flex-end; width: 30px; height: 30px; border-radius: 7px;
+    border: none; cursor: pointer; display: flex; align-items: center;
+    justify-content: center; transition: all 0.15s; flex-shrink: 0;
+    touch-action: manipulation; -webkit-tap-highlight-color: transparent; user-select: none;
   }
   .kb-send:disabled { opacity: 0.2; cursor: not-allowed; }
-
   .kb-generate-strip {
-    margin: 0 16px 8px;
-    padding: 9px 13px;
-    border-radius: 9px;
-    border: 1px solid rgba(74,222,128,0.12);
-    background: rgba(74,222,128,0.04);
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
+    margin: 0 16px 8px; padding: 9px 13px; border-radius: 9px;
+    border: 1px solid rgba(74,222,128,0.12); background: rgba(74,222,128,0.04);
+    display: flex; align-items: center; justify-content: space-between;
   }
-
-  .kb-generate-text {
-    font-size: 13px;
-    color: rgba(74,222,128,0.55);
-  }
-
+  .kb-generate-text { font-size: 13px; color: rgba(74,222,128,0.55); }
   .kb-generate-btn {
-    font-family: 'Figtree', sans-serif;
-    font-size: 13px;
-    font-weight: 500;
-    padding: 5px 10px;
-    border-radius: 6px;
-    border: 1px solid rgba(74,222,128,0.18);
-    background: rgba(74,222,128,0.07);
-    color: rgba(74,222,128,0.85);
-    cursor: pointer;
-    transition: all 0.15s;
-    display: flex;
-    align-items: center;
-    gap: 5px;
+    font-family: 'Figtree', sans-serif; font-size: 13px; font-weight: 500;
+    padding: 5px 10px; border-radius: 6px; border: 1px solid rgba(74,222,128,0.18);
+    background: rgba(74,222,128,0.07); color: rgba(74,222,128,0.85);
+    cursor: pointer; transition: all 0.15s; display: flex; align-items: center; gap: 5px;
   }
   .kb-generate-btn:hover { background: rgba(74,222,128,0.14); color: rgba(74,222,128,1); }
   .kb-generate-btn:disabled { opacity: 0.3; cursor: not-allowed; }
-
-  .kb-msg-wrapper:hover .kb-vault-save { opacity: 1 !important; }
-
   .kb-history-item {
-    padding: 11px 13px;
-    border-radius: 9px;
+    padding: 11px 13px; border-radius: 9px;
     border: 1px solid rgba(255,255,255,0.04);
-    background: transparent;
-    cursor: pointer;
-    transition: all 0.15s;
-    margin-bottom: 5px;
+    background: transparent; cursor: pointer; transition: all 0.15s; margin-bottom: 5px;
   }
   .kb-history-item:hover { border-color: rgba(255,255,255,0.09); background: rgba(255,255,255,0.02); }
   .kb-history-title { font-size: 14px; color: var(--text2); line-height: 1.4; margin-bottom: 4px; }
   .kb-history-meta { font-size: 11px; color: var(--text3); display: flex; align-items: center; gap: 6px; }
   .kb-history-mode { padding: 2px 6px; border-radius: 3px; font-size: 9px; font-weight: 500; letter-spacing: 0.05em; text-transform: uppercase; }
+  .kb-msg-wrapper:hover .kb-vault-save { opacity: 1 !important; }
 `
 
 let stylesInjected = false
 
+// ── POLL HELPER ───────────────────────────────────────────────────────────────
+// Polls GET /session/index-audio/:jobId every 4 seconds until done or error.
+async function pollIndexAudioJob(jobId, authToken, onProgress) {
+  const BASE = import.meta.env.VITE_API_URL || '/api'
+  const MAX_POLLS = 120  // 120 × 4s = 8 minutes max
+
+  for (let i = 0; i < MAX_POLLS; i++) {
+    await new Promise(r => setTimeout(r, 4000))
+
+    const res = await fetch(`${BASE}/session/index-audio/${jobId}`, {
+      headers: { Authorization: `Bearer ${authToken}` },
+    })
+
+    if (!res.ok) throw new Error(`Poll failed: ${res.status}`)
+
+    const data = await res.json()
+
+    if (data.status === 'processing') {
+      onProgress?.(data.progress, data.total)
+      continue
+    }
+
+    if (data.status === 'done') return data
+
+    if (data.status === 'error') throw new Error(data.error || 'Transcription failed')
+  }
+
+  throw new Error('Transcription timed out — try a shorter file')
+}
+
 export default function ChatPanel() {
   const { activeCategoryId, activeEpisodeId, notify } = useStore()
   const location = useLocation()
+  const navigate = useNavigate()
   const mode     = getModeFromPathname(location.pathname)
   const meta     = MODE_META[mode] || MODE_META.generate
 
-  // Inject styles once
   useEffect(() => {
     if (stylesInjected) return
     const el = document.createElement('style')
@@ -481,57 +240,68 @@ export default function ChatPanel() {
     stylesInjected = true
   }, [])
 
-  const [view,        setView]        = useState('chat')
-  const isMobile    = typeof window !== 'undefined' && window.innerWidth < 600
-  const [messages,    setMessages]    = useState([])
-  const [sessions,    setSessions]    = useState([])
+  const [view,          setView]          = useState('chat')
+  const isMobile      = typeof window !== 'undefined' && window.innerWidth < 600
+  const [messages,      setMessages]      = useState([])
+  const [sessions,      setSessions]      = useState([])
   const [sessionSearch, setSessionSearch] = useState('')
-  const [input,       setInput]       = useState('')
-  const [streaming,   setStreaming]   = useState(false)
-  const [streamText,  setStreamText]  = useState('')
-  const [committing,  setCommitting]  = useState(false)
-  const [committed,   setCommitted]   = useState(null)
-  // saving/saved removed — history auto-saves on every message via backend
-  const [generating,  setGenerating]  = useState(false)
-  const [generated,   setGenerated]   = useState(null)
-  const [genPct,      setGenPct]      = useState(0)
+  const [input,         setInput]         = useState('')
+  const [streaming,     setStreaming]     = useState(false)
+  const [streamText,    setStreamText]    = useState('')
+  const [committing,    setCommitting]    = useState(false)
+  const [committed,     setCommitted]     = useState(null)
+  const [generating,    setGenerating]    = useState(false)
+  const [generated,     setGenerated]     = useState(null)
+  const [genPct,        setGenPct]        = useState(0)
   const [showScrollBtn, setShowScrollBtn] = useState(false)
   const [greeted,       setGreeted]       = useState(false)
   const [indexingAudio, setIndexingAudio] = useState(false)
-  const [voiceError,    setVoiceError]    = useState('')
   const [indexProgress, setIndexProgress] = useState('')
-  const genTimerRef = useRef(null)
-  const bottomRef   = useRef(null)
-  const inputRef    = useRef(null)
-  const abortRef    = useRef(null)   // AbortController for the active stream
+  const genTimerRef   = useRef(null)
+  const bottomRef     = useRef(null)
+  const inputRef      = useRef(null)
+  const abortRef      = useRef(null)
   const voiceUsedRef  = useRef(false)
+
+  // ── sendMessageRef — always points to latest sendMessage ──────────────────
+  // This is the key fix for voice auto-send. Voice callbacks capture this ref,
+  // not sendMessage directly, so they always call the current version with
+  // current streaming/activeCategoryId state — no stale closure.
+  const sendMessageRef = useRef(null)
 
   const { listening, speaking, audioLevel: voiceLevel, supported: voiceSupported,
           startListening, stopListening, speak, stopSpeaking } = useKBVoice({
     onTranscript: ({ text, isFinal, interim }) => {
-      setVoiceError('')
       setInput(text || interim || '')
       if (isFinal && text.trim()) {
         voiceUsedRef.current = true
-        sendMessage(text.trim())
+        // Use the ref — not sendMessage directly — so this always calls
+        // the latest version regardless of when the callback was created
+        sendMessageRef.current?.(text.trim())
       }
     },
     onError: (err) => {
-      setVoiceError(err === 'not-allowed' ? 'Mic permission denied — allow microphone access in browser settings' : 'Voice error: ' + err)
+      // Only show permission errors to the user — not-allowed is actionable
+      // Everything else (no-speech, TTS failures) is swallowed silently
+      if (err === 'not-allowed') {
+        notify('Mic permission denied — allow microphone in browser settings', 'error')
+      }
     },
   })
 
+  // ── File upload handler with async job polling ────────────────────────────
   async function handleFileUpload(e) {
     const file = e.target.files?.[0]
     if (!file || !activeCategoryId) return
 
-    const name = file.name.toLowerCase()
-    const isAudio   = file.type.startsWith('audio/') || /\.(mp3|m4a|wav|aac|ogg|flac)$/i.test(name)
-    const isVideo   = file.type.startsWith('video/') || /\.(mp4|mov|mkv|webm)$/i.test(name)
-    const isCSV     = /\.csv$/i.test(name)
-    const isScript  = /\.(txt|md|fdx|fountain)$/i.test(name)
+    const name    = file.name.toLowerCase()
+    const isAudio = file.type.startsWith('audio/') || /\.(mp3|m4a|wav|aac|ogg|flac)$/i.test(name)
+    const isVideo = file.type.startsWith('video/') || /\.(mp4|mov|mkv|webm)$/i.test(name)
+    const isCSV   = /\.csv$/i.test(name)
+    const isScript = /\.(txt|md|fdx|fountain)$/i.test(name)
 
     setIndexingAudio(true)
+    setIndexProgress('Uploading…')
 
     try {
       const { supabase: sb } = await import('../../lib/supabase')
@@ -539,48 +309,67 @@ export default function ChatPanel() {
       const BASE = import.meta.env.VITE_API_URL || '/api'
 
       if (isAudio || isVideo) {
-        setIndexProgress('Transcribing audio... this takes 1-2 min per hour')
+        // Step 1: upload and get jobId back immediately
         const fd = new FormData()
         fd.append('audio', file)
         fd.append('categoryId', activeCategoryId)
         fd.append('title', file.name.replace(/\.[^.]+$/i, ''))
-        const res  = await fetch(BASE + '/session/index-audio', {
-          method: 'POST', headers: { Authorization: 'Bearer ' + sess?.access_token }, body: fd
+
+        const uploadRes = await fetch(BASE + '/session/index-audio', {
+          method: 'POST',
+          headers: { Authorization: 'Bearer ' + sess?.access_token },
+          body: fd,
         })
-        const data = await res.json()
-        if (!res.ok) throw new Error(data.error)
+        const uploadData = await uploadRes.json()
+        if (!uploadRes.ok) throw new Error(uploadData.error)
+
+        const { jobId } = uploadData
+        const fileMB    = Math.round(file.size / 1024 / 1024)
+        setIndexProgress(`Transcribing ${fileMB}MB — checking progress…`)
+
+        // Step 2: poll until done
+        const result = await pollIndexAudioJob(
+          jobId,
+          sess?.access_token,
+          (progress, total) => {
+            setIndexProgress(
+              total > 0
+                ? `Transcribing… chunk ${progress}/${total}`
+                : 'Transcribing…'
+            )
+          }
+        )
+
         setIndexProgress('')
+        const mins = Math.round((result.duration || 0) / 60)
         setMessages(prev => [...prev, {
           role: 'assistant',
-          content: 'Indexed "' + file.name + '" — ' + Math.round((data.duration || 0) / 60) + ' min transcribed across ' + (data.segments || 0) + ' segments with timecodes. I can now reference everything you said in this session. Want to talk through it?',
+          content: `Indexed "${file.name}" — ${mins} min transcribed across ${result.segments || 0} segments with timecodes. I can now reference everything in this session. Want to talk through it?`,
           timestamp: new Date().toISOString(),
         }])
 
       } else if (isCSV) {
-        setIndexProgress('Reading analytics data...')
-        const text = await file.text()
-        const rows = text.trim().split('\n').length - 1
-        // Upload via analytics route
+        setIndexProgress('Reading analytics data…')
         const fd = new FormData()
         fd.append('file', file)
         fd.append('categoryId', activeCategoryId)
-        const res = await fetch(BASE + '/analytics/upload', {
-          method: 'POST', headers: { Authorization: 'Bearer ' + sess?.access_token }, body: fd
+        const res  = await fetch(BASE + '/analytics/upload', {
+          method: 'POST', headers: { Authorization: 'Bearer ' + sess?.access_token }, body: fd,
         })
         const data = await res.json()
         if (!res.ok) throw new Error(data.error || 'Analytics upload failed')
+        const rows = (await file.text()).trim().split('\n').length - 1
         setIndexProgress('')
         setMessages(prev => [...prev, {
           role: 'assistant',
-          content: "Got the analytics CSV — " + rows + " rows of data uploaded. I'll use this to inform your next episode recommendations and hook strategy. Want a breakdown of what I'm seeing?",
+          content: `Got the analytics CSV — ${rows} rows uploaded. I'll use this to inform your next episode recommendations. Want a breakdown?`,
           timestamp: new Date().toISOString(),
         }])
 
       } else if (isScript) {
-        setIndexProgress('Reading script...')
-        const text = await file.text()
+        setIndexProgress('Reading script…')
+        const text      = await file.text()
         const wordCount = text.trim().split(/\s+/).length
-        // Save as a vault entry
         const { error } = await sb.from('vault_entries').insert({
           user_id:     sess.user.id,
           category_id: activeCategoryId,
@@ -593,7 +382,7 @@ export default function ChatPanel() {
         setIndexProgress('')
         setMessages(prev => [...prev, {
           role: 'assistant',
-          content: "Script saved to vault — " + wordCount + " words. Want me to review it for hook strength, pacing, or retention points?",
+          content: `Script saved to vault — ${wordCount} words. Want me to review it for hook strength, pacing, or retention points?`,
           timestamp: new Date().toISOString(),
         }])
 
@@ -610,23 +399,22 @@ export default function ChatPanel() {
         timestamp: new Date().toISOString(),
       }])
     }
+
     setIndexingAudio(false)
     e.target.value = ''
   }
 
-  // Auto-focus input on mount — opens keyboard immediately when chat sheet opens
+  // Auto-focus on mount
   useEffect(() => {
     setTimeout(() => inputRef.current?.focus(), 300)
   }, [])
 
-  // Also focus when orb is tapped to open (kb:focus event from AppLayout)
   useEffect(() => {
     const handler = () => setTimeout(() => inputRef.current?.focus(), 100)
     window.addEventListener('kb:focus', handler)
     return () => window.removeEventListener('kb:focus', handler)
   }, [])
 
-  // Cancel any in-flight stream when the panel unmounts (tab switch, page change)
   useEffect(() => {
     return () => { abortRef.current?.abort() }
   }, [])
@@ -635,7 +423,6 @@ export default function ChatPanel() {
     if (!activeCategoryId) return
     setMessages([]); setCommitted(null); setGenerated(null); setGreeted(false)
 
-    // Load history and greet in parallel
     const historyPromise = chatApi.getHistory({ categoryId: activeCategoryId, mode })
       .then(({ messages: h }) => h || [])
       .catch(() => [])
@@ -645,14 +432,10 @@ export default function ChatPanel() {
 
     Promise.all([historyPromise, greetPromise]).then(([history, greetData]) => {
       setMessages(history)
-
-      // Determine greeting message
       let greetMsg = greetData?.message || null
 
-      // Fallback: if API failed or returned nothing, use a local greeting
       if (!greetMsg) {
         if (!history.length) {
-          // Brand new user — vary the opener
           const openers = [
             "What are we making?",
             "Your workspace is set up. What's the first episode about?",
@@ -662,7 +445,6 @@ export default function ChatPanel() {
           ]
           greetMsg = openers[Math.floor(Math.random() * openers.length)]
         } else {
-          // Returning user — check last message age
           const last = history[history.length - 1]
           const minsAgo = last?.timestamp
             ? Math.round((Date.now() - new Date(last.timestamp).getTime()) / 60000)
@@ -671,7 +453,7 @@ export default function ChatPanel() {
             const lastUserMsg = [...history].reverse().find(m => m.role === 'user')
             const snippet = lastUserMsg?.content?.slice(0, 60) || ''
             greetMsg = snippet
-              ? `You were working on something earlier${snippet ? ` — "${snippet}"` : ''}. Want to pick that up, or start something new?`
+              ? `You were working on something earlier — "${snippet}". Want to pick that up, or start something new?`
               : null
           }
         }
@@ -679,15 +461,10 @@ export default function ChatPanel() {
 
       if (greetMsg) {
         setGreeted(true)
-        setMessages(prev => [
-          ...prev,
-          {
-            role:       'assistant',
-            content:    greetMsg,
-            timestamp:  new Date().toISOString(),
-            isGreeting: true,
-          }
-        ])
+        setMessages(prev => [...prev, {
+          role: 'assistant', content: greetMsg,
+          timestamp: new Date().toISOString(), isGreeting: true,
+        }])
       }
     })
   }, [activeCategoryId, mode])
@@ -699,8 +476,6 @@ export default function ChatPanel() {
       .catch(() => {})
   }, [view])
 
-  // Smart scroll — only follow if user is already near the bottom
-  // This lets the user scroll up to read while streaming is happening
   const messagesRef = useRef(null)
   useEffect(() => {
     const el = messagesRef.current
@@ -711,7 +486,6 @@ export default function ChatPanel() {
     }
   }, [messages, streamText])
 
-  // Show scroll-to-bottom button when user has scrolled up more than 300px
   useEffect(() => {
     const el = messagesRef.current
     if (!el) return
@@ -726,13 +500,7 @@ export default function ChatPanel() {
   async function saveToVault(text) {
     if (!activeCategoryId || !text?.trim()) return
     try {
-      await vaultApi.create({
-        categoryId: activeCategoryId,
-        type:        'hook',
-        title:       text.slice(0, 80),
-        content:     text,
-        tags:        ['from-kb'],
-      })
+      await vaultApi.create({ categoryId: activeCategoryId, type: 'hook', title: text.slice(0, 80), content: text, tags: ['from-kb'] })
       notify('Saved to vault', 'success')
     } catch { notify('Could not save to vault', 'error') }
   }
@@ -745,7 +513,6 @@ export default function ChatPanel() {
     setStreaming(true)
     setStreamText('')
 
-    // Cancel any previous stream and create a fresh controller
     abortRef.current?.abort()
     const controller = new AbortController()
     abortRef.current = controller
@@ -759,8 +526,11 @@ export default function ChatPanel() {
             setMessages(prev => [...prev, { role: 'assistant', content: response, timestamp: new Date().toISOString() }])
             setStreamText('')
             setStreaming(false)
-            if (voiceUsedRef.current) { voiceUsedRef.current = false; speak(response) }
-            // KB can trigger UI actions — e.g. show history view
+            // Speak the response — silently ignore if TTS not configured
+            if (voiceUsedRef.current) {
+              voiceUsedRef.current = false
+              speak(response).catch(() => {})
+            }
             if (action === 'show_history') setTimeout(() => setView('history'), 400)
           },
           error: ({ message: e }) => {
@@ -777,9 +547,10 @@ export default function ChatPanel() {
       setStreamText('')
       setStreaming(false)
     }
-  }, [input, streaming, activeCategoryId, mode])
+  }, [input, streaming, activeCategoryId, mode, speak])
 
-
+  // Keep sendMessageRef always pointing at the latest sendMessage
+  sendMessageRef.current = sendMessage
 
   async function loadSession(id) {
     const { session } = await chatApi.getSession(id)
@@ -800,24 +571,10 @@ export default function ChatPanel() {
     setTimeout(() => inputRef.current?.focus(), 100)
   }
 
-  async function commitEpisode() {
-    if (!activeCategoryId || committing) return
-    setCommitting(true)
-    try {
-      const result = await chatApi.commitEpisode({ categoryId: activeCategoryId, mode })
-      setCommitted(result.plan)
-      notify(`"${result.plan.track_name}" committed to series`, 'success')
-    } catch { notify("Couldn't extract plan — discuss a specific episode first", 'error') }
-    finally { setCommitting(false) }
-  }
-
   async function generateEpisodeFromChat() {
     if (!activeCategoryId || generating) return
-    setGenerating(true)
-    setGenerated(null)
-    setGenPct(0)
+    setGenerating(true); setGenerated(null); setGenPct(0)
 
-    // Animate progress bar
     let pct = 0
     genTimerRef.current = setInterval(() => {
       pct = pct < 60 ? pct + 1.5 : pct < 80 ? pct + 0.5 : pct < 92 ? pct + 0.15 : pct
@@ -843,7 +600,6 @@ export default function ChatPanel() {
             clearInterval(genTimerRef.current); setGenPct(100)
             setTimeout(() => setGenPct(0), 600)
             setMessages(prev => prev.filter(m => !m.isGenerating))
-            // slug is the reliable name source — convert back to readable title
             const epName = slug
               ? slug.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
               : 'Your episode'
@@ -854,8 +610,7 @@ export default function ChatPanel() {
           error: ({ message: e }) => {
             clearInterval(genTimerRef.current); setGenPct(0)
             setMessages(prev => prev.filter(m => !m.isGenerating))
-            notify(e, 'error')
-            setGenerating(false)
+            notify(e, 'error'); setGenerating(false)
           },
         },
         controller.signal,
@@ -868,9 +623,8 @@ export default function ChatPanel() {
   }
 
   const isSeriesMode = mode === 'series' || mode === 'generate'
-  const canCommit    = isSeriesMode && messages.length >= 4 && !committed
 
-  // ── HISTORY VIEW ─────────────────────────────────────────────────────────
+  // ── HISTORY VIEW ──────────────────────────────────────────────────────────
   if (view === 'history') {
     return (
       <div className="kb-panel">
@@ -883,42 +637,38 @@ export default function ChatPanel() {
               <span style={{ color: 'rgba(255,255,255,0.2)' }}>·</span>
               Saved conversations
             </div>
-            <button
-              type="button"
-              className="kb-header-close"
-              onClick={() => window.dispatchEvent(new Event('kb:close'))}
-            >
+            <button type="button" className="kb-header-close" onClick={() => window.dispatchEvent(new Event('kb:close'))}>
               <X size={12}/>
             </button>
           </div>
           <div className="kb-messages">
-            {/* Search input */}
             <div style={{ marginBottom: 10 }}>
               <input
                 value={sessionSearch}
                 onChange={e => setSessionSearch(e.target.value)}
                 placeholder="Search conversations..."
-                style={{ width: '100%', boxSizing: 'border-box', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 7, padding: '7px 10px', color: 'rgba(255,255,255,0.6)', fontSize: 12, fontFamily: "'Figtree',sans-serif", outline: 'none' }}
+                style={{ width:'100%', boxSizing:'border-box', background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.08)', borderRadius:7, padding:'7px 10px', color:'rgba(255,255,255,0.6)', fontSize:12, fontFamily:"'Figtree',sans-serif", outline:'none' }}
               />
             </div>
-
             {sessions.length === 0 && (
-              <div style={{ color: 'rgba(255,255,255,0.2)', fontSize: 11, fontFamily: "'DM Mono', monospace" }}>
+              <div style={{ color:'rgba(255,255,255,0.2)', fontSize:11, fontFamily:"'DM Mono', monospace" }}>
                 No saved conversations yet — KB auto-saves every chat
               </div>
             )}
-            {sessions.filter(s => !sessionSearch || s.title?.toLowerCase().includes(sessionSearch.toLowerCase())).map(s => (
-              <div key={s.id} className="kb-history-item" onClick={() => loadSession(s.id)}>
-                <div className="kb-history-title">{s.title}</div>
-                <div className="kb-history-meta">
-                  <span className="kb-history-mode" style={{ background: meta.color + '15', color: meta.color }}>{s.mode}</span>
-                  {new Date(s.updated_at).toLocaleDateString('en', { month: 'short', day: 'numeric' })}
-                  <button onClick={e => deleteSession(s.id, e)} style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,0.2)', padding: 0 }}>
-                    <X size={10}/>
-                  </button>
+            {sessions
+              .filter(s => !sessionSearch || s.title?.toLowerCase().includes(sessionSearch.toLowerCase()))
+              .map(s => (
+                <div key={s.id} className="kb-history-item" onClick={() => loadSession(s.id)}>
+                  <div className="kb-history-title">{s.title}</div>
+                  <div className="kb-history-meta">
+                    <span className="kb-history-mode" style={{ background: meta.color + '15', color: meta.color }}>{s.mode}</span>
+                    {new Date(s.updated_at).toLocaleDateString('en', { month:'short', day:'numeric' })}
+                    <button onClick={e => deleteSession(s.id, e)} style={{ marginLeft:'auto', background:'none', border:'none', cursor:'pointer', color:'rgba(255,255,255,0.2)', padding:0 }}>
+                      <X size={10}/>
+                    </button>
+                  </div>
                 </div>
-              </div>
-            ))}
+              ))}
           </div>
         </div>
       </div>
@@ -928,28 +678,20 @@ export default function ChatPanel() {
   // ── CHAT VIEW ─────────────────────────────────────────────────────────────
   return (
     <div className="kb-panel">
-
-      {/* Main chat area */}
       <div className="kb-main">
 
-        {/* Sticky header — close button hidden on home (KBHome manages its own layout) */}
         <div className="kb-header">
           <div className="kb-header-mode">
             <span style={{ color: meta.color, fontSize: 14 }}>{meta.glyph}</span>
             {meta.name}
           </div>
           {location.pathname !== '/' && (
-            <button
-              type="button"
-              className="kb-header-close"
-              onClick={() => window.dispatchEvent(new Event('kb:close'))}
-            >
+            <button type="button" className="kb-header-close" onClick={() => window.dispatchEvent(new Event('kb:close'))}>
               <X size={12}/>
             </button>
           )}
         </div>
 
-        {/* Messages */}
         <div className="kb-messages" ref={messagesRef}>
           {messages.length === 0 && !streaming && (
             <div className="kb-empty">
@@ -960,16 +702,16 @@ export default function ChatPanel() {
 
           {messages.map((msg, i) => (
             <div key={i} className={`kb-msg ${msg.role}`}>
-              <div style={{ position: 'relative', display: 'inline-block', maxWidth: '82%' }} className="kb-msg-wrapper">
-                <div className={`kb-bubble ${msg.role} ${msg.isError ? 'error' : ''}`} style={{ maxWidth: '100%' }}>
+              <div style={{ position:'relative', display:'inline-block', maxWidth:'82%' }} className="kb-msg-wrapper">
+                <div className={`kb-bubble ${msg.role} ${msg.isError ? 'error' : ''}`} style={{ maxWidth:'100%' }}>
                   <MessageContent content={msg.content}/>
-                  {msg.isGenerating && <span style={{ color: 'rgba(100,180,100,0.6)', marginLeft: 6 }}>✦</span>}
+                  {msg.isGenerating && <span style={{ color:'rgba(100,180,100,0.6)', marginLeft:6 }}>✦</span>}
                 </div>
                 {msg.role === 'assistant' && !msg.isError && !msg.isGenerating && (
                   <button
                     onClick={() => saveToVault(msg.content)}
                     title="Save to vault"
-                    style={{ position: 'absolute', bottom: -2, left: 6, opacity: 0, transition: 'opacity 0.15s', padding: '2px 6px', borderRadius: 5, border: '1px solid rgba(255,255,255,0.08)', background: 'rgba(8,10,16,0.95)', color: 'rgba(255,255,255,0.3)', cursor: 'pointer', fontSize: 10, fontFamily: "'Figtree',sans-serif", display: 'flex', alignItems: 'center', gap: 3 }}
+                    style={{ position:'absolute', bottom:-2, left:6, opacity:0, transition:'opacity 0.15s', padding:'2px 6px', borderRadius:5, border:'1px solid rgba(255,255,255,0.08)', background:'rgba(8,10,16,0.95)', color:'rgba(255,255,255,0.3)', cursor:'pointer', fontSize:10, fontFamily:"'Figtree',sans-serif", display:'flex', alignItems:'center', gap:3 }}
                     onMouseEnter={e => e.currentTarget.style.opacity = '1'}
                     onMouseLeave={e => e.currentTarget.style.opacity = '0'}
                     className="kb-vault-save"
@@ -1005,89 +747,60 @@ export default function ChatPanel() {
         {showScrollBtn && (
           <button
             onClick={() => bottomRef.current?.scrollIntoView({ behavior: 'smooth' })}
-            style={{
-              position:       'absolute',
-              bottom:         120,
-              left:           '50%',
-              transform:      'translateX(-50%)',
-              width:          34,
-              height:         34,
-              borderRadius:   '50%',
-              background:     'rgba(8,10,16,0.92)',
-              border:         '1px solid rgba(74,222,128,0.25)',
-              color:          'rgba(74,222,128,0.8)',
-              cursor:         'pointer',
-              display:        'flex',
-              alignItems:     'center',
-              justifyContent: 'center',
-              boxShadow:      '0 2px 12px rgba(0,0,0,0.5)',
-              transition:     'all 0.15s',
-              zIndex:         5,
-            }}
-            onMouseEnter={e => { e.currentTarget.style.background = 'rgba(74,222,128,0.12)'; e.currentTarget.style.borderColor = 'rgba(74,222,128,0.5)' }}
-            onMouseLeave={e => { e.currentTarget.style.background = 'rgba(8,10,16,0.92)'; e.currentTarget.style.borderColor = 'rgba(74,222,128,0.25)' }}
+            style={{ position:'absolute', bottom:120, left:'50%', transform:'translateX(-50%)', width:34, height:34, borderRadius:'50%', background:'rgba(8,10,16,0.92)', border:'1px solid rgba(74,222,128,0.25)', color:'rgba(74,222,128,0.8)', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', boxShadow:'0 2px 12px rgba(0,0,0,0.5)', transition:'all 0.15s', zIndex:5 }}
           >
             <ChevronDown size={16}/>
           </button>
         )}
 
-
-
         {/* Generation progress bar */}
         {generating && genPct > 0 && (
-          <div style={{padding:'0 4px'}}>
-            <div style={{display:'flex',justifyContent:'space-between',marginBottom:4}}>
-              <span style={{fontSize:10,color:'rgba(255,255,255,0.3)',letterSpacing:'0.06em',textTransform:'uppercase'}}>
-                {genPct < 25 ? 'KB is reading the conversation...' : genPct < 50 ? 'KB is structuring the episode...' : genPct < 75 ? 'KB is writing your VO script...' : 'KB is compiling the package...'}
+          <div style={{ padding:'0 4px' }}>
+            <div style={{ display:'flex', justifyContent:'space-between', marginBottom:4 }}>
+              <span style={{ fontSize:10, color:'rgba(255,255,255,0.3)', letterSpacing:'0.06em', textTransform:'uppercase' }}>
+                {genPct < 25 ? 'Reading the conversation...' : genPct < 50 ? 'Structuring the episode...' : genPct < 75 ? 'Writing your VO script...' : 'Compiling the package...'}
               </span>
-              <span style={{fontSize:10,color:'rgba(255,255,255,0.3)'}}>{Math.round(genPct)}%</span>
+              <span style={{ fontSize:10, color:'rgba(255,255,255,0.3)' }}>{Math.round(genPct)}%</span>
             </div>
-            <div style={{height:2,background:'rgba(255,255,255,0.06)',borderRadius:2,overflow:'hidden'}}>
-              <div style={{height:'100%',width:`${genPct}%`,background:'linear-gradient(90deg,rgba(74,222,128,1),rgba(74,222,128,0.6))',borderRadius:2,transition:'width 0.3s ease'}}/>
+            <div style={{ height:2, background:'rgba(255,255,255,0.06)', borderRadius:2, overflow:'hidden' }}>
+              <div style={{ height:'100%', width:`${genPct}%`, background:'linear-gradient(90deg,rgba(74,222,128,1),rgba(74,222,128,0.6))', borderRadius:2, transition:'width 0.3s ease' }}/>
             </div>
           </div>
         )}
 
         {generated && (
-          <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'10px 14px',borderRadius:8,background:'rgba(74,222,128,0.06)',border:'1px solid rgba(74,222,128,0.2)',cursor:'pointer'}} onClick={() => generated?.id ? navigate('/episode/' + generated.id) : navigate('/pipeline')}>
-            <div style={{display:'flex',alignItems:'center',gap:8}}>
-              <Check size={12} style={{color:'rgba(74,222,128,1)',flexShrink:0}}/>
+          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'10px 14px', borderRadius:8, background:'rgba(74,222,128,0.06)', border:'1px solid rgba(74,222,128,0.2)', cursor:'pointer' }} onClick={() => generated?.id ? navigate('/episode/' + generated.id) : navigate('/pipeline')}>
+            <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+              <Check size={12} style={{ color:'rgba(74,222,128,1)', flexShrink:0 }}/>
               <div>
-                <div style={{fontSize:12,fontWeight:600,color:'rgba(74,222,128,1)'}}>Episode ready — tap to open</div>
-                <div style={{fontSize:10,color:'rgba(74,222,128,0.5)',marginTop:1}}>"{generated?.name || 'Your episode'}"</div>
+                <div style={{ fontSize:12, fontWeight:600, color:'rgba(74,222,128,1)' }}>Episode ready — tap to open</div>
+                <div style={{ fontSize:10, color:'rgba(74,222,128,0.5)', marginTop:1 }}>"{generated?.name || 'Your episode'}"</div>
               </div>
             </div>
-            <div style={{fontSize:11,color:'rgba(74,222,128,0.6)'}}>→</div>
+            <div style={{ fontSize:11, color:'rgba(74,222,128,0.6)' }}>→</div>
           </div>
         )}
 
-        {/* Generate strip — appears after enough conversation */}
+        {/* Generate strip */}
         {isSeriesMode && messages.length >= 4 && !generating && (
           <div className="kb-generate-strip">
             <span className="kb-generate-text">
               {generated ? `"${generated?.name || 'Episode'}" is ready` : 'Ready to generate from this conversation'}
             </span>
             {!generated && (
-              <button
-                className="kb-generate-btn"
-                onClick={generateEpisodeFromChat}
-                disabled={generating}
-              >
+              <button className="kb-generate-btn" onClick={generateEpisodeFromChat} disabled={generating}>
                 <Zap size={12}/> Generate episode
               </button>
             )}
             {generated && (
-              <button
-                className="kb-generate-btn"
-                onClick={() => generated?.id ? navigate('/episode/' + generated.id) : navigate('/pipeline')}
-              >
+              <button className="kb-generate-btn" onClick={() => generated?.id ? navigate('/episode/' + generated.id) : navigate('/pipeline')}>
                 Open episode →
               </button>
             )}
           </div>
         )}
 
-        {/* Quick prompts — shown when chat is empty */}
+        {/* Quick prompts */}
         {messages.length === 0 && !streaming && QUICK_PROMPTS[mode]?.length > 0 && (
           <div style={{ display:'flex', flexWrap:'wrap', gap:5, padding:'0 12px 10px', justifyContent:'center' }}>
             {QUICK_PROMPTS[mode].map((p, i) => (
@@ -1101,14 +814,7 @@ export default function ChatPanel() {
           </div>
         )}
 
-        {/* Voice error */}
-        {voiceError && (
-          <div style={{ padding:'4px 14px 0', fontSize:10, color:'rgba(248,113,113,0.8)', fontFamily:"'Figtree',sans-serif" }}>
-            ⚠ {voiceError}
-          </div>
-        )}
-
-        {/* Index progress */}
+        {/* Index progress — shown during audio upload/transcription */}
         {indexProgress && (
           <div style={{ padding:'4px 14px 0', fontSize:10, color:'rgba(74,222,128,0.6)', fontFamily:"'Figtree',sans-serif" }}>
             ◈ {indexProgress}
@@ -1117,12 +823,11 @@ export default function ChatPanel() {
 
         {/* Action row */}
         <div style={{ display:'flex', gap:6, padding:'0 12px 8px', justifyContent:'space-between', alignItems:'center' }}>
-          {/* Audio upload */}
           <label
             title="Upload to KB — audio/video (transcribe), CSV (analytics), TXT/MD (script)"
             style={{ fontSize:10, padding:'3px 8px', borderRadius:6, border:'1px solid rgba(255,255,255,0.06)', background:'transparent', color: indexingAudio ? 'rgba(74,222,128,0.6)' : 'rgba(255,255,255,0.3)', cursor: indexingAudio ? 'wait' : 'pointer', fontFamily:"'Figtree',sans-serif", display:'flex', alignItems:'center', gap:4 }}
           >
-            <Plus size={9}/> {indexingAudio ? 'Uploading...' : 'Upload'}
+            <Plus size={9}/> {indexingAudio ? indexProgress || 'Processing…' : 'Upload'}
             <input type="file" accept="audio/*,video/*,.mp3,.m4a,.wav,.aac,.csv,.txt,.md,.fountain,.fdx" onChange={handleFileUpload} disabled={indexingAudio} style={{ display:'none' }}/>
           </label>
 
@@ -1141,22 +846,26 @@ export default function ChatPanel() {
               onChange={e => setInput(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage() } }}
               onFocus={() => {
-                // On mobile, after the keyboard opens the element may be
-                // obscured. A short delay lets the viewport settle before
-                // scrolling the input into view.
-                setTimeout(() => inputRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 150)
+                setTimeout(() => inputRef.current?.scrollIntoView({ behavior:'smooth', block:'nearest' }), 150)
               }}
-              placeholder={meta.hint}
+              placeholder={listening ? 'Listening…' : meta.hint}
               rows={2}
               className="kb-textarea"
             />
             {voiceSupported && (
               <button
                 onClick={speaking ? stopSpeaking : listening ? stopListening : startListening}
-                style={{width:32,height:32,borderRadius:8,border:'none',flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center',background:speaking?'rgba(74,222,128,0.15)':listening?'rgba(224,48,48,0.15)':'rgba(255,255,255,0.04)',color:speaking?'rgba(74,222,128,0.9)':listening?'#e03030':'rgba(255,255,255,0.25)',cursor:'pointer',transition:'all 0.15s',transform:listening&&voiceLevel>0.1?`scale(${1+voiceLevel*0.3})`:'scale(1)'}}
-                title={speaking?'Stop KB':listening?'Stop':'Voice input'}
+                style={{
+                  width:32, height:32, borderRadius:8, border:'none', flexShrink:0,
+                  display:'flex', alignItems:'center', justifyContent:'center',
+                  background: speaking ? 'rgba(74,222,128,0.15)' : listening ? 'rgba(224,48,48,0.15)' : 'rgba(255,255,255,0.04)',
+                  color:      speaking ? 'rgba(74,222,128,0.9)'  : listening ? '#e03030'                : 'rgba(255,255,255,0.25)',
+                  cursor:'pointer', transition:'all 0.15s',
+                  transform: listening && voiceLevel > 0.1 ? `scale(${1 + voiceLevel * 0.3})` : 'scale(1)',
+                }}
+                title={speaking ? 'Stop KB' : listening ? 'Stop listening' : 'Voice input'}
               >
-                {speaking?<Volume2 size={13}/>:listening?<MicOff size={13}/>:<Mic size={13}/>}
+                {speaking ? <Volume2 size={13}/> : listening ? <MicOff size={13}/> : <Mic size={13}/>}
               </button>
             )}
             <button
@@ -1176,7 +885,6 @@ export default function ChatPanel() {
 }
 
 function MessageContent({ content }) {
-  // Render markdown-lite: **bold**, `code`, newlines — with pre-wrap for smooth streaming
   const html = (content || '')
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
@@ -1185,7 +893,7 @@ function MessageContent({ content }) {
     .replace(/`([^`]+)`/g, '<code style="font-family:monospace;font-size:0.88em;background:rgba(255,255,255,0.07);padding:1px 5px;border-radius:3px">$1</code>')
   return (
     <span
-      style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}
+      style={{ whiteSpace:'pre-wrap', wordBreak:'break-word' }}
       dangerouslySetInnerHTML={{ __html: html }}
     />
   )

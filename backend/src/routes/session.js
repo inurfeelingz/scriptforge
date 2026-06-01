@@ -1,7 +1,8 @@
 // backend/src/routes/session.js
 // Session journal API.
-// Upload audio files for transcription → saved as session journals
-// that KB reads in every conversation.
+// index-audio now uses async job pattern:
+//   POST /session/index-audio        → returns jobId immediately (202)
+//   GET  /session/index-audio/:jobId → poll for status/result
 
 const express    = require('express')
 const Anthropic  = require('@anthropic-ai/sdk')
@@ -10,6 +11,18 @@ const { supabase } = require('../utils/supabase')
 
 const router = express.Router()
 const client = new Anthropic.Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+
+// ─── IN-MEMORY JOB STORE ──────────────────────────────────────────────────────
+// Stores active transcription jobs. Survives for the lifetime of the process.
+// On Railway this is fine — jobs complete within minutes.
+// If you scale to multiple instances, swap this for a Supabase table.
+
+const jobs = new Map()
+// job shape: { id, userId, status, progress, total, transcript, sessionId, error, createdAt }
+
+function makeJobId() {
+  return Date.now().toString(36) + Math.random().toString(36).slice(2, 7)
+}
 
 // ─── CREATE SESSION ───────────────────────────────────────────────────────────
 
@@ -31,148 +44,200 @@ router.post('/', async (req, res) => {
   res.status(201).json({ session: data })
 })
 
-// ─── INDEX AUDIO ─────────────────────────────────────────────────────────────
+// ─── INDEX AUDIO — ASYNC JOB PATTERN ─────────────────────────────────────────
 // POST /api/session/index-audio
-// Upload a large audio file (MP3 exported from DaVinci or direct recording).
-// Transcribes in sequential 20MB chunks with running timecodes.
-// Saved as a session journal so KB reads it in every conversation.
-// MUST be registered before /:id routes — Express matches top to bottom.
+// Returns 202 immediately with a jobId.
+// Background worker transcribes chunks and writes progress to the jobs map.
+// Frontend polls GET /api/session/index-audio/:jobId for status.
 
 const audioIndexUpload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 500 * 1024 * 1024 },  // 500MB max
+  limits:  { fileSize: 500 * 1024 * 1024 },  // 500MB
 })
 
 router.post('/index-audio', audioIndexUpload.single('audio'), async (req, res) => {
-  if (!req.file) return res.status(400).json({ error: 'Audio file required' })
-
-  if (!process.env.OPENAI_API_KEY) {
-    return res.status(503).json({ error: 'OPENAI_API_KEY not configured — add it to Railway environment variables' })
-  }
+  if (!req.file)                  return res.status(400).json({ error: 'Audio file required' })
+  if (!process.env.OPENAI_API_KEY) return res.status(503).json({ error: 'OPENAI_API_KEY not configured' })
 
   const { categoryId, title = 'Indexed Audio' } = req.body
   if (!categoryId) return res.status(400).json({ error: 'categoryId required' })
 
-  const CHUNK_SIZE      = 20 * 1024 * 1024  // 20MB per Whisper call
-  const totalSize       = req.file.size
-  const chunks          = Math.ceil(totalSize / CHUNK_SIZE)
-  const allSegments     = []
-  let   runningOffsetSec = 0
+  // Create the job record immediately
+  const jobId = makeJobId()
+  jobs.set(jobId, {
+    id:        jobId,
+    userId:    req.user.id,
+    status:    'processing',
+    progress:  0,
+    total:     0,
+    transcript: null,
+    sessionId:  null,
+    error:      null,
+    createdAt:  Date.now(),
+  })
 
-  console.log(`[index-audio] ${req.file.originalname} — ${Math.round(totalSize / 1024 / 1024)}MB, ${chunks} chunk(s)`)
+  // Respond immediately — client can start polling
+  res.status(202).json({ jobId, status: 'processing' })
 
-  const axios    = require('axios')
-  const FormData = require('form-data')
-  const rawMime  = req.file.mimetype || 'audio/mpeg'
-  const baseMime = rawMime.split(';')[0].trim()
-  const extMap   = {
-    'audio/mpeg':  'mp3',
-    'audio/mp4':   'mp4',
-    'audio/webm':  'webm',
-    'audio/wav':   'wav',
-    'audio/ogg':   'ogg',
-    'audio/x-m4a': 'm4a',
-  }
-  const ext = extMap[baseMime] || 'mp3'
+  // ── Background worker ───────────────────────────────────────────────────────
+  // Runs after the HTTP response is sent. Railway persistent runtime keeps
+  // this alive for as long as the process runs (no serverless cold-kill).
+  ;(async () => {
+    const job       = jobs.get(jobId)
+    const CHUNK_SIZE = 20 * 1024 * 1024
+    const totalSize  = req.file.size
+    const chunks     = Math.ceil(totalSize / CHUNK_SIZE)
+    const allSegments = []
+    let   runningOffsetSec = 0
 
-  try {
-    for (let i = 0; i < chunks; i++) {
-      const start = i * CHUNK_SIZE
-      const end   = Math.min(start + CHUNK_SIZE, totalSize)
-      const chunk = req.file.buffer.slice(start, end)
+    job.total = chunks
+    console.log(`[index-audio] job=${jobId} — ${req.file.originalname} ${Math.round(totalSize/1024/1024)}MB, ${chunks} chunk(s)`)
 
-      const form = new FormData()
-      form.append('file', chunk, { filename: `chunk_${i}.${ext}`, contentType: baseMime })
-      form.append('model', 'whisper-1')
-      form.append('language', 'en')
-      form.append('response_format', 'verbose_json')
-      form.append('timestamp_granularities[]', 'segment')
+    const axios    = require('axios')
+    const FormData = require('form-data')
+    const rawMime  = req.file.mimetype || 'audio/mpeg'
+    const baseMime = rawMime.split(';')[0].trim()
+    const extMap   = {
+      'audio/mpeg':  'mp3', 'audio/mp4':   'mp4',
+      'audio/webm':  'webm','audio/wav':   'wav',
+      'audio/ogg':   'ogg', 'audio/x-m4a': 'm4a',
+    }
+    const ext = extMap[baseMime] || 'mp3'
 
-      const response = await axios.post(
-        'https://api.openai.com/v1/audio/transcriptions',
-        form,
-        {
-          headers: { ...form.getHeaders(), Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
-          maxBodyLength:    Infinity,
-          maxContentLength: Infinity,
-          timeout:          180000,  // 3 min per chunk
+    try {
+      for (let i = 0; i < chunks; i++) {
+        const start = i * CHUNK_SIZE
+        const end   = Math.min(start + CHUNK_SIZE, totalSize)
+        const chunk = req.file.buffer.slice(start, end)
+
+        const form = new FormData()
+        form.append('file', chunk, { filename: `chunk_${i}.${ext}`, contentType: baseMime })
+        form.append('model', 'whisper-1')
+        form.append('language', 'en')
+        form.append('response_format', 'verbose_json')
+        form.append('timestamp_granularities[]', 'segment')
+
+        const response = await axios.post(
+          'https://api.openai.com/v1/audio/transcriptions',
+          form,
+          {
+            headers: { ...form.getHeaders(), Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
+            maxBodyLength:    Infinity,
+            maxContentLength: Infinity,
+            timeout:          180000,
+          }
+        )
+
+        const segs = response.data?.segments || []
+        for (const seg of segs) {
+          allSegments.push({
+            start: runningOffsetSec + seg.start,
+            end:   runningOffsetSec + seg.end,
+            text:  seg.text.trim(),
+          })
         }
-      )
 
-      const segs = response.data?.segments || []
-      for (const seg of segs) {
-        allSegments.push({
-          start: runningOffsetSec + seg.start,
-          end:   runningOffsetSec + seg.end,
-          text:  seg.text.trim(),
-        })
+        const chunkDuration = response.data?.duration || (chunk.length / (128 * 1024 / 8))
+        runningOffsetSec += chunkDuration
+
+        // Update progress
+        job.progress = i + 1
+        console.log(`[index-audio] job=${jobId} chunk ${i+1}/${chunks} done — ${segs.length} segs, offset ${Math.round(runningOffsetSec)}s`)
       }
 
-      // Advance running offset by this chunk's actual duration
-      const chunkDuration = response.data?.duration || (chunk.length / (128 * 1024 / 8))
-      runningOffsetSec += chunkDuration
+      // Build full transcript with timecodes
+      const fullTranscript = allSegments
+        .map(s => {
+          const m   = Math.floor(s.start / 60)
+          const sec = Math.floor(s.start % 60).toString().padStart(2, '0')
+          return `[${m}:${sec}] ${s.text}`
+        })
+        .join('\n')
 
-      console.log(`[index-audio] Chunk ${i + 1}/${chunks} done — ${segs.length} segments, offset now ${Math.round(runningOffsetSec)}s`)
+      // Save as session journal
+      const { data: session, error: insertError } = await supabase
+        .from('session_journals')
+        .insert({
+          user_id:         req.user.id,
+          category_id:     categoryId,
+          title,
+          voice_memo_text: fullTranscript.slice(0, 8000),
+          transcript:      fullTranscript,
+          status:          'ready',
+          created_at:      new Date().toISOString(),
+        })
+        .select()
+        .single()
+
+      if (insertError) {
+        console.error('[index-audio] Supabase insert error:', insertError.message)
+      }
+
+      // Mark job done
+      job.status      = 'done'
+      job.transcript  = fullTranscript
+      job.sessionId   = session?.id
+      job.segments    = allSegments.length
+      job.duration    = Math.round(runningOffsetSec)
+      console.log(`[index-audio] job=${jobId} complete — ${allSegments.length} segments, ${Math.round(runningOffsetSec)}s`)
+
+      // Auto-expire job from memory after 30 minutes
+      setTimeout(() => jobs.delete(jobId), 30 * 60 * 1000)
+
+    } catch (err) {
+      console.error(`[index-audio] job=${jobId} failed:`, err.response?.data || err.message)
+      job.status = 'error'
+      job.error  = err.response?.data?.error?.message || err.message
+      setTimeout(() => jobs.delete(jobId), 10 * 60 * 1000)
     }
+  })()
+})
 
-    // Build full transcript with timecodes
-    const fullTranscript = allSegments
-      .map(s => {
-        const m   = Math.floor(s.start / 60)
-        const sec = Math.floor(s.start % 60).toString().padStart(2, '0')
-        return `[${m}:${sec}] ${s.text}`
-      })
-      .join('\n')
+// ─── POLL JOB STATUS ─────────────────────────────────────────────────────────
+// GET /api/session/index-audio/:jobId
+// Returns current job state. Frontend polls this every 4 seconds.
+// Responses:
+//   { status: 'processing', progress: 2, total: 7 }   — still running
+//   { status: 'done', transcript, sessionId, segments, duration }
+//   { status: 'error', error: '...' }
+//   404 if job not found (expired or never existed)
 
-    // Save as a session journal so KB can read it
-    const { data: session, error: insertError } = await supabase
-      .from('session_journals')
-      .insert({
-        user_id:         req.user.id,
-        category_id:     categoryId,
-        title:           title,
-        voice_memo_text: fullTranscript.slice(0, 8000),
-        transcript:      fullTranscript,
-        status:          'ready',
-        created_at:      new Date().toISOString(),
-      })
-      .select()
-      .single()
+router.get('/index-audio/:jobId', (req, res) => {
+  const job = jobs.get(req.params.jobId)
+  if (!job) return res.status(404).json({ error: 'Job not found or expired' })
 
-    if (insertError) {
-      console.error('[index-audio] Supabase insert error:', insertError.message)
-    }
+  // Security: only the user who created the job can poll it
+  if (job.userId !== req.user.id) return res.status(403).json({ error: 'Forbidden' })
 
-    res.json({
-      success:    true,
-      segments:   allSegments.length,
-      duration:   Math.round(runningOffsetSec),
-      transcript: fullTranscript,
-      sessionId:  session?.id,
-    })
-  } catch (err) {
-    console.error('[index-audio]', err.response?.data || err.message)
-    res.status(500).json({ error: err.response?.data?.error?.message || err.message })
+  if (job.status === 'processing') {
+    return res.json({ status: 'processing', progress: job.progress, total: job.total })
   }
+
+  if (job.status === 'done') {
+    return res.json({
+      status:     'done',
+      segments:   job.segments,
+      duration:   job.duration,
+      transcript: job.transcript,
+      sessionId:  job.sessionId,
+    })
+  }
+
+  return res.json({ status: 'error', error: job.error })
 })
 
 // ─── STANDALONE TRANSCRIBE (Teleprompter VO alignment) ───────────────────────
-// POST /api/session/standalone/transcribe
-// Receives a full VO recording and returns word-level timestamps.
-// MUST also be above /:id routes.
 
 const standaloneUpload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 50 * 1024 * 1024 },
+  limits:  { fileSize: 50 * 1024 * 1024 },
 })
 
 router.post('/standalone/transcribe', standaloneUpload.single('audio'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'Audio file required' })
 
   if (!process.env.OPENAI_API_KEY) {
-    return res.status(503).json({
-      error: 'OPENAI_API_KEY not configured — add it to your Railway environment variables',
-    })
+    return res.status(503).json({ error: 'OPENAI_API_KEY not configured' })
   }
 
   try {
@@ -481,7 +546,7 @@ router.patch('/:id/link', async (req, res) => {
   res.json({ session: data })
 })
 
-// ─── TRANSCRIBE AUDIO CHUNK (legacy — kept for any existing callers) ──────────
+// ─── TRANSCRIBE AUDIO CHUNK (legacy) ─────────────────────────────────────────
 
 const { handleTranscribe, upload } = require('./session/transcribe')
 router.post('/:id/transcribe', upload.single('audio'), handleTranscribe)
@@ -499,7 +564,7 @@ router.delete('/:id', async (req, res) => {
 
 // ─── HELPERS ──────────────────────────────────────────────────────────────────
 
-function formatMs (ms) {
+function formatMs(ms) {
   const mins = Math.floor(ms / 60000)
   const secs = Math.floor((ms % 60000) / 1000)
   return `${mins}:${String(secs).padStart(2, '0')}`
