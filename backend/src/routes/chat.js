@@ -29,8 +29,6 @@ function setCachedCtx(key, value) {
 
 // ── Load + save history helpers ───────────────────────────────────────────────
 async function saveHistory(userId, categoryId, mode, messages) {
-  // Use a zero UUID as placeholder when no category selected
-  // — Postgres NULL != NULL in unique constraints so we need a real value
   const catId = categoryId || '00000000-0000-0000-0000-000000000000'
   await supabase
     .from('chat_history')
@@ -61,7 +59,6 @@ router.post('/message', async (req, res) => {
 
   if (!message?.trim()) return res.status(400).json({ error: 'Message is required' })
 
-  // SSE
   res.setHeader('Content-Type', 'text/event-stream')
   res.setHeader('Cache-Control', 'no-cache')
   res.setHeader('Connection', 'keep-alive')
@@ -70,16 +67,13 @@ router.post('/message', async (req, res) => {
 
   const send = (event, data) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
 
-  // Keepalive ping every 15s to prevent Railway/proxy timeout
   const keepalive = setInterval(() => {
     res.write(': ping\n\n')
   }, 15000)
 
   try {
-    // Load full history from DB for current mode
     const { messages: dbHistory } = await loadHistory(req.user.id, categoryId, mode)
 
-    // Also pull recent messages from other modes for cross-context awareness
     const { data: otherHistory } = await supabase
       .from('chat_history')
       .select('mode, messages')
@@ -89,18 +83,13 @@ router.post('/message', async (req, res) => {
       .limit(5)
 
     const crossContext = (otherHistory || [])
-      .flatMap(h => (h.messages || []).slice(-2).map(m => ({
-        ...m,
-        content: m.content  // no mode prefix — prevents KB echoing metadata
-      })))
+      .flatMap(h => (h.messages || []).slice(-2).map(m => ({ ...m })))
       .slice(-4)
 
-    // ── Auto-commit detection ────────────────────────────────────────────────────
     const COMMIT_TRIGGERS = ['commit', 'save this', 'lock it in', 'lock this in',
       'commit this', "let's commit", 'save episode', 'finalise', 'finalize', 'done planning']
     const isCommitCmd = COMMIT_TRIGGERS.some(t => message.toLowerCase().includes(t))
 
-    // Assemble system context
     const ctxKey = (episodeCtx || activeEpisodeId) ? null : `${req.user.id}:${categoryId}:${mode}`
     let systemContext = ctxKey ? getCachedCtx(ctxKey) : null
     if (!systemContext) {
@@ -108,7 +97,6 @@ router.post('/message', async (req, res) => {
       if (ctxKey) setCachedCtx(ctxKey, systemContext)
     }
 
-    // Append any planned episodes KB is aware of
     const { data: planned } = await supabase
       .from('kb_planned_episodes')
       .select('episode_number, track_name, summary, themes, status')
@@ -124,7 +112,6 @@ router.post('/message', async (req, res) => {
         ).join('\n')
     }
 
-    // ── Auto-commit if triggered ─────────────────────────────────────────────────
     if (isCommitCmd) {
       try {
         const { messages: h } = await loadHistory(req.user.id, categoryId, mode)
@@ -132,7 +119,7 @@ router.post('/message', async (req, res) => {
           const extractRes = await client.messages.create({
             model:      process.env.CLAUDE_MODEL || 'claude-sonnet-4-5',
             max_tokens: 500,
-            system:     'Extract the episode plan from this conversation as compact JSON only. No preamble, no markdown. Fields: {"track_name":string,"summary":string,"themes":string[],"mood":string,"thumbnail_concept":string}. thumbnail_concept should be a one-sentence description of the visual moment that would stop the viewer mid-scroll — the image, expression, or scene that encapsulates the episode. If no thumbnail has been discussed, infer the most compelling visual from the summary. If no clear plan exists return {}.',
+            system:     'Extract the episode plan from this conversation as compact JSON only. No preamble, no markdown. Fields: {"track_name":string,"summary":string,"themes":string[],"mood":string,"thumbnail_concept":string}. thumbnail_concept should be a one-sentence description of the visual moment that would stop the viewer mid-scroll. If no clear plan exists return {}.',
             messages:   [{ role: 'user', content: h.slice(-12).map(m => `${m.role}: ${m.content}`).join('\n') }],
           })
           const raw  = (extractRes.content[0]?.text || '{}').replace(/```json|```/g, '').trim()
@@ -156,7 +143,6 @@ router.post('/message', async (req, res) => {
             send('chunk', { text: ack })
             send('done',  { response: ack })
 
-            // Save to history
             const updatedHistory = [
               ...h,
               { role: 'user',      content: message,   timestamp: new Date().toISOString() },
@@ -169,17 +155,14 @@ router.post('/message', async (req, res) => {
         }
       } catch (commitErr) {
         console.warn('[auto-commit]', commitErr.message)
-        // Fall through to normal response
       }
     }
 
-    // Build message list — current mode history + cross-mode context
     const historyForClaude = [
       ...crossContext,
       ...dbHistory.slice(-30),
     ].map(m => ({ role: m.role, content: m.content }))
 
-    // If user asks to see history — send a special action signal
     const historyTriggers = ['show my history', 'past conversations', 'previous chats',
       'what did we discuss', 'show history', 'my conversations', 'old chats', 'past sessions']
     if (historyTriggers.some(t => message.toLowerCase().includes(t))) {
@@ -189,7 +172,6 @@ router.post('/message', async (req, res) => {
       return res.end()
     }
 
-    // If user responds to a greeting with "start fresh" , "new chat" etc — clear history
     const startFreshTriggers = ['start fresh', 'new chat', 'start over', 'fresh start', 'clear', 'reset chat']
     if (startFreshTriggers.some(t => message.toLowerCase().includes(t)) && dbHistory.length <= 4) {
       await saveHistory(req.user.id, categoryId, mode, [])
@@ -199,23 +181,48 @@ router.post('/message', async (req, res) => {
       return res.end()
     }
 
-    // First message in a new chat — inject a brief orientation so KB knows what to do
-    // without waiting for the user to explain it
+    // ── New chat orientation ───────────────────────────────────────────────────
+    // On first message pull a live workspace snapshot and inject it so KB knows
+    // exactly what he's looking at before he responds.
+    // This prevents KB from acting blind or asking generic questions.
     const isNewChat = dbHistory.length === 0
+
+    let workspaceCtx = ''
+    if (isNewChat) {
+      const [epRes, vaultRes, sessRes, anaRes, planRes] = await Promise.allSettled([
+        supabase.from('episodes').select('track_name, yt_retention_score').eq('user_id', req.user.id).eq('category_id', categoryId).order('created_at', { ascending: false }).limit(5),
+        supabase.from('vault_entries').select('id', { count: 'exact' }).eq('user_id', req.user.id).eq('category_id', categoryId),
+        supabase.from('session_journals').select('title').eq('user_id', req.user.id).eq('category_id', categoryId).eq('status', 'ready').order('created_at', { ascending: false }).limit(3),
+        supabase.from('analytics_uploads').select('avg_score, platform').eq('user_id', req.user.id).eq('category_id', categoryId).order('upload_date', { ascending: false }).limit(1),
+        supabase.from('kb_planned_episodes').select('track_name').eq('user_id', req.user.id).eq('category_id', categoryId).eq('status', 'planned').limit(3),
+      ])
+      const eps      = epRes.status    === 'fulfilled' ? epRes.value?.data      || [] : []
+      const vault    = vaultRes.status === 'fulfilled' ? (vaultRes.value?.count || 0) : 0
+      const sessions = sessRes.status  === 'fulfilled' ? sessRes.value?.data    || [] : []
+      const lastAna  = anaRes.status   === 'fulfilled' ? anaRes.value?.data?.[0]    : null
+      const planEps  = planRes.status  === 'fulfilled' ? planRes.value?.data    || [] : []
+
+      workspaceCtx = [
+        eps.length     ? `Episodes generated: ${eps.map(e => `"${e.track_name}"${e.yt_retention_score ? ` (score ${e.yt_retention_score})` : ''}`).join(', ')}` : 'No episodes generated yet — fresh workspace',
+        planEps.length ? `Planned not generated yet: ${planEps.map(p => `"${p.track_name}"`).join(', ')}`                                                        : null,
+        vault > 0      ? `Vault: ${vault} saved ideas`                                                                                                            : 'Vault is empty',
+        sessions.length? `Session journals: ${sessions.map(s => `"${s.title}"`).join(', ')}`                                                                      : null,
+        lastAna        ? `Last analytics: avg score ${lastAna.avg_score} on ${lastAna.platform}`                                                                  : 'No analytics uploaded',
+      ].filter(Boolean).join('. ')
+    }
 
     const claudeMessages = [
       ...historyForClaude,
       ...(isNewChat ? [{
-        role: 'user',
-        content: '__SYSTEM_ORIENTATION__ The creator just opened a new KB chat. Do not respond to this message directly. Instead, greet them briefly (1-2 sentences max), tell them what you can see (their workspace, any recent episodes, vault ideas) and ask one specific question to get started — either about the thumbnail for their next episode, or pick up from wherever their pipeline left off. Be direct. No em dashes. No markdown.',
+        role:    'user',
+        content: `__WORKSPACE__ ${workspaceCtx}. Creator just opened KB. Use this context in your response — reference what you can actually see. Be specific, not generic. No em dashes, no markdown, no self-introduction.`,
       }, {
-        role: 'assistant',
-        content: 'Got it — orienting now.',
+        role:    'assistant',
+        content: 'Noted.',
       }] : []),
       { role: 'user', content: message },
     ]
 
-    // Stream response
     let fullResponse = ''
     const stream = await client.messages.stream({
       model:      process.env.CLAUDE_MODEL || 'claude-sonnet-4-5',
@@ -231,7 +238,6 @@ router.post('/message', async (req, res) => {
       }
     }
 
-    // Persist full history — auto-saves every message, no manual save needed
     if (categoryId) {
       const updatedHistory = [
         ...dbHistory,
@@ -240,14 +246,11 @@ router.post('/message', async (req, res) => {
       ]
       await saveHistory(req.user.id, categoryId, mode, updatedHistory)
 
-      // Post-message extraction — runs async, non-blocking
-      // Every 5 messages: extract learnings and check for voice profile updates
       if (updatedHistory.length % 5 === 0) {
         extractLearnings(req.user.id, categoryId, updatedHistory.slice(-10), fullResponse, message)
           .catch(err => console.warn('[extract] Failed:', err.message))
       }
 
-      // Always check for voice profile corrections in the user's last message
       if (message.toLowerCase().includes("my style") ||
           message.toLowerCase().includes("i never") ||
           message.toLowerCase().includes("i always") ||
@@ -273,14 +276,11 @@ router.post('/message', async (req, res) => {
 })
 
 // ── POST /api/chat/commit-episode ──────────────────────────────────────────────
-// KB extracts an episode plan from the conversation and commits it to series memory
-// so the Generate page, Companion, and all context knows about it
 router.post('/commit-episode', async (req, res) => {
   const { categoryId, mode, episodeNumber, conversationSummary } = req.body
   if (!categoryId) return res.status(400).json({ error: 'categoryId required' })
 
   try {
-    // Load the recent chat history for this mode
     const { messages: history } = await loadHistory(req.user.id, categoryId, mode || 'generate')
     const recentMessages = history.slice(-20)
 
@@ -288,7 +288,6 @@ router.post('/commit-episode', async (req, res) => {
       return res.status(400).json({ error: 'No conversation to commit' })
     }
 
-    // Ask Claude to extract the episode plan from the conversation
     const extractionPrompt = conversationSummary
       ? `Extract a structured episode plan from this summary: ${conversationSummary}`
       : `Extract a structured episode plan from this conversation:\n${recentMessages.map(m => `${m.role}: ${m.content}`).join('\n\n')}`
@@ -296,7 +295,7 @@ router.post('/commit-episode', async (req, res) => {
     const extraction = await client.messages.create({
       model:      process.env.CLAUDE_MODEL || 'claude-sonnet-4-5',
       max_tokens: 800,
-      system:     'Extract episode planning data as JSON only. No preamble. Return: { "track_name": string, "episode_number": number|null, "mood": string, "summary": string, "themes": string[], "callback_seeds": string[], "targetDurationMinutes": number, "thumbnail_concept": string }. thumbnail_concept is a one-sentence visual description of the thumbnail moment — the image that would stop the viewer mid-scroll. Infer from the episode summary if not explicitly discussed.',
+      system:     'Extract episode planning data as JSON only. No preamble. Return: { "track_name": string, "episode_number": number|null, "mood": string, "summary": string, "themes": string[], "callback_seeds": string[], "targetDurationMinutes": number, "thumbnail_concept": string }. thumbnail_concept is a one-sentence visual description of the thumbnail moment.',
       messages:   [{ role: 'user', content: extractionPrompt }],
     })
 
@@ -310,7 +309,6 @@ router.post('/commit-episode', async (req, res) => {
 
     const epNumber = episodeNumber || plan.episode_number
 
-    // Write to kb_planned_episodes
     const { data: planned, error: pe } = await supabase
       .from('kb_planned_episodes')
       .upsert({
@@ -335,34 +333,32 @@ router.post('/commit-episode', async (req, res) => {
 
     if (pe) throw pe
 
-    // Also write to series_memory so it shows up in the Series page
     if (epNumber) {
       await supabase
         .from('series_memory')
         .upsert({
-          user_id:       req.user.id,
-          category_id:   categoryId,
+          user_id:        req.user.id,
+          category_id:    categoryId,
           episode_number: epNumber,
-          track_name:    plan.track_name,
-          track_context: { mood: plan.mood || '', targetDurationMinutes: plan.targetDurationMinutes || 8 },
-          summary:       plan.summary,
-          themes:        plan.themes || [],
+          track_name:     plan.track_name,
+          track_context:  { mood: plan.mood || '', targetDurationMinutes: plan.targetDurationMinutes || 8 },
+          summary:        plan.summary,
+          themes:         plan.themes || [],
           callback_seeds: plan.callback_seeds || [],
         }, { onConflict: 'user_id,category_id,episode_number' })
     }
 
-    // Bust context cache so next KB message sees the new plan
     const ctxKey = `${req.user.id}:${categoryId}:${mode || 'generate'}`
     ctxCache.delete(ctxKey)
 
     res.json({
       committed: true,
       plan: {
-        track_name:    plan.track_name,
+        track_name:     plan.track_name,
         episode_number: epNumber,
-        mood:          plan.mood,
-        summary:       plan.summary,
-        themes:        plan.themes,
+        mood:           plan.mood,
+        summary:        plan.summary,
+        themes:         plan.themes,
       }
     })
 
@@ -393,7 +389,6 @@ router.delete('/history', async (req, res) => {
 
 // ── GET /api/chat/sessions ─────────────────────────────────────────────────────
 router.get('/sessions', async (req, res) => {
-  const { categoryId, mode = 'generate' } = req.query
   const { data } = await supabase
     .from('chat_sessions')
     .select('id, title, mode, category_id, created_at, updated_at')
@@ -452,7 +447,7 @@ router.delete('/sessions/:id', async (req, res) => {
 
 // ── POST /api/chat/speak — ElevenLabs TTS ────────────────────────────────────
 router.post('/speak', async (req, res) => {
-  const { text } = req.body
+  const { text, categoryId } = req.body
   if (!text?.trim()) return res.status(400).json({ error: 'text required' })
 
   if (!process.env.ELEVENLABS_API_KEY) {
@@ -460,7 +455,6 @@ router.post('/speak', async (req, res) => {
   }
 
   try {
-    // Use creator's voice clone if available, fall back to env default
     let voiceId = process.env.ELEVENLABS_VOICE_ID || 'EXAVITQu4vr4xnSDxMaL'
     if (categoryId) {
       const { data: cat } = await supabase
@@ -474,12 +468,13 @@ router.post('/speak', async (req, res) => {
         voiceId = cat.voice_profile.elevenLabsVoiceId
       }
     }
-    const clean   = text
-      .replace(/#+\s*/g, '')        // remove markdown headers
-      .replace(/\*+/g, '')          // remove bold/italic
-      .replace(/`[^`]*`/g, '')      // remove code
-      .replace(/\[[^\]]*\]/g, '')   // remove links
-      .slice(0, 500)                // cap at 500 chars per call
+
+    const clean = text
+      .replace(/#+\s*/g, '')
+      .replace(/\*+/g, '')
+      .replace(/`[^`]*`/g, '')
+      .replace(/\[[^\]]*\]/g, '')
+      .slice(0, 500)
 
     const response = await fetch(
       `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}/stream`,
@@ -494,9 +489,9 @@ router.post('/speak', async (req, res) => {
           text:           clean,
           model_id:       'eleven_turbo_v2',
           voice_settings: {
-            stability:        0.45,
-            similarity_boost: 0.80,
-            style:            0.0,
+            stability:         0.45,
+            similarity_boost:  0.80,
+            style:             0.0,
             use_speaker_boost: true,
           },
         }),
@@ -513,7 +508,6 @@ router.post('/speak', async (req, res) => {
     res.setHeader('Cache-Control', 'no-cache')
     res.setHeader('Transfer-Encoding', 'chunked')
 
-    // Stream audio directly to client
     const reader = response.body.getReader()
     const pump   = async () => {
       while (true) {
@@ -534,11 +528,7 @@ router.post('/speak', async (req, res) => {
   }
 })
 
-
-// ── POST /api/chat/onboard — KB voice profile interview ──────────────────────
-// Runs a conversational onboarding. Client sends { categoryId, message, history }
-// KB asks 6 questions one at a time. On the final answer it extracts + saves the
-// voice profile, then sends onboardingComplete: true in the done event.
+// ── POST /api/chat/onboard ────────────────────────────────────────────────────
 router.post('/onboard', async (req, res) => {
   const { categoryId, message, history = [] } = req.body
   if (!categoryId) return res.status(400).json({ error: 'categoryId required' })
@@ -555,7 +545,6 @@ router.post('/onboard', async (req, res) => {
   try {
     const { data: cat } = await supabase.from('categories').select('name, niche').eq('id', categoryId).single()
 
-    // FIX: explicit no-markdown instruction added to prevent raw symbols in chat
     const SYSTEM = `You are KB, the AI inside WhispaCuts. You are onboarding a new creator.
 Your job is to learn how they communicate on camera so their scripts sound like them.
 Ask ONE question at a time. Be warm, direct, and brief — like a creative friend, not a form.
@@ -586,14 +575,10 @@ Show name: ${cat?.name || 'their show'}. Niche: ${cat?.niche || 'content creatio
       ...(message ? [{ role: 'user', content: message }] : []),
     ]
 
-    // First message — KB opens the conversation
     if (messages.length === 0) {
       messages.push({ role: 'user', content: 'start' })
     }
 
-    // FIX: max_tokens raised from 400 → 1200. The JSON block alone is ~300 tokens;
-    // 400 was guaranteed to truncate mid-JSON on the final turn, silently breaking
-    // the regex extraction and leaving the user in the onboarding loop forever.
     const stream = await client.messages.stream({
       model:      process.env.CLAUDE_MODEL || 'claude-sonnet-4-5',
       max_tokens: 1200,
@@ -601,10 +586,6 @@ Show name: ${cat?.name || 'their show'}. Niche: ${cat?.niche || 'content creatio
       messages,
     })
 
-    // FIX: accumulate the FULL response before streaming anything to the client.
-    // The previous approach filtered chunks during streaming — if the ===VOICE_PROFILE===
-    // tag split across two chunks, the toggle fired twice and the JSON leaked to the
-    // client. Accumulating first then stripping is safe and simple.
     let full = ''
     for await (const chunk of stream) {
       if (chunk.type === 'content_block_delta' && chunk.delta.type === 'text_delta') {
@@ -614,19 +595,12 @@ Show name: ${cat?.name || 'their show'}. Niche: ${cat?.niche || 'content creatio
 
     console.log('[onboard] full response length:', full.length, '| preview:', full.slice(0, 120))
 
-    // FIX: split-based extraction instead of greedy regex.
-    // The old regex /===VOICE_PROFILE===\s*({[\s\S]*?})\s*===VOICE_PROFILE===/ used a
-    // lazy match on `{...}` which stops at the first `}` — breaking on any nested object
-    // in the profile JSON. Split on the delimiter instead to grab everything between the tags.
     let voiceProfileSaved = false
     let cleanResponse = full
 
     if (full.includes('===VOICE_PROFILE===')) {
       const parts = full.split('===VOICE_PROFILE===')
-      // parts[0] = text before opening tag
-      // parts[1] = the JSON block
-      // parts[2] = text after closing tag (the warm closing sentence)
-      const jsonRaw = parts[1]?.trim()
+      const jsonRaw  = parts[1]?.trim()
       const afterTag = parts[2]?.trim() || ''
 
       if (jsonRaw) {
@@ -649,8 +623,6 @@ Show name: ${cat?.name || 'their show'}. Niche: ${cat?.niche || 'content creatio
         }
       }
 
-      // Show the text before the tag + anything after the closing tag (warm close sentence)
-      // Strip any leftover whitespace artifacts
       cleanResponse = [parts[0]?.trim(), afterTag].filter(Boolean).join('\n\n').trim()
     }
 
@@ -670,9 +642,6 @@ Show name: ${cat?.name || 'their show'}. Niche: ${cat?.niche || 'content creatio
 })
 
 // ── POST /api/chat/edit-frame ────────────────────────────────────────────────
-// KB edits a storyboard frame directly from chat.
-// Body: { frameId, description, notes, shot_type }
-
 router.post('/edit-frame', async (req, res) => {
   const { frameId, description, notes, shot_type } = req.body
   if (!frameId) return res.status(400).json({ error: 'frameId required' })
@@ -696,87 +665,111 @@ router.post('/edit-frame', async (req, res) => {
 
 // ── GET /api/chat/greet ───────────────────────────────────────────────────────
 // Called when the app loads (or reopens after 5+ minutes).
-// Returns a personalised greeting referencing the last conversation.
-// Frontend renders this as a KB message before the user types anything.
+// Pulls REAL workspace data before generating the greeting — episodes, vault,
+// sessions, analytics — so KB actually knows what he's looking at.
 
 router.get('/greet', async (req, res) => {
   const { categoryId, mode = 'generate' } = req.query
   if (!categoryId) return res.status(400).json({ error: 'categoryId required' })
 
   try {
-    // Load last conversation history
-    const { messages: history } = await loadHistory(req.user.id, categoryId, mode)
+    const [
+      historyResult,
+      catResult,
+      episodesResult,
+      vaultResult,
+      sessionsResult,
+      analyticsResult,
+      plannedResult,
+    ] = await Promise.allSettled([
+      loadHistory(req.user.id, categoryId, mode),
+      supabase.from('categories').select('name, niche, voice_profile, audience_model').eq('id', categoryId).single(),
+      supabase.from('episodes').select('track_name, status, created_at, yt_retention_score').eq('user_id', req.user.id).eq('category_id', categoryId).order('created_at', { ascending: false }).limit(5),
+      supabase.from('vault_entries').select('id', { count: 'exact' }).eq('user_id', req.user.id).eq('category_id', categoryId),
+      supabase.from('session_journals').select('title, created_at').eq('user_id', req.user.id).eq('category_id', categoryId).eq('status', 'ready').order('created_at', { ascending: false }).limit(3),
+      supabase.from('analytics_uploads').select('avg_score, platform, upload_date').eq('user_id', req.user.id).eq('category_id', categoryId).order('upload_date', { ascending: false }).limit(1),
+      supabase.from('kb_planned_episodes').select('track_name, status').eq('user_id', req.user.id).eq('category_id', categoryId).eq('status', 'planned').limit(5),
+    ])
 
-    // No history — first time user, send orientation greeting
-    if (!history.length) {
-      let cat = null
-      try {
-        const { data } = await supabase
-          .from('categories')
-          .select('name, niche')
-          .eq('id', categoryId)
-          .single()
-        cat = data
-      } catch {}
+    const history    = historyResult.status   === 'fulfilled' ? historyResult.value?.messages  || [] : []
+    const cat        = catResult.status       === 'fulfilled' ? catResult.value?.data              : null
+    const episodes   = episodesResult.status  === 'fulfilled' ? episodesResult.value?.data     || [] : []
+    const vaultCount = vaultResult.status     === 'fulfilled' ? (vaultResult.value?.count      || 0) : 0
+    const sessions   = sessionsResult.status  === 'fulfilled' ? sessionsResult.value?.data     || [] : []
+    const analytics  = analyticsResult.status === 'fulfilled' ? analyticsResult.value?.data?.[0]   : null
+    const planned    = plannedResult.status   === 'fulfilled' ? plannedResult.value?.data      || [] : []
 
-      const greetRes = await client.messages.create({
-        model:      process.env.CLAUDE_MODEL || 'claude-sonnet-4-5',
-        max_tokens: 120,
-        system:     'You are KB inside WhispaCuts. Write a short opening for a creator who just set up their workspace. VARY YOUR STYLE every time: sometimes jump straight in with a question about their first episode, sometimes reference their niche directly, sometimes be energetic, sometimes dry and direct. Never say Hi I am KB or introduce yourself formally. One or two sentences. Ask something specific. No markdown, no em dashes.',
-        messages: [{
-          role: 'user',
-          content: `Creator workspace: "${cat?.name || 'New workspace'}" — niche: "${cat?.niche || 'content creation'}". Greet them and ask one question to kick things off.`,
-        }],
-      })
-
-      return res.json({
-        greet:   true,
-        message: greetRes.content[0]?.text?.trim() || '',
-      })
+    // Less than 5 minutes since last message — still in session, no greeting
+    const lastMsg = history[history.length - 1]
+    if (lastMsg?.timestamp) {
+      const minsAgo = Math.round((Date.now() - new Date(lastMsg.timestamp).getTime()) / 60000)
+      if (minsAgo < 5) return res.json({ greet: false, message: null })
     }
 
-    // Returning user — check how long they were away
-    const lastMessages  = history.slice(-6)
-    const lastTimestamp = lastMessages[lastMessages.length - 1]?.timestamp
-    const lastMsg       = lastMessages.filter(m => m.role === 'user').slice(-1)[0]
-    const lastKBMsg     = lastMessages.filter(m => m.role === 'assistant').slice(-1)[0]
+    // Compact snapshot of what KB can actually see
+    const snapshot = [
+      cat?.niche ? `Niche: ${cat.niche}` : null,
+      episodes.length
+        ? `Episodes: ${episodes.slice(0,3).map(e => `"${e.track_name}"${e.yt_retention_score ? ` (score ${e.yt_retention_score})` : ''}`).join(', ')}`
+        : 'No episodes generated yet',
+      planned.length  ? `Planned not generated: ${planned.map(p => `"${p.track_name}"`).join(', ')}` : null,
+      vaultCount > 0  ? `Vault: ${vaultCount} saved idea${vaultCount !== 1 ? 's' : ''}` : 'Vault empty',
+      sessions.length ? `Session journals: ${sessions.map(s => `"${s.title}"`).join(', ')}` : 'No session journals',
+      analytics       ? `Analytics: last upload avg score ${analytics.avg_score} on ${analytics.platform}` : 'No analytics uploaded',
+      cat?.voice_profile ? 'Voice profile: set' : 'Voice profile: not set',
+      cat?.audience_model?.geminiInsights ? 'Audience model: researched' : 'Audience: not researched',
+    ].filter(Boolean).join('\n')
 
-    const minsAgo = lastTimestamp
+    const lastTimestamp = lastMsg?.timestamp
+    const minsAway = lastTimestamp
       ? Math.round((Date.now() - new Date(lastTimestamp).getTime()) / 60000)
-      : 9999
+      : null
+    const timeLabel = minsAway === null ? null
+      : minsAway < 60   ? `${minsAway} minutes`
+      : minsAway < 1440 ? `${Math.round(minsAway / 60)} hours`
+      : `${Math.round(minsAway / 1440)} days`
 
-    // Less than 5 minutes — still in session, no greeting needed
-    if (minsAgo < 5) {
-      return res.json({ greet: false, message: null })
-    }
+    const lastUserMsg = [...history].reverse().find(m => m.role === 'user')
+    const lastKBMsg   = [...history].reverse().find(m => m.role === 'assistant')
+    const isNewUser   = history.length === 0
 
-    // Been away — greet with context
-    const snippet   = lastMsg?.content?.slice(0, 120) || ''
-    const kbSnippet = lastKBMsg?.content?.slice(0, 120) || ''
-    const timeLabel = minsAgo < 60
-      ? `${minsAgo} minutes ago`
-      : minsAgo < 1440
-        ? `${Math.round(minsAgo / 60)} hours ago`
-        : `${Math.round(minsAgo / 1440)} days ago`
+    const system = isNewUser
+      ? `You are KB, a sharp creative collaborator inside WhispaCuts. A creator just opened their workspace.
+You can see their workspace data below — use it. Don't act like you can't see anything.
+If they have no episodes yet, ask about their first one using the niche specifically.
+If they have episodes, reference one by name and say something concrete about it.
+If they have session journals, mention one specifically.
+If analytics score is low, you can call it out — be a collaborator, not a cheerleader.
+RULES: 1-2 sentences only. Never introduce yourself. No markdown, no em dashes.
+Ask one specific question. Vary your tone — direct, curious, dry, energetic. Never generic.`
+      : `You are KB, a sharp creative collaborator inside WhispaCuts. A creator just came back.
+You can see their full workspace below — reference what's actually there, not what might be there.
+If something is clearly missing (no analytics, no sessions) you can mention it if relevant.
+Never say "Welcome back". Never introduce yourself. No markdown, no em dashes.
+1-2 sentences max. Reference something specific. Ask one question.`
+
+    const userContent = [
+      `Workspace — "${cat?.name || 'untitled'}"`,
+      snapshot,
+      timeLabel          ? `Away for: ${timeLabel}`                                      : '',
+      lastUserMsg        ? `Last discussed: "${lastUserMsg.content.slice(0, 120)}"`      : '',
+      lastKBMsg          ? `KB last said: "${lastKBMsg.content.slice(0, 120)}"`          : '',
+      'Write the greeting.',
+    ].filter(Boolean).join('\n')
 
     const greetRes = await client.messages.create({
       model:      process.env.CLAUDE_MODEL || 'claude-sonnet-4-5',
       max_tokens: 120,
-      system:     'You are KB, a creative partner inside WhispaCuts. Write a short greeting for a creator returning after being away. VARY YOUR STYLE — sometimes be direct ("Still thinking about that episode?"), sometimes casual ("Back at it?"), sometimes skip pleasantries entirely and just ask if they want to continue. Reference what they were working on. One or two sentences max. No markdown, no em dashes, no "Welcome back", never say "Hi I am KB".',
-      messages: [{
-        role: 'user',
-        content: `Away for: ${timeLabel}
-Last discussed: "${snippet}"
-KB last said: "${kbSnippet}"
-Write the greeting.`,
-      }],
+      system,
+      messages: [{ role: 'user', content: userContent }],
     })
 
     res.json({
       greet:   true,
       message: greetRes.content[0]?.text?.trim() || '',
-      minsAgo,
+      minsAgo: minsAway,
     })
+
   } catch (err) {
     console.error('[greet]', err.message)
     res.json({ greet: false, message: null })
@@ -784,25 +777,17 @@ Write the greeting.`,
 })
 
 // ── POST /api/chat/thumbnail-prompt ──────────────────────────────────────────
-// Generates a Flux-ready thumbnail prompt based on:
-// - The episode plan (track_name, summary, thumbnail_concept)
-// - The audience model (what triggers clicks for this specific viewer)
-// - The creator's voice profile (their brand aesthetic)
-// Returns a copyable prompt ready to paste into Flux or Ideogram.
-
 router.post('/thumbnail-prompt', async (req, res) => {
   const { categoryId, episodeId, plannedEpisodeId } = req.body
   if (!categoryId) return res.status(400).json({ error: 'categoryId required' })
 
   try {
-    // Load category for audience model + voice profile
     const { data: cat } = await supabase
       .from('categories')
       .select('niche, name, audience_model, voice_profile')
       .eq('id', categoryId)
       .single()
 
-    // Load reaction images for thumbnail compositing
     const { data: reactionImages } = await supabase
       .from('creator_assets')
       .select('tag, file_name, storage_url')
@@ -812,7 +797,6 @@ router.post('/thumbnail-prompt', async (req, res) => {
       .order('created_at', { ascending: false })
       .limit(10)
 
-    // Load episode or planned episode for context
     let episodeContext = {}
     if (episodeId) {
       const { data: ep } = await supabase
@@ -830,22 +814,20 @@ router.post('/thumbnail-prompt', async (req, res) => {
       episodeContext = planned || {}
     }
 
-    // Build audience context string
-    const audience = cat?.audience_model?.geminiInsights
-    const ytAudience = cat?.audience_model?.youtube
+    const audience    = cat?.audience_model?.geminiInsights
+    const ytAudience  = cat?.audience_model?.youtube
     const audienceStr = audience ? [
-      audience.primaryAudience?.ageRange && `Viewer: ${audience.primaryAudience.ageRange}`,
-      audience.psychographics?.corePainPoint && `Pain point: ${audience.psychographics.corePainPoint}`,
-      audience.psychographics?.coreAspiration && `Aspiration: ${audience.psychographics.coreAspiration}`,
+      audience.primaryAudience?.ageRange            && `Viewer: ${audience.primaryAudience.ageRange}`,
+      audience.psychographics?.corePainPoint        && `Pain point: ${audience.psychographics.corePainPoint}`,
+      audience.psychographics?.coreAspiration       && `Aspiration: ${audience.psychographics.coreAspiration}`,
       audience.thumbnailPsychology?.emotionalTriggers?.length && `Click triggers: ${audience.thumbnailPsychology.emotionalTriggers.join(', ')}`,
-      audience.thumbnailPsychology?.visualPatterns && `Visual patterns that work: ${audience.thumbnailPsychology.visualPatterns}`,
-    ].filter(Boolean).join('\n') : 'No audience data yet — using niche knowledge.'
+      audience.thumbnailPsychology?.visualPatterns  && `Visual patterns: ${audience.thumbnailPsychology.visualPatterns}`,
+    ].filter(Boolean).join('\n') : 'No audience data yet.'
 
     const ytStr = ytAudience?.devices?.[0]
       ? `Primary device: ${ytAudience.devices[0].device} (${ytAudience.devices[0].pct}% of views)`
       : ''
 
-    // Generate the Flux prompt
     const promptRes = await client.messages.create({
       model:      process.env.CLAUDE_MODEL || 'claude-sonnet-4-5',
       max_tokens: 600,
@@ -861,7 +843,7 @@ End with: "16:9 aspect ratio, photorealistic, cinematic lighting"`,
 
 Episode: "${episodeContext.track_name || 'untitled'}"
 Summary: ${episodeContext.summary || episodeContext.episode_concept || 'not provided'}
-Thumbnail concept: ${episodeContext.thumbnail_concept || 'not specified — infer the most compelling visual from the episode summary'}
+Thumbnail concept: ${episodeContext.thumbnail_concept || 'infer the most compelling visual from the episode summary'}
 Themes: ${(episodeContext.themes || []).join(', ') || 'not specified'}
 Niche: ${cat?.niche || 'content creation'}
 
@@ -869,17 +851,16 @@ Audience intelligence:
 ${audienceStr}
 ${ytStr}
 
-${reactionImages?.length ? `Creator reaction images available (use one of these):
-${reactionImages.map(r => `[${r.tag}]: ${r.file_name}`).join('\n')}
-Choose the tag that best matches the episode emotional hook. In the Flux prompt, describe the environment/background to composite around the creator. Include: "Reference image provided. Do NOT alter the face, expression, or skin tone. Composite only. No text overlays."` : 'No reaction images uploaded yet — describe a photorealistic scene without the creator face.'}
+${reactionImages?.length
+  ? `Creator reaction images available:\n${reactionImages.map(r => `[${r.tag}]: ${r.file_name}`).join('\n')}\nChoose the tag that best matches the episode emotional hook. Describe the environment/background to composite around the creator. Include: "Reference image provided. Do NOT alter the face, expression, or skin tone. Composite only. No text overlays."`
+  : 'No reaction images uploaded — describe a photorealistic scene without the creator face.'}
 
-The thumbnail must emotionally resonate with this specific viewer. What visual moment would make them stop scrolling? Write the Flux prompt now.`,
+Write the Flux prompt now.`,
       }],
     })
 
     const fluxPrompt = promptRes.content[0]?.text?.trim() || ''
 
-    // Also generate title formulas based on audience
     const titleRes = await client.messages.create({
       model:      process.env.CLAUDE_MODEL || 'claude-sonnet-4-5',
       max_tokens: 300,
@@ -892,9 +873,9 @@ Episode: "${episodeContext.track_name || 'untitled'}"
 Summary: ${episodeContext.summary || 'not provided'}
 Audience pain point: ${audience?.psychographics?.corePainPoint || 'not researched yet'}
 Audience aspiration: ${audience?.psychographics?.coreAspiration || 'not researched yet'}
-Title formulas that work for this audience: ${audience?.thumbnailPsychology?.titleFormulas?.join(' | ') || 'not researched yet'}
+Title formulas that work: ${audience?.thumbnailPsychology?.titleFormulas?.join(' | ') || 'not researched yet'}
 
-Write titles that speak directly to the pain point or aspiration. No clickbait, no generic hooks.`,
+Write titles that speak directly to the pain point or aspiration.`,
       }],
     })
 
@@ -903,9 +884,9 @@ Write titles that speak directly to the pain point or aspiration. No clickbait, 
     res.json({
       fluxPrompt,
       titleOptions,
-      thumbnailConcept:  episodeContext.thumbnail_concept || '',
-      audienceUsed:      !!audience,
-      reactionImages:    reactionImages || [],
+      thumbnailConcept: episodeContext.thumbnail_concept || '',
+      audienceUsed:     !!audience,
+      reactionImages:   reactionImages || [],
     })
 
   } catch (err) {
@@ -915,10 +896,6 @@ Write titles that speak directly to the pain point or aspiration. No clickbait, 
 })
 
 // ── POST /api/chat/voice-clone ────────────────────────────────────────────────
-// Initiates ElevenLabs voice clone training from an uploaded audio file.
-// Body: multipart/form-data — file (audio), categoryId
-// After training completes, stores the voice ID in voice_profile.elevenLabsVoiceId
-
 const multerClone = require('multer')({ storage: require('multer').memoryStorage(), limits: { fileSize: 500 * 1024 * 1024 } })
 
 router.post('/voice-clone', multerClone.single('file'), async (req, res) => {
@@ -928,7 +905,6 @@ router.post('/voice-clone', multerClone.single('file'), async (req, res) => {
   if (!process.env.ELEVENLABS_API_KEY) return res.status(503).json({ error: 'ElevenLabs not configured' })
 
   try {
-    // Fetch category for naming the clone
     const { data: cat } = await supabase
       .from('categories')
       .select('name, voice_profile')
@@ -950,11 +926,8 @@ router.post('/voice-clone', multerClone.single('file'), async (req, res) => {
       'https://api.elevenlabs.io/v1/voices/add',
       form,
       {
-        headers: {
-          ...form.getHeaders(),
-          'xi-api-key': process.env.ELEVENLABS_API_KEY,
-        },
-        maxBodyLength: Infinity,
+        headers: { ...form.getHeaders(), 'xi-api-key': process.env.ELEVENLABS_API_KEY },
+        maxBodyLength:    Infinity,
         maxContentLength: Infinity,
       }
     )
@@ -962,7 +935,6 @@ router.post('/voice-clone', multerClone.single('file'), async (req, res) => {
     const voiceId = cloneRes.data.voice_id
     if (!voiceId) throw new Error('No voice ID returned from ElevenLabs')
 
-    // Store in voice_profile
     const existingVP = cat?.voice_profile || {}
     await supabase.from('categories').update({
       voice_profile: { ...existingVP, elevenLabsVoiceId: voiceId },
@@ -976,9 +948,7 @@ router.post('/voice-clone', multerClone.single('file'), async (req, res) => {
   }
 })
 
-// ── POST /api/chat/generate-episode ───────────────────────────────────────────────
-// KB extracts a plan from conversation then triggers full episode generation
-// Returns SSE stream — same format as /episodes/generate
+// ── POST /api/chat/generate-episode ──────────────────────────────────────────
 router.post('/generate-episode', async (req, res) => {
   const { categoryId, mode } = req.body
   if (!categoryId) return res.status(400).json({ error: 'categoryId required' })
@@ -995,7 +965,6 @@ router.post('/generate-episode', async (req, res) => {
   try {
     send('progress', { step: 'extracting', message: 'KB is extracting the episode plan...', pct: 5 })
 
-    // Load conversation history
     const { messages: history } = await loadHistory(req.user.id, categoryId, mode || 'series')
     const recentMessages = history.slice(-20)
 
@@ -1005,11 +974,10 @@ router.post('/generate-episode', async (req, res) => {
       return res.end()
     }
 
-    // Extract structured plan from conversation
     const extraction = await client.messages.create({
       model:      process.env.CLAUDE_MODEL || 'claude-sonnet-4-5',
       max_tokens: 600,
-      system:     'Extract episode plan as JSON only. No preamble. Return: { "track_name": string, "episode_number": number|null, "mood": string, "targetDurationMinutes": number, "summary": string, "themes": string[], "voiceMemoText": string }. voiceMemoText should be 2-3 sentences summarising what the creator wants to say in this episode.',
+      system:     'Extract episode plan as JSON only. No preamble. Return: { "track_name": string, "episode_number": number|null, "mood": string, "targetDurationMinutes": number, "summary": string, "themes": string[], "voiceMemoText": string }.',
       messages:   [{ role: 'user', content: `Extract episode plan from:\n${recentMessages.map(m => `${m.role}: ${m.content}`).join('\n\n')}` }],
     })
 
@@ -1030,13 +998,9 @@ router.post('/generate-episode', async (req, res) => {
 
     send('progress', { step: 'generating', message: `Generating "${plan.track_name}"...`, pct: 15 })
 
-    // Forward to the generate endpoint via internal fetch
     const generateRes = await fetch(`http://localhost:${process.env.PORT || 3001}/api/episodes/generate`, {
       method:  'POST',
-      headers: {
-        'Content-Type':  'application/json',
-        'Authorization': req.headers.authorization,
-      },
+      headers: { 'Content-Type': 'application/json', 'Authorization': req.headers.authorization },
       body: JSON.stringify({
         categoryId,
         episodeNumber: plan.episode_number || null,
@@ -1051,14 +1015,12 @@ router.post('/generate-episode', async (req, res) => {
       }),
     })
 
-    // Pipe the SSE stream through
-    const reader = generateRes.body.getReader()
+    const reader  = generateRes.body.getReader()
     const decoder = new TextDecoder()
     while (true) {
       const { done, value } = await reader.read()
       if (done) break
-      const chunk = decoder.decode(value, { stream: true })
-      res.write(chunk)
+      res.write(decoder.decode(value, { stream: true }))
     }
 
     clearInterval(keepalive)
@@ -1073,8 +1035,6 @@ router.post('/generate-episode', async (req, res) => {
 })
 
 // ── POST-CONVERSATION EXTRACTION ─────────────────────────────────────────────
-// Runs async after every 5 messages. Extracts learnings and writes to kb_learnings.
-
 async function extractLearnings(userId, categoryId, recentMessages, lastResponse, lastMessage) {
   const conversation = recentMessages
     .map(m => `${m.role}: ${m.content.slice(0, 300)}`)
@@ -1083,7 +1043,7 @@ async function extractLearnings(userId, categoryId, recentMessages, lastResponse
   const extraction = await client.messages.create({
     model:      process.env.CLAUDE_MODEL || 'claude-sonnet-4-5',
     max_tokens: 400,
-    system:     'Extract creative learnings from this conversation. Return ONLY valid JSON, no preamble. Fields: { "insights": string[], "preferences": string[], "episodeIdeas": string[], "voiceNotes": string[] }. insights = things learned about what works for this creator. preferences = stated likes/dislikes. episodeIdeas = any episode concepts mentioned. voiceNotes = anything about how they communicate. Return empty arrays if nothing relevant. Max 3 items per array.',
+    system:     'Extract creative learnings from this conversation. Return ONLY valid JSON, no preamble. Fields: { "insights": string[], "preferences": string[], "episodeIdeas": string[], "voiceNotes": string[] }. Max 3 items per array.',
     messages:   [{ role: 'user', content: conversation }],
   })
 
@@ -1092,25 +1052,21 @@ async function extractLearnings(userId, categoryId, recentMessages, lastResponse
     learnings = JSON.parse(extraction.content[0]?.text?.replace(/```json|```/g, '').trim() || '{}')
   } catch { return }
 
-  // Only save if there's something meaningful
   const hasContent = Object.values(learnings).some(v => Array.isArray(v) && v.length > 0)
   if (!hasContent) return
 
   await supabase.from('kb_learnings').insert({
-    user_id:     userId,
-    category_id: categoryId,
-    insights:    learnings.insights    || [],
-    preferences: learnings.preferences || [],
-    episode_ideas: learnings.episodeIdeas || [],
-    voice_notes: learnings.voiceNotes  || [],
-    extracted_at: new Date().toISOString(),
+    user_id:       userId,
+    category_id:   categoryId,
+    insights:      learnings.insights      || [],
+    preferences:   learnings.preferences   || [],
+    episode_ideas: learnings.episodeIdeas  || [],
+    voice_notes:   learnings.voiceNotes    || [],
+    extracted_at:  new Date().toISOString(),
   })
 }
 
 // ── VOICE PROFILE LIVE UPDATE ─────────────────────────────────────────────────
-// Detects when the creator corrects or refines their voice profile mid-conversation
-// and patches the category voice_profile immediately.
-
 async function updateVoiceProfile(userId, categoryId, userMessage, kbResponse) {
   const { data: cat } = await supabase
     .from('categories')
@@ -1124,7 +1080,7 @@ async function updateVoiceProfile(userId, categoryId, userMessage, kbResponse) {
   const detection = await client.messages.create({
     model:      process.env.CLAUDE_MODEL || 'claude-sonnet-4-5',
     max_tokens: 300,
-    system:     'Detect if the creator is correcting or refining their voice profile. Return ONLY valid JSON: { "hasUpdate": boolean, "field": string, "oldValue": string, "newValue": string, "path": string }. path is the dot-notation path in the voice_profile object to update (e.g. "languageFingerprint.avoidPhrases", "voiceCharacteristics.rhythmNote"). If no clear voice correction, return { "hasUpdate": false }.',
+    system:     'Detect if the creator is correcting or refining their voice profile. Return ONLY valid JSON: { "hasUpdate": boolean, "field": string, "oldValue": string, "newValue": string, "path": string }. path is the dot-notation path in the voice_profile object (e.g. "languageFingerprint.avoidPhrases"). If no clear voice correction, return { "hasUpdate": false }.',
     messages:   [{ role: 'user', content: `Creator said: "${userMessage}"\n\nCurrent voice profile: ${JSON.stringify(cat.voice_profile).slice(0, 500)}\n\nIs this a voice profile correction?` }],
   })
 
@@ -1135,17 +1091,15 @@ async function updateVoiceProfile(userId, categoryId, userMessage, kbResponse) {
 
   if (!update.hasUpdate || !update.path || !update.newValue) return
 
-  // Apply the update via dot-notation path
-  const vp = { ...cat.voice_profile }
+  const vp    = { ...cat.voice_profile }
   const parts = update.path.split('.')
-  let obj = vp
+  let obj     = vp
   for (let i = 0; i < parts.length - 1; i++) {
     if (!obj[parts[i]]) obj[parts[i]] = {}
     obj = obj[parts[i]]
   }
   const lastKey = parts[parts.length - 1]
 
-  // Handle array fields (avoidPhrases, signaturePhrases etc.)
   if (Array.isArray(obj[lastKey])) {
     if (!obj[lastKey].includes(update.newValue)) {
       obj[lastKey] = [...obj[lastKey], update.newValue]
@@ -1159,12 +1113,7 @@ async function updateVoiceProfile(userId, categoryId, userMessage, kbResponse) {
     updated_at:    new Date().toISOString(),
   }).eq('id', categoryId).eq('user_id', userId)
 
-  // Bust context cache so next message sees the update
-  const { invalidateContext } = require('./contextAssembler')  // already imported
-  // Note: invalidateContext is already available from the contextAssembler require at top
   console.log(`[voice-update] Patched ${update.path} for category ${categoryId}`)
 }
 
-// FIX: module.exports moved to end of file — it was previously mid-file which
-// caused the duplicate session routes below it to be unreachable/ambiguous.
 module.exports = router;
