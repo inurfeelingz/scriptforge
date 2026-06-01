@@ -24,8 +24,7 @@ router.get('/youtube/status', async (req, res) => {
   }
 })
 
-// ─── YOUTUBE OAUTH: CONNECT ───────────────────────────────────────────────────
-// Temporary debug — remove after YouTube is working
+// ─── YOUTUBE OAUTH: DEBUG ─────────────────────────────────────────────────────
 router.get('/youtube/debug', async (req, res) => {
   res.json({
     hasClientId:     !!process.env.YOUTUBE_CLIENT_ID,
@@ -36,9 +35,15 @@ router.get('/youtube/debug', async (req, res) => {
   })
 })
 
+// ─── YOUTUBE OAUTH: CONNECT ───────────────────────────────────────────────────
 // GET /api/analytics/youtube/connect?categoryId=xxx
 // Redirects to Google consent screen.
-// Accepts token as query param since this is a browser redirect (no auth header possible)
+// Accepts token as query param since this is a browser redirect (no auth header possible).
+//
+// FIX: was calling ytOAuth.buildAuthUrl() which uses the googleapis library.
+// That library makes a network request to Google's discovery service before
+// building the URL — that call was timing out on Railway causing the 503.
+// The OAuth URL format is static and documented — no network call needed.
 
 router.get('/youtube/connect', async (req, res) => {
   const { categoryId, token } = req.query
@@ -61,16 +66,23 @@ router.get('/youtube/connect', async (req, res) => {
     })
   }
 
-  // Embed userId so we can verify in callback
-  const state  = Buffer.from(JSON.stringify({ userId: req.user.id, categoryId })).toString('base64url')
-  const url    = ytOAuth.buildAuthUrl(req.user.id, categoryId)
-  res.redirect(url)
+  // Build Google OAuth URL directly — no googleapis discovery service call
+  const state = Buffer.from(JSON.stringify({ userId: req.user.id, categoryId })).toString('base64url')
+
+  const params = new URLSearchParams({
+    client_id:     process.env.YOUTUBE_CLIENT_ID,
+    redirect_uri:  process.env.YOUTUBE_REDIRECT_URI,
+    response_type: 'code',
+    scope:         'https://www.googleapis.com/auth/youtube.readonly https://www.googleapis.com/auth/yt-analytics.readonly',
+    access_type:   'offline',
+    prompt:        'consent',
+    state,
+  })
+
+  res.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`)
 })
 
 // ─── YOUTUBE OAUTH: CALLBACK ──────────────────────────────────────────────────
-// GET /api/analytics/youtube/callback?code=xxx&state=xxx
-// Called by Google after user grants consent.
-// Exchanges code, stores tokens, redirects to frontend analytics page.
 
 router.get('/youtube/callback', async (req, res) => {
   const { code, state, error: oauthError } = req.query
@@ -92,7 +104,6 @@ router.get('/youtube/callback', async (req, res) => {
     const tokens  = await ytOAuth.exchangeCode(code)
     await ytOAuth.storeTokens(userId, categoryId, tokens)
 
-    // Get channel info and store it
     const channel = await ytOAuth.getChannelInfo(tokens.access_token)
     if (channel) {
       await supabase.from('youtube_connections').update({
@@ -110,9 +121,6 @@ router.get('/youtube/callback', async (req, res) => {
 })
 
 // ─── YOUTUBE OAUTH: PULL LATEST DATA ─────────────────────────────────────────
-// POST /api/analytics/youtube/pull
-// Body: { categoryId }
-// Fetches latest 90-day analytics, runs through the same Claude pipeline as CSV upload.
 
 router.post('/youtube/pull', async (req, res) => {
   const { categoryId } = req.body
@@ -121,7 +129,6 @@ router.post('/youtube/pull', async (req, res) => {
   try {
     const accessToken = await ytOAuth.getValidToken(req.user.id, categoryId)
 
-    // Pull video performance, demographics, and comment sentiment in parallel
     const [videos, demographics, commentSentiment] = await Promise.all([
       ytOAuth.pullAnalyticsData(accessToken),
       ytOAuth.pullAudienceDemographics(accessToken).catch(err => {
@@ -138,20 +145,17 @@ router.post('/youtube/pull', async (req, res) => {
       return res.json({ message: 'No video data found for this channel', videoCount: 0 })
     }
 
-    // Score and sort — same logic as CSV upload
     const scored = videos.map(v => ({
       ...v,
       retentionScore: calcScore(v.avgViewPercentage, v.views, v.ctr || 0),
     })).sort((a, b) => b.retentionScore - a.retentionScore)
 
-    // Run Claude insights
     const context   = await assembleContext(req.user.id, categoryId, { mode: 'analytics' })
     const topTitles = scored.slice(0, 10).map((v, i) =>
       `${i+1}. "${v.title}" — score: ${v.retentionScore}, views: ${v.views?.toLocaleString()}, avg view: ${v.avgViewPercentage}%`
     ).join('\n')
 
     let insights = 'Insights will be generated on your next single-file upload.'
-    if (!skip_insights) {
     const insightRes = await client.messages.create({
       model:      process.env.CLAUDE_MODEL || 'claude-sonnet-4-5',
       max_tokens: 600,
@@ -161,12 +165,10 @@ router.post('/youtube/pull', async (req, res) => {
         content: `Interpret this YouTube analytics data (auto-imported via OAuth).\n\nTOP 10 PERFORMERS:\n${topTitles}\n\nTOTALS: ${videos.length} videos, avg score: ${Math.round(scored.reduce((s,v) => s+v.retentionScore,0)/scored.length)}\n\nGive 3-4 specific, actionable insights. Reference episode titles. End with 2 concrete recommendations for the next episode.`,
       }],
     })
-
     insights = insightRes.content[0].text
-    } // end skip_insights
+
     const avgScore = Math.round(scored.reduce((s,v) => s+v.retentionScore,0) / scored.length)
 
-    // Save — include demographics if pulled successfully
     await supabase.from('analytics_uploads').insert({
       user_id:        req.user.id,
       category_id:    categoryId,
@@ -180,7 +182,6 @@ router.post('/youtube/pull', async (req, res) => {
       demographics:   demographics || null,
     })
 
-    // Also update the category's audience_model with fresh demographics
     if (demographics) {
       const { data: existingCat } = await supabase
         .from('categories')
@@ -203,12 +204,10 @@ router.post('/youtube/pull', async (req, res) => {
       }).eq('id', categoryId).eq('user_id', req.user.id)
     }
 
-    // Update last pulled timestamp
     await supabase.from('youtube_connections').update({
       last_pulled_at: new Date().toISOString(),
     }).eq('user_id', req.user.id).eq('category_id', categoryId)
 
-    // Match episodes
     let matched = 0
     for (const video of scored.slice(0, 30)) {
       const { data: eps } = await supabase
@@ -237,10 +236,10 @@ router.post('/youtube/pull', async (req, res) => {
       episodesMatched: matched,
       source:       'oauth',
       demographics: demographics ? {
-        topAgeGroup:    demographics.ageGender?.topAgeGroup,
-        topCountries:   demographics.geography?.topCountries?.slice(0,3).map(c => c.country),
-        topDevice:      demographics.devices?.[0]?.device,
-        topTraffic:     demographics.trafficSources?.[0]?.source,
+        topAgeGroup:  demographics.ageGender?.topAgeGroup,
+        topCountries: demographics.geography?.topCountries?.slice(0,3).map(c => c.country),
+        topDevice:    demographics.devices?.[0]?.device,
+        topTraffic:   demographics.trafficSources?.[0]?.source,
       } : null,
     })
   } catch (err) {
@@ -263,9 +262,6 @@ router.delete('/youtube/disconnect', async (req, res) => {
 })
 
 // ─── EPISODE RETENTION CURVE ──────────────────────────────────────────────────
-// GET /api/analytics/episode/:id/retention
-// Returns the retention curve map + script lines mapped to timecodes
-// Used by EpisodeReview page (improvement 10)
 
 router.get('/episode/:id/retention', async (req, res) => {
   const { data: episode, error } = await supabase
@@ -277,8 +273,6 @@ router.get('/episode/:id/retention', async (req, res) => {
 
   if (error || !episode) return res.status(404).json({ error: 'Episode not found' })
 
-  // Map VO script lines to approximate timecodes
-  // Each paragraph ~= speaking time based on word count at 130wpm
   const scriptLines = mapScriptToTimecodes(episode.vo_script || '')
 
   res.json({
@@ -288,32 +282,26 @@ router.get('/episode/:id/retention', async (req, res) => {
       trackName:      episode.track_name,
       retentionScore: episode.yt_retention_score,
     },
-    retentionCurve:   episode.retention_curve_map || null,
+    retentionCurve:    episode.retention_curve_map || null,
     retentionPatterns: episode.retention_patterns || null,
     scriptLines,
-    hasRetentionData: !!episode.retention_curve_map,
+    hasRetentionData:  !!episode.retention_curve_map,
   })
 })
 
 // ─── RETENTION CURVE INGEST ───────────────────────────────────────────────────
-// POST /api/analytics/episode/:id/retention-curve
-// Body: { curveData } — raw retention CSV or JSON from YouTube Studio
-// Saves the curve and triggers template rebuild
 
 router.post('/episode/:id/retention-curve', async (req, res) => {
   const { curveData } = req.body
   if (!curveData) return res.status(400).json({ error: 'curveData required' })
-
   try {
-    const { parseRetentionCurve, extractStructuralPatterns, saveRetentionCurve } = require('../services/retentionMapper')
+    const { saveRetentionCurve } = require('../services/retentionMapper')
     const result = await saveRetentionCurve(req.user.id, req.params.id, curveData)
     res.json({ saved: true, ...result })
   } catch (err) {
     res.status(500).json({ error: err.message })
   }
 })
-
-
 
 // ─── UPLOAD ANALYTICS CSV ─────────────────────────────────────────────────────
 
@@ -324,12 +312,10 @@ router.post('/upload', upload.single('file'), async (req, res) => {
     return res.status(400).json({ error: 'file, categoryId, and platform are required' });
   }
 
-  // File size limit — 2MB to prevent timeouts
   if (req.file.size > 2 * 1024 * 1024) {
     return res.status(400).json({ error: 'File too large. Max 2MB — try exporting a shorter date range (90 days works best).' })
   }
 
-  // Validate file type before attempting to parse
   const allowedMimes = ['text/csv', 'application/csv', 'text/plain', 'application/vnd.ms-excel']
   const fileExt      = (req.file.originalname || '').toLowerCase().split('.').pop()
   if (!allowedMimes.includes(req.file.mimetype) && fileExt !== 'csv' && fileExt !== 'txt') {
@@ -337,10 +323,9 @@ router.post('/upload', upload.single('file'), async (req, res) => {
   }
 
   try {
-    const csvText = req.file.buffer.toString('utf8')
+    const csvText   = req.file.buffer.toString('utf8')
     const firstLine = csvText.trim().split('\n')[0]?.toLowerCase().replace(/"/g, '') || ''
 
-    // Detect YouTube format type
     const isYTPerVideo   = firstLine.includes('video title')
     const isYTGeo        = firstLine.includes('geography') && firstLine.includes('views')
     const isYTTraffic    = firstLine.includes('traffic source') && firstLine.includes('views')
@@ -354,14 +339,11 @@ router.post('/upload', upload.single('file'), async (req, res) => {
 
     if (platform === 'youtube') {
       if (isYTPerVideo) {
-        videos = parseYouTubeCSV(csvText)
-        dataType = 'per_video'
+        videos = parseYouTubeCSV(csvText); dataType = 'per_video'
       } else if (isYTGeo || isYTTraffic) {
-        videos = parseYouTubeBreakdownCSV(csvText)
-        dataType = 'breakdown'
+        videos = parseYouTubeBreakdownCSV(csvText); dataType = 'breakdown'
       } else if (isYTContent) {
-        videos = parseYouTubeSummaryCSV(csvText)
-        dataType = 'summary'
+        videos = parseYouTubeSummaryCSV(csvText); dataType = 'summary'
       } else if (isYTDateSeries) {
         return res.status(400).json({
           error: 'This file only contains daily totals — not enough data for insights.',
@@ -375,11 +357,9 @@ router.post('/upload', upload.single('file'), async (req, res) => {
       }
     } else {
       if (isTKPerVideo) {
-        videos = parseTikTokCSV(csvText)
-        dataType = 'per_video'
+        videos = parseTikTokCSV(csvText); dataType = 'per_video'
       } else if (isTKOverview) {
-        videos = parseTikTokOverviewCSV(csvText)
-        dataType = 'overview'
+        videos = parseTikTokOverviewCSV(csvText); dataType = 'overview'
       } else {
         return res.status(400).json({
           error: 'TikTok CSV format not recognised.',
@@ -392,13 +372,11 @@ router.post('/upload', upload.single('file'), async (req, res) => {
       return res.status(400).json({ error: 'No valid data found in CSV. Check the file format.' });
     }
 
-    // Calculate scores
     const scored = videos.map(v => ({
       ...v,
       retentionScore: calcScore(v.avgViewPercentage || v.fullWatchRate, v.views, v.ctr || 0),
     })).sort((a, b) => b.retentionScore - a.retentionScore);
 
-    // Claude interprets the data
     const context   = await assembleContext(req.user.id, categoryId, { mode: 'analytics' });
     const topTitles = scored.slice(0, 10).map((v, i) =>
       `${i+1}. "${v.title}" — score: ${v.retentionScore}, views: ${v.views?.toLocaleString()}, avg view: ${v.avgViewPercentage || v.fullWatchRate}%`
@@ -406,28 +384,20 @@ router.post('/upload', upload.single('file'), async (req, res) => {
 
     let insights = 'Insights will be generated on your next single-file upload.'
     if (!skip_insights) {
-    const insightRes = await client.messages.create({
-      model:      process.env.CLAUDE_MODEL || 'claude-sonnet-4-5',
-      max_tokens: 600,
-      system:     context,
-      messages: [{
-        role: 'user',
-        content: `Interpret this ${platform} analytics data for the creator. Data type: ${dataType}.
+      const insightRes = await client.messages.create({
+        model:      process.env.CLAUDE_MODEL || 'claude-sonnet-4-5',
+        max_tokens: 600,
+        system:     context,
+        messages: [{
+          role: 'user',
+          content: `Interpret this ${platform} analytics data for the creator. Data type: ${dataType}.\n\nTOP PERFORMERS:\n${topTitles}\n\nTOTALS: ${videos.length} entries, avg score: ${Math.round(scored.reduce((s,v) => s+v.retentionScore,0)/scored.length)}\n\nGive 3-4 specific, actionable insights based on this data. ${dataType === 'per_video' ? 'Reference video titles where relevant.' : 'Note this is aggregated data, not per-video.'} End with 2 concrete recommendations for the next episode structure.`,
+        }],
+      });
+      insights = insightRes.content[0].text
+    }
 
-TOP PERFORMERS:
-${topTitles}
-
-TOTALS: ${videos.length} entries, avg score: ${Math.round(scored.reduce((s,v) => s+v.retentionScore,0)/scored.length)}
-
-Give 3-4 specific, actionable insights based on this data. ${dataType === 'per_video' ? 'Reference video titles where relevant.' : 'Note this is aggregated data, not per-video.'} End with 2 concrete recommendations for the next episode structure.`,
-      }],
-    });
-
-    insights = insightRes.content[0].text
-    } // end skip_insights
     const avgScore = Math.round(scored.reduce((s,v) => s+v.retentionScore,0) / scored.length);
 
-    // Save to DB
     const { data: upload_record } = await supabase
       .from('analytics_uploads')
       .insert({
@@ -443,13 +413,10 @@ Give 3-4 specific, actionable insights based on this data. ${dataType === 'per_v
       .select()
       .single();
 
-    // Auto-match to existing episodes and log performance
-    // Priority: 1) exact video_id match, 2) skip fuzzy title (too many false positives)
     let matched = 0;
     for (const video of scored.slice(0, 50)) {
       let matchedEpisodes = []
 
-      // Try exact video ID match first (most reliable)
       if (video.videoId && platform === 'youtube') {
         const { data: idMatches } = await supabase
           .from('episodes')
@@ -460,7 +427,6 @@ Give 3-4 specific, actionable insights based on this data. ${dataType === 'per_v
         if (idMatches?.length) matchedEpisodes = idMatches
       }
 
-      // Only fall back to title match if no ID match AND title is specific enough (>30 chars)
       if (!matchedEpisodes.length && video.title?.length > 30) {
         const { data: titleMatches } = await supabase
           .from('episodes')
@@ -468,7 +434,6 @@ Give 3-4 specific, actionable insights based on this data. ${dataType === 'per_v
           .eq('user_id', req.user.id)
           .eq('category_id', categoryId)
           .ilike('track_name', `%${video.title.slice(0, 35)}%`)
-        // Only accept if exactly ONE match to avoid false positives
         if (titleMatches?.length === 1) matchedEpisodes = titleMatches
       }
 
@@ -478,10 +443,7 @@ Give 3-4 specific, actionable insights based on this data. ${dataType === 'per_v
           updateData.yt_view_count      = video.views
           updateData.yt_avg_view_pct    = video.avgViewPercentage
           updateData.yt_retention_score = video.retentionScore
-          // Auto-store the video ID if we matched by title
-          if (video.videoId && !ep.youtube_video_id) {
-            updateData.youtube_video_id = video.videoId
-          }
+          if (video.videoId && !ep.youtube_video_id) updateData.youtube_video_id = video.videoId
         } else {
           updateData.tt_view_count      = video.views
           updateData.tt_full_watch_rate = video.fullWatchRate
@@ -492,10 +454,10 @@ Give 3-4 specific, actionable insights based on this data. ${dataType === 'per_v
     }
 
     res.json({
-      uploadId:     upload_record?.id,
-      videoCount:   videos.length,
+      uploadId:        upload_record?.id,
+      videoCount:      videos.length,
       avgScore,
-      topPerformers: scored.slice(0, 5),
+      topPerformers:   scored.slice(0, 5),
       insights,
       episodesMatched: matched,
     });
@@ -510,7 +472,6 @@ Give 3-4 specific, actionable insights based on this data. ${dataType === 'per_v
 
 router.get('/', async (req, res) => {
   const { categoryId } = req.query;
-
   const { data } = await supabase
     .from('analytics_uploads')
     .select('id, platform, upload_date, video_count, avg_score, insights, top_performers')
@@ -518,7 +479,6 @@ router.get('/', async (req, res) => {
     .eq('category_id', categoryId)
     .order('upload_date', { ascending: false })
     .limit(10);
-
   res.json({ uploads: data || [] });
 });
 
@@ -554,8 +514,6 @@ function parseYouTubeCSV(csv) {
   }).filter(v => v.title)
 }
 
-// YouTube Overview/Summary export — has Content type rows (Total, Shorts, Videos etc)
-// YouTube breakdown exports — Geography or Traffic source with Views, Watch time
 function parseYouTubeBreakdownCSV(csv) {
   const lines  = csv.trim().split('\n')
   const header = parseCSVLine(lines[0]).map(h => h.toLowerCase())
@@ -563,18 +521,12 @@ function parseYouTubeBreakdownCSV(csv) {
     const cols = parseCSVLine(line)
     const row  = {}
     header.forEach((h, i) => { row[h] = cols[i] || '' })
-    const label = row['geography'] || row['traffic source'] || row['content'] || 'Unknown'
-    const views = parseInt((row['views'] || '0').replace(/,/g, ''))
+    const label      = row['geography'] || row['traffic source'] || row['content'] || 'Unknown'
+    const views      = parseInt((row['views'] || '0').replace(/,/g, ''))
     const watchHours = parseFloat((row['watch time (hours)'] || '0').replace(/,/g, ''))
     const avgDurSecs = views > 0 ? (watchHours * 3600) / views : 0
     const avgViewPct = Math.min(Math.round((avgDurSecs / 60) * 100), 100)
-    return {
-      platform: 'youtube',
-      title: label,
-      views,
-      avgViewPercentage: avgViewPct,
-      avgViewDuration: row['average view duration'] || '',
-    }
+    return { platform: 'youtube', title: label, views, avgViewPercentage: avgViewPct, avgViewDuration: row['average view duration'] || '' }
   }).filter(r => r.views > 0)
 }
 
@@ -587,20 +539,11 @@ function parseYouTubeSummaryCSV(csv) {
     header.forEach((h, i) => { row[h] = cols[i] || '' })
     const type = row['content type'] || row['type'] || 'Unknown'
     if (!type || type.toLowerCase() === 'total') return null
-    const views = parseInt((row['views'] || '0').replace(/,/g, ''))
+    const views      = parseInt((row['views'] || '0').replace(/,/g, ''))
     const watchHours = parseFloat((row['watch time (hours)'] || '0').replace(/,/g, ''))
-    // Estimate avg view percentage from watch time / views
-    // avg_view_duration_seconds ≈ (watchHours * 3600) / views
-    // assume ~60s average video → percentage = duration/60
     const avgDurSecs = views > 0 ? (watchHours * 3600) / views : 0
     const avgViewPct = Math.min(Math.round((avgDurSecs / 60) * 100), 100)
-    return {
-      platform:          'youtube',
-      title:             type,
-      views,
-      avgViewPercentage: avgViewPct,
-      avgViewDuration:   row['average view duration'] || '',
-    }
+    return { platform: 'youtube', title: type, views, avgViewPercentage: avgViewPct, avgViewDuration: row['average view duration'] || '' }
   }).filter(Boolean)
 }
 
@@ -622,28 +565,25 @@ function parseTikTokCSV(csv) {
   }).filter(v => v.title)
 }
 
-// TikTok Overview export — daily rows with Date, Video Views, Likes etc
 function parseTikTokOverviewCSV(csv) {
   const lines  = csv.trim().split('\n')
   const header = parseCSVLine(lines[0]).map(h => h.toLowerCase().replace(/"/g, ''))
-  const rows   = lines.slice(1).filter(l => l.trim()).map(line => {
+  return lines.slice(1).filter(l => l.trim()).map(line => {
     const cols = parseCSVLine(line)
     const row  = {}
     header.forEach((h, i) => { row[h] = (cols[i] || '').replace(/"/g, '') })
     return {
-      platform: 'tiktok',
-      title:    row['date'] || 'Unknown date',
-      views:    parseInt(row['video views'] || '0'),
-      likes:    parseInt(row['likes'] || '0'),
-      comments: parseInt(row['comments'] || '0'),
-      shares:   parseInt(row['shares'] || '0'),
-      // engagement rate as proxy for watch rate
+      platform:      'tiktok',
+      title:         row['date'] || 'Unknown date',
+      views:         parseInt(row['video views'] || '0'),
+      likes:         parseInt(row['likes'] || '0'),
+      comments:      parseInt(row['comments'] || '0'),
+      shares:        parseInt(row['shares'] || '0'),
       fullWatchRate: row['video views'] > 0
         ? Math.min(((parseInt(row['likes']||0) + parseInt(row['comments']||0) + parseInt(row['shares']||0)) / parseInt(row['video views']||1)) * 100, 100)
         : 0,
     }
   }).filter(r => r.views > 0)
-  return rows
 }
 
 function calcScore(avgPct, views, ctr) {
@@ -653,26 +593,19 @@ function calcScore(avgPct, views, ctr) {
   return Math.round(pctScore + volScore + engScore);
 }
 
-
 // ─── HOOK PERFORMANCE BREAKDOWN ──────────────────────────────────────────────
-// Returns hookType → avg retention score from generation_log + episodes join
 
 router.get('/hook-stats', async (req, res) => {
   const { categoryId } = req.query
-
-  // Join generation_log decisions with episode performance scores
   let query = supabase
     .from('generation_log')
     .select('decisions, episode_id, episodes!inner(yt_retention_score)')
     .eq('user_id', req.user.id)
     .not('episodes.yt_retention_score', 'is', null)
-
   if (categoryId) query = query.eq('category_id', categoryId)
-
   const { data, error } = await query.limit(100)
   if (error) return res.status(500).json({ error: error.message })
 
-  // Aggregate by hook type
   const stats = {}
   for (const row of (data || [])) {
     const hookType = row.decisions?.hookType || 'unknown'
@@ -683,86 +616,50 @@ router.get('/hook-stats', async (req, res) => {
   }
 
   const breakdown = Object.entries(stats)
-    .map(([hookType, s]) => ({
-      hookType,
-      count:    s.count,
-      avgScore: Math.round(s.totalScore / s.count),
-    }))
+    .map(([hookType, s]) => ({ hookType, count: s.count, avgScore: Math.round(s.totalScore / s.count) }))
     .sort((a, b) => b.avgScore - a.avgScore)
 
   res.json({ breakdown, totalEpisodes: data?.length || 0 })
 })
 
-// ─── HELPERS ─────────────────────────────────────────────────────────────────
+// ─── HELPERS ──────────────────────────────────────────────────────────────────
 
-/**
- * Map VO script paragraphs to approximate timecodes.
- * Uses word count at 130wpm to estimate how far into the episode each line lands.
- * Returns array of { text, startSec, endSec, wordCount, isHint }
- */
 function mapScriptToTimecodes(voScript) {
   if (!voScript) return []
-  const WPM        = 130
+  const WPM           = 130
   const WORDS_PER_SEC = WPM / 60
-
-  const lines = voScript.split('\n')
-  const result = []
-  let elapsedSec = 0
+  const lines         = voScript.split('\n')
+  const result        = []
+  let elapsedSec      = 0
 
   for (const line of lines) {
     const trimmed = line.trim()
     if (!trimmed) continue
-
-    const isHint    = /^\[(?:CAM|DAW|BROLL|VO)/i.test(trimmed)
-    const isTc      = /^\[\d+:\d+\]/.test(trimmed)
-
-    // Extract explicit timecode if present e.g. [0:45]
+    const isHint = /^\[(?:CAM|DAW|BROLL|VO)/i.test(trimmed)
+    const isTc   = /^\[\d+:\d+\]/.test(trimmed)
     if (isTc) {
       const match = trimmed.match(/^\[(\d+):(\d+)\]/)
-      if (match) {
-        elapsedSec = parseInt(match[1]) * 60 + parseInt(match[2])
-      }
+      if (match) elapsedSec = parseInt(match[1]) * 60 + parseInt(match[2])
     }
-
     const text      = trimmed.replace(/^\[\d+:\d+\]\s*/, '')
     const wordCount = text.split(/\s+/).filter(Boolean).length
     const durSec    = isHint ? 0 : Math.max(wordCount / WORDS_PER_SEC, 1)
-
-    result.push({
-      text,
-      startSec:  Math.round(elapsedSec),
-      endSec:    Math.round(elapsedSec + durSec),
-      wordCount,
-      isHint,
-      isTc,
-    })
-
+    result.push({ text, startSec: Math.round(elapsedSec), endSec: Math.round(elapsedSec + durSec), wordCount, isHint, isTc })
     if (!isHint) elapsedSec += durSec
   }
-
   return result
 }
 
-// ── POST /api/analytics/competitor-research ──────────────────────────────────
+// ─── COMPETITOR RESEARCH ──────────────────────────────────────────────────────
+
 router.post('/competitor-research', async (req, res) => {
   const { categoryId } = req.body
   if (!categoryId) return res.status(400).json({ error: 'categoryId required' })
-
   try {
-    const { data: cat } = await supabase
-      .from('categories')
-      .select('niche, name')
-      .eq('id', categoryId)
-      .single()
-
+    const { data: cat } = await supabase.from('categories').select('niche, name').eq('id', categoryId).single()
     const { researchCompetitors } = require('../services/geminiService')
     const intel = await researchCompetitors(cat?.niche || '', cat?.name || '')
-
-    await supabase.from('categories').update({
-      competitor_intel: intel,
-      updated_at: new Date().toISOString(),
-    }).eq('id', categoryId).eq('user_id', req.user.id)
-
+    await supabase.from('categories').update({ competitor_intel: intel, updated_at: new Date().toISOString() }).eq('id', categoryId).eq('user_id', req.user.id)
     res.json({ success: true, intel })
   } catch (err) {
     console.error('[competitor-research]', err.message)
@@ -770,24 +667,15 @@ router.post('/competitor-research', async (req, res) => {
   }
 })
 
-// ── POST /api/analytics/audience-research ────────────────────────────────────
-// Manually trigger Gemini audience research for a category.
-// Also called automatically by the weekly scheduler.
+// ─── AUDIENCE RESEARCH ────────────────────────────────────────────────────────
 
 router.post('/audience-research', async (req, res) => {
   const { categoryId } = req.body
   if (!categoryId) return res.status(400).json({ error: 'categoryId required' })
-
   try {
     const { runAudienceResearch } = require('../services/smartScheduler')
     await runAudienceResearch(req.user.id, categoryId)
-
-    const { data: cat } = await supabase
-      .from('categories')
-      .select('audience_model')
-      .eq('id', categoryId)
-      .single()
-
+    const { data: cat } = await supabase.from('categories').select('audience_model').eq('id', categoryId).single()
     res.json({ success: true, audienceModel: cat?.audience_model?.geminiInsights || null })
   } catch (err) {
     console.error('[audience-research]', err.message)
@@ -795,33 +683,28 @@ router.post('/audience-research', async (req, res) => {
   }
 })
 
-// ── POST /api/analytics/audience-upload ───────────────────────────────────────
-// Accepts CSV or XLS/XLSX audience data files (personas, user exports, surveys).
-// Parses the file, runs Gemini to synthesise a plain-English persona summary,
-// stores in audience_uploads + updates categories.audience_model.
+// ─── AUDIENCE UPLOAD ──────────────────────────────────────────────────────────
 
 router.post('/audience-upload', upload.single('file'), async (req, res) => {
   const { categoryId } = req.body
-  if (!categoryId)   return res.status(400).json({ error: 'categoryId required' })
-  if (!req.file)     return res.status(400).json({ error: 'No file uploaded' })
+  if (!categoryId) return res.status(400).json({ error: 'categoryId required' })
+  if (!req.file)   return res.status(400).json({ error: 'No file uploaded' })
 
   try {
     const ext = req.file.originalname.split('.').pop().toLowerCase()
     let rows = []
 
     if (ext === 'csv' || ext === 'txt') {
-      // Parse CSV
-      const text = req.file.buffer.toString('utf8')
-      const lines = text.trim().split('\n')
+      const text    = req.file.buffer.toString('utf8')
+      const lines   = text.trim().split('\n')
       const headers = lines[0].split(',').map(h => h.trim().replace(/"/g, ''))
       rows = lines.slice(1).filter(l => l.trim()).map(line => {
         const vals = line.split(',').map(v => v.trim().replace(/"/g, ''))
-        const obj = {}
+        const obj  = {}
         headers.forEach((h, i) => { obj[h] = vals[i] || '' })
         return obj
       })
     } else if (ext === 'xlsx' || ext === 'xls') {
-      // Parse Excel
       const workbook = XLSX.read(req.file.buffer, { type: 'buffer' })
       const sheet    = workbook.Sheets[workbook.SheetNames[0]]
       rows = XLSX.utils.sheet_to_json(sheet, { defval: '' })
@@ -831,99 +714,54 @@ router.post('/audience-upload', upload.single('file'), async (req, res) => {
 
     if (!rows.length) return res.status(400).json({ error: 'File appears empty or unreadable' })
 
-    // Cap at 500 rows to avoid context overflow
     const sampleRows = rows.slice(0, 500)
     const columns    = Object.keys(sampleRows[0] || {})
     const rowCount   = rows.length
+    const dataSample = sampleRows.slice(0, 20).map(r => columns.map(c => `${c}: ${r[c]}`).join(' | ')).join('\n')
 
-    // Build a compact summary for Gemini
-    const dataSample = sampleRows.slice(0, 20).map(r =>
-      columns.map(c => `${c}: ${r[c]}`).join(' | ')
-    ).join('\n')
-
-    // Run Gemini to synthesise a persona summary
     const geminiService = require('../services/geminiService')
     let personaSummary = ''
     try {
-      personaSummary = await geminiService.synthesiseAudienceData({
-        fileName:   req.file.originalname,
-        rowCount,
-        columns,
-        dataSample,
-        categoryId,
-      })
+      personaSummary = await geminiService.synthesiseAudienceData({ fileName: req.file.originalname, rowCount, columns, dataSample, categoryId })
     } catch (gemErr) {
       console.warn('[audience-upload] Gemini synthesis failed:', gemErr.message)
       personaSummary = `Audience data uploaded: ${rowCount} records across ${columns.length} columns (${columns.slice(0,5).join(', ')}${columns.length > 5 ? '...' : ''}). Gemini synthesis unavailable.`
     }
 
-    // Save to audience_uploads
-    const { data: upload, error: uploadErr } = await supabase
+    const { data: uploadRecord, error: uploadErr } = await supabase
       .from('audience_uploads')
-      .insert({
-        user_id:        req.user.id,
-        category_id:    categoryId,
-        file_name:      req.file.originalname,
-        row_count:      rowCount,
-        columns,
-        raw_data:       sampleRows,
-        persona_summary: personaSummary,
-        upload_date:    new Date().toISOString(),
-      })
+      .insert({ user_id: req.user.id, category_id: categoryId, file_name: req.file.originalname, row_count: rowCount, columns, raw_data: sampleRows, persona_summary: personaSummary, upload_date: new Date().toISOString() })
       .select()
       .single()
-
     if (uploadErr) throw uploadErr
 
-    // Update category audience_model with the new persona data
-    const { data: existingCat } = await supabase
-      .from('categories')
-      .select('audience_model')
-      .eq('id', categoryId)
-      .single()
-
+    const { data: existingCat } = await supabase.from('categories').select('audience_model').eq('id', categoryId).single()
     const existingModel = existingCat?.audience_model || {}
     await supabase.from('categories').update({
       audience_model: {
         ...existingModel,
         ownData: {
           ...(existingModel.ownData || {}),
-          latestUpload: {
-            fileName:       req.file.originalname,
-            rowCount,
-            columns,
-            personaSummary,
-            uploadedAt:     new Date().toISOString(),
-          },
-          allSummaries: [
-            ...(existingModel.ownData?.allSummaries || []).slice(-4), // keep last 5
-            { fileName: req.file.originalname, personaSummary, uploadedAt: new Date().toISOString() },
-          ],
+          latestUpload: { fileName: req.file.originalname, rowCount, columns, personaSummary, uploadedAt: new Date().toISOString() },
+          allSummaries: [...(existingModel.ownData?.allSummaries || []).slice(-4), { fileName: req.file.originalname, personaSummary, uploadedAt: new Date().toISOString() }],
         },
         ownData_updated_at: new Date().toISOString(),
       },
       updated_at: new Date().toISOString(),
     }).eq('id', categoryId).eq('user_id', req.user.id)
 
-    res.json({
-      success:        true,
-      rowCount,
-      columns,
-      personaSummary,
-      uploadId:       upload.id,
-    })
-
+    res.json({ success: true, rowCount, columns, personaSummary, uploadId: uploadRecord.id })
   } catch (err) {
     console.error('[audience-upload]', err.message)
     res.status(500).json({ error: err.message })
   }
 })
 
-// ── GET /api/analytics/audience-uploads ───────────────────────────────────────
+// ─── AUDIENCE UPLOADS LIST ────────────────────────────────────────────────────
+
 router.get('/audience-uploads', async (req, res) => {
   const { categoryId } = req.query
   if (!categoryId) return res.status(400).json({ error: 'categoryId required' })
-
   const { data } = await supabase
     .from('audience_uploads')
     .select('id, file_name, row_count, columns, persona_summary, upload_date')
@@ -931,7 +769,6 @@ router.get('/audience-uploads', async (req, res) => {
     .eq('category_id', categoryId)
     .order('upload_date', { ascending: false })
     .limit(10)
-
   res.json({ uploads: data || [] })
 })
 
