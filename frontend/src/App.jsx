@@ -16,7 +16,6 @@ const AnalyticsPage = lazy(() => import('./pages/AnalyticsPage'))
 const SoundPage     = lazy(() => import('./pages/SoundPage'))
 const SchedulePage  = lazy(() => import('./pages/SchedulePage'))
 const SettingsPage  = lazy(() => import('./pages/SettingsPage'))
-const Companion     = lazy(() => import('./pages/Companion'))
 const BillingPage   = lazy(() => import('./pages/BillingPage'))
 const PrivacyPage   = lazy(() => import('./pages/PrivacyPage'))
 const TermsPage     = lazy(() => import('./pages/TermsPage'))
@@ -126,13 +125,11 @@ export default function App() {
             <Route path="dashboard"    element={<Navigate to="/pipeline" replace />} />
             <Route path="scripts"      element={<Navigate to="/vault" replace />} />
             <Route path="series-bible" element={<Navigate to="/analytics" replace />} />
-            <Route path="journals"     element={<Navigate to="/companion" replace />} />
+            <Route path="journals"     element={<Navigate to="/" replace />} />
             <Route path="shorts"       element={<Navigate to="/pipeline" replace />} />
             <Route path="editor"       element={<Navigate to="/pipeline" replace />} />
           </Route>
 
-          {/* Companion — standalone */}
-          <Route path="/companion" element={<AuthGuard><Companion /></AuthGuard>} />
 
           {/* Catch-all */}
           <Route path="*" element={<Navigate to="/" replace />} />

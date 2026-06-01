@@ -492,7 +492,7 @@ export default function ChatPanel() {
 
   useEffect(() => {
     if (!activeCategoryId) return
-    setMessages([]); setCommitted(null); setGenerated(null); setGreeted(false)
+    setMessages([]); setCommitted(null); setGreeted(false)
 
     const historyPromise = chatApi.getHistory({ categoryId: activeCategoryId, mode })
       .then(({ messages: h }) => h || [])
