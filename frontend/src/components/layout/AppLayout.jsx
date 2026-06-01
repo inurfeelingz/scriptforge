@@ -10,10 +10,11 @@ import {
   Settings, LogOut, Sparkles,
   Plus, RefreshCw, BarChart2, Calendar,
   X, BookMarked, Search,
-  ChevronRight, Zap, Music2, Film,
+  ChevronRight, Zap, Music2, Mic,
 } from 'lucide-react'
 import CommandPalette  from './CommandPalette'
 import ChatPanel       from '../chat/ChatPanel'
+import CapturePanel    from './CapturePanel'
 import { useStore }    from '../../store'
 import { categories as catApi } from '../../lib/api'
 import { signOut }     from '../../lib/supabase'
@@ -40,6 +41,7 @@ export default function AppLayout() {
           loadCategories, setActiveCategory, notify, clearWorkspaceContext } = useStore()
 
   const [chatOpen,     setChatOpen]     = useState(false)
+  const [captureOpen,  setCaptureOpen]  = useState(false)
   const [paletteOpen,  setPaletteOpen]  = useState(false)
   const [isOnline,     setIsOnline]     = useState(navigator.onLine)
   const [gearOpen,     setGearOpen]     = useState(false)
@@ -406,28 +408,31 @@ export default function AppLayout() {
 
           <div style={{ width: 1, height: 20, background: 'rgba(255,255,255,0.06)', margin: '0 2px' }}/>
 
+          {/* Capture button — ambient session recording */}
+          <button
+            onClick={() => setCaptureOpen(o => !o)}
+            style={{
+              width: 36, height: 36, borderRadius: 50,
+              background: captureOpen ? 'rgba(224,48,48,0.12)' : 'none',
+              border: captureOpen ? '1px solid rgba(224,48,48,0.3)' : 'none',
+              color: captureOpen ? 'rgba(224,48,48,0.9)' : 'rgba(255,255,255,0.35)',
+              cursor: 'pointer', display: 'flex', flexDirection: 'column',
+              alignItems: 'center', justifyContent: 'center', gap: 3, transition: 'all 0.15s',
+            }}
+            title="Session capture"
+          >
+            <Mic size={14}/>
+            <span style={{ fontSize: 7, letterSpacing: '0.06em', textTransform: 'uppercase', fontFamily: "'Figtree', sans-serif", lineHeight: 1 }}>Live</span>
+          </button>
+
+          <div style={{ width: 1, height: 20, background: 'rgba(255,255,255,0.06)', margin: '0 2px' }}/>
+
           {/* Pipeline items — desktop only */}
           {!isMobile && PILL_ITEMS.map(item => (
             <PillButton key={item.to} {...item}/>
           ))}
 
           {!isMobile && <div style={{ width: 1, height: 20, background: 'rgba(255,255,255,0.06)', margin: '0 2px' }}/>}
-
-          {/* New episode */}
-          <button
-            onClick={() => navigate('/')}
-            style={{
-              width: 36, height: 36, borderRadius: 50,
-              background: 'none', border: 'none',
-              color: 'rgba(255,255,255,0.35)',
-              cursor: 'pointer', display: 'flex', flexDirection: 'column',
-              alignItems: 'center', justifyContent: 'center', gap: 3, transition: 'all 0.15s',
-            }}
-            title="New episode"
-          >
-            <Plus size={15}/>
-            <span style={{ fontSize: 8, letterSpacing: '0.06em', textTransform: 'uppercase', fontFamily: "'Figtree', sans-serif", lineHeight: 1 }}>New</span>
-          </button>
 
           {/* Mobile expand — shows pipeline items in grid */}
           {isMobile && (
@@ -627,6 +632,11 @@ export default function AppLayout() {
 
       {/* Pill toolbar */}
       <PillToolbar/>
+
+      {/* Capture panel — ambient session recording */}
+      {captureOpen && (
+        <CapturePanel onClose={() => setCaptureOpen(false)} />
+      )}
 
       {/* Modals */}
       {paletteOpen && <CommandPalette onClose={() => setPaletteOpen(false)} />}
