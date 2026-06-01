@@ -349,17 +349,49 @@ ${topPerformers.map(e =>
 No published episodes with real performance data yet. Do not reference or invent episode benchmarks. The creator is still in pre-launch — base all recommendations on the analytics upload data and industry knowledge only.`)
   }
 
-  // ── RECENT VOICE MEMOS (raw ideas from Companion sessions) ──────────
+  // ── RECENT SESSION JOURNALS ───────────────────────────────────────────
+  // Strategy: use the full transcript for recent sessions, not a 600-char slice.
+  // Claude's context window is large enough to handle several full transcripts.
+  // For very long sessions (>12000 chars) we take evenly-spaced excerpts across
+  // the full duration so KB gets the whole arc, not just the opening minutes.
   if (recentVoiceMemos?.length) {
-    sections.push(`## RECENT COMPANION SESSIONS (creator's raw captured ideas)
-These are voice sessions from the Companion app — the creator's unfiltered thinking.
+    sections.push(`## RECENT SESSION JOURNALS (creator's captured working sessions)
+These are transcribed audio sessions — the creator's unfiltered ideas and process.
 ${recentVoiceMemos.map(m => {
-  const memo = (m.voice_memo_text || '').slice(0, 600)
-  const transcript = (m.transcript || '').slice(0, 400)
-  const moments = (m.key_moments || []).slice(0, 3).map(k => `• ${k}`).join('\n')
-  return `[${new Date(m.created_at).toLocaleDateString()}${m.title ? ` — ${m.title}` : ''}]
-Summary: "${memo}${memo.length >= 300 ? '...' : ''}"${moments ? `\nKey moments:\n${moments}` : ''}${transcript && !memo ? `\nTranscript excerpt: "${transcript.slice(0,200)}"` : ''}`
-}).join('\n\n')}`)
+  const moments = (m.key_moments || []).slice(0, 5).map(k => `• ${k}`).join('\n')
+  const title   = m.title ? ` — ${m.title}` : ''
+  const date    = new Date(m.created_at).toLocaleDateString()
+
+  // Use transcript if available (has timecodes), fall back to voice_memo_text
+  const raw = (m.transcript || m.voice_memo_text || '').trim()
+
+  let content = ''
+  if (!raw) {
+    content = '(no transcript)'
+  } else if (raw.length <= 12000) {
+    // Short enough — send the whole thing
+    content = raw
+  } else {
+    // Long session — take 8 evenly-spaced windows across the full transcript
+    // so KB gets beginning, middle AND end, not just the first few minutes
+    const lines      = raw.split('\n').filter(Boolean)
+    const totalLines = lines.length
+    const windows    = 8
+    const windowSize = 15  // lines per window
+    const step       = Math.floor(totalLines / windows)
+    const excerpts   = []
+
+    for (let i = 0; i < windows; i++) {
+      const start = Math.min(i * step, totalLines - windowSize)
+      const slice = lines.slice(start, start + windowSize).join('\n')
+      excerpts.push(slice)
+    }
+    content = excerpts.join('\n...\n')
+  }
+
+  return `[${date}${title}]
+${moments ? `Key moments:\n${moments}\n` : ''}${content}`
+}).join('\n\n---\n\n')}`)
   }
 
   // ── SERIES MEMORY ─────────────────────────────────────────

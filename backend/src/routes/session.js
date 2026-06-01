@@ -94,41 +94,70 @@ router.post('/index-audio', audioIndexUpload.single('audio'), async (req, res) =
 
   // ── Background worker ───────────────────────────────────────────────────────
   ;(async () => {
-    const job        = jobs.get(jobId)
-    const CHUNK_SIZE = 20 * 1024 * 1024
-    const totalSize  = req.file.size
-    const chunks     = Math.ceil(totalSize / CHUNK_SIZE)
-    const allSegments = []
-    let   runningOffsetSec = 0
-
-    job.total = chunks
-    console.log(`[index-audio] job=${jobId} — ${req.file.originalname} ${Math.round(totalSize/1024/1024)}MB, ${chunks} chunk(s)`)
+    const job           = jobs.get(jobId)
+    const CHUNK_SECS    = 600  // 10 minutes per chunk — clean time-based split via FFmpeg
+    const MAX_CHUNK_MB  = 24   // Whisper hard limit is 25MB; stay under
+    const allSegments   = []
+    const tmpChunks     = []
 
     const axios    = require('axios')
     const FormData = require('form-data')
-    const rawMime  = req.file.mimetype || 'audio/mpeg'
-    const baseMime = rawMime.split(';')[0].trim()
-    const extMap   = {
-      'audio/mpeg':  'mp3', 'audio/mp4':   'mp4',
-      'audio/webm':  'webm','audio/wav':   'wav',
-      'audio/ogg':   'ogg', 'audio/x-m4a': 'm4a',
-    }
-    const ext = extMap[baseMime] || 'mp3'
+    const ffmpeg   = require('fluent-ffmpeg')
 
     try {
-      for (let i = 0; i < chunks; i++) {
-        const start      = i * CHUNK_SIZE
-        const end        = Math.min(start + CHUNK_SIZE, totalSize)
-        const chunkSize  = end - start
+      const ffmpegPath = require('ffmpeg-static')
+      ffmpeg.setFfmpegPath(ffmpegPath)
+    } catch { /* ffmpeg-static not installed — ffmpeg must be on PATH */ }
 
-        // Read only this 20MB slice from disk — no full-file RAM allocation
-        const chunkBuf   = Buffer.allocUnsafe(chunkSize)
-        const fd         = fs.openSync(tempFilePath, 'r')
-        fs.readSync(fd, chunkBuf, 0, chunkSize, start)
-        fs.closeSync(fd)
+    // ── Get duration via ffprobe ────────────────────────────────────────────
+    const totalSecs = await new Promise(resolve => {
+      const ffmpeg_ = require('fluent-ffmpeg')
+      ffmpeg_.ffprobe(tempFilePath, ['-analyzeduration', '100M', '-probesize', '100M'], (err, meta) => {
+        resolve(err ? 0 : Math.ceil(meta?.format?.duration || 0))
+      })
+    })
 
+    const numChunks = Math.max(1, Math.ceil(totalSecs / CHUNK_SECS))
+    job.total = numChunks
+    console.log(`[index-audio] job=${jobId} — ${req.file.originalname} ${Math.round(req.file.size/1024/1024)}MB, ${Math.round(totalSecs/60)}min, ${numChunks} chunk(s)`)
+
+    // ── Extract + transcribe each time-based chunk ──────────────────────────
+    try {
+      for (let i = 0; i < numChunks; i++) {
+        const startSec = i * CHUNK_SECS
+        const durSec   = Math.min(CHUNK_SECS, totalSecs - startSec)
+        const chunkPath = path.join(os.tmpdir(), `wc-chunk-${jobId}-${i}.mp3`)
+        tmpChunks.push(chunkPath)
+
+        // FFmpeg: extract this time window as mono MP3 at 64kbps/16kHz
+        // These flags handle Blackmagic HEVC, AAC, and other tricky codecs
+        await new Promise((resolve, reject) => {
+          const cmd = ffmpeg(tempFilePath)
+            .inputOptions(['-analyzeduration', '100M', '-probesize', '100M'])
+            .noVideo()
+            .audioCodec('libmp3lame')
+            .audioBitrate('64k')
+            .audioChannels(1)
+            .audioFrequency(16000)
+            .output(chunkPath)
+          if (startSec > 0) cmd.seekInput(startSec)
+          if (durSec < 36000) cmd.duration(durSec)
+          cmd.on('end', resolve).on('error', reject).run()
+        })
+
+        const chunkStat = fs.statSync(chunkPath)
+        if (chunkStat.size < 1024) {
+          console.log(`[index-audio] chunk ${i+1} empty — skipping`)
+          continue
+        }
+        if (chunkStat.size > MAX_CHUNK_MB * 1024 * 1024) {
+          console.warn(`[index-audio] chunk ${i+1} too large (${Math.round(chunkStat.size/1024/1024)}MB) — skipping`)
+          continue
+        }
+
+        // Send to Whisper
         const form = new FormData()
-        form.append('file', chunkBuf, { filename: `chunk_${i}.${ext}`, contentType: baseMime })
+        form.append('file', fs.createReadStream(chunkPath), { filename: `chunk_${i}.mp3`, contentType: 'audio/mpeg' })
         form.append('model', 'whisper-1')
         form.append('language', 'en')
         form.append('response_format', 'verbose_json')
@@ -148,17 +177,17 @@ router.post('/index-audio', audioIndexUpload.single('audio'), async (req, res) =
         const segs = response.data?.segments || []
         for (const seg of segs) {
           allSegments.push({
-            start: runningOffsetSec + seg.start,
-            end:   runningOffsetSec + seg.end,
+            start: startSec + seg.start,
+            end:   startSec + seg.end,
             text:  seg.text.trim(),
           })
         }
 
-        const chunkDuration = response.data?.duration || (chunkSize / (128 * 1024 / 8))
-        runningOffsetSec += chunkDuration
-
         job.progress = i + 1
-        console.log(`[index-audio] job=${jobId} chunk ${i+1}/${chunks} done — ${segs.length} segs, offset ${Math.round(runningOffsetSec)}s`)
+        console.log(`[index-audio] job=${jobId} chunk ${i+1}/${numChunks} done — ${segs.length} segs`)
+
+        // Clean up chunk immediately to save disk space
+        try { fs.unlinkSync(chunkPath) } catch {}
       }
 
       // Build full transcript with timecodes
@@ -177,7 +206,7 @@ router.post('/index-audio', audioIndexUpload.single('audio'), async (req, res) =
           user_id:         req.user.id,
           category_id:     categoryId,
           title,
-          voice_memo_text: fullTranscript.slice(0, 8000),
+          voice_memo_text: fullTranscript,
           transcript:      fullTranscript,
           status:          'ready',
           created_at:      new Date().toISOString(),
@@ -194,8 +223,8 @@ router.post('/index-audio', audioIndexUpload.single('audio'), async (req, res) =
       job.transcript  = fullTranscript
       job.sessionId   = session?.id
       job.segments    = allSegments.length
-      job.duration    = Math.round(runningOffsetSec)
-      console.log(`[index-audio] job=${jobId} complete — ${allSegments.length} segments, ${Math.round(runningOffsetSec)}s`)
+      job.duration    = allSegments.length ? Math.round(allSegments[allSegments.length - 1].end) : 0
+      console.log(`[index-audio] job=${jobId} complete — ${allSegments.length} segments`)
 
       // Auto-expire job from memory after 30 minutes
       setTimeout(() => jobs.delete(jobId), 30 * 60 * 1000)
@@ -206,8 +235,9 @@ router.post('/index-audio', audioIndexUpload.single('audio'), async (req, res) =
       job.error  = err.response?.data?.error?.message || err.message
       setTimeout(() => jobs.delete(jobId), 10 * 60 * 1000)
     } finally {
-      // Always delete the temp file from disk — success or failure
+      // Always delete temp files — success or failure
       try { fs.unlinkSync(tempFilePath) } catch {}
+      tmpChunks.forEach(p => { try { fs.unlinkSync(p) } catch {} })
     }
   })()
 })
