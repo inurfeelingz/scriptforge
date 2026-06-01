@@ -49,27 +49,40 @@ router.post('/', async (req, res) => {
 // Returns 202 immediately with a jobId.
 // Background worker transcribes chunks and writes progress to the jobs map.
 // Frontend polls GET /api/session/index-audio/:jobId for status.
+//
+// Uses diskStorage instead of memoryStorage so large files never load into RAM.
+// Chunks are read from disk 20MB at a time — max RAM usage stays flat.
+
+const fs   = require('fs')
+const path = require('path')
+const os   = require('os')
 
 const audioIndexUpload = multer({
-  storage: multer.memoryStorage(),
-  limits:  { fileSize: 500 * 1024 * 1024 },  // 500MB
+  // Write to OS temp dir — never loads full file into RAM
+  storage: multer.diskStorage({
+    destination: (req, file, cb) => cb(null, os.tmpdir()),
+    filename:    (req, file, cb) => cb(null, `whispa-${Date.now()}-${Math.random().toString(36).slice(2)}`),
+  }),
+  limits: { fileSize: 500 * 1024 * 1024 },  // 500MB
 })
 
 router.post('/index-audio', audioIndexUpload.single('audio'), async (req, res) => {
-  if (!req.file)                  return res.status(400).json({ error: 'Audio file required' })
+  if (!req.file)                   return res.status(400).json({ error: 'Audio file required' })
   if (!process.env.OPENAI_API_KEY) return res.status(503).json({ error: 'OPENAI_API_KEY not configured' })
 
   const { categoryId, title = 'Indexed Audio' } = req.body
   if (!categoryId) return res.status(400).json({ error: 'categoryId required' })
 
+  const tempFilePath = req.file.path  // disk path written by multer
+
   // Create the job record immediately
   const jobId = makeJobId()
   jobs.set(jobId, {
-    id:        jobId,
-    userId:    req.user.id,
-    status:    'processing',
-    progress:  0,
-    total:     0,
+    id:         jobId,
+    userId:     req.user.id,
+    status:     'processing',
+    progress:   0,
+    total:      0,
     transcript: null,
     sessionId:  null,
     error:      null,
@@ -80,10 +93,8 @@ router.post('/index-audio', audioIndexUpload.single('audio'), async (req, res) =
   res.status(202).json({ jobId, status: 'processing' })
 
   // ── Background worker ───────────────────────────────────────────────────────
-  // Runs after the HTTP response is sent. Railway persistent runtime keeps
-  // this alive for as long as the process runs (no serverless cold-kill).
   ;(async () => {
-    const job       = jobs.get(jobId)
+    const job        = jobs.get(jobId)
     const CHUNK_SIZE = 20 * 1024 * 1024
     const totalSize  = req.file.size
     const chunks     = Math.ceil(totalSize / CHUNK_SIZE)
@@ -106,12 +117,18 @@ router.post('/index-audio', audioIndexUpload.single('audio'), async (req, res) =
 
     try {
       for (let i = 0; i < chunks; i++) {
-        const start = i * CHUNK_SIZE
-        const end   = Math.min(start + CHUNK_SIZE, totalSize)
-        const chunk = req.file.buffer.slice(start, end)
+        const start      = i * CHUNK_SIZE
+        const end        = Math.min(start + CHUNK_SIZE, totalSize)
+        const chunkSize  = end - start
+
+        // Read only this 20MB slice from disk — no full-file RAM allocation
+        const chunkBuf   = Buffer.allocUnsafe(chunkSize)
+        const fd         = fs.openSync(tempFilePath, 'r')
+        fs.readSync(fd, chunkBuf, 0, chunkSize, start)
+        fs.closeSync(fd)
 
         const form = new FormData()
-        form.append('file', chunk, { filename: `chunk_${i}.${ext}`, contentType: baseMime })
+        form.append('file', chunkBuf, { filename: `chunk_${i}.${ext}`, contentType: baseMime })
         form.append('model', 'whisper-1')
         form.append('language', 'en')
         form.append('response_format', 'verbose_json')
@@ -137,10 +154,9 @@ router.post('/index-audio', audioIndexUpload.single('audio'), async (req, res) =
           })
         }
 
-        const chunkDuration = response.data?.duration || (chunk.length / (128 * 1024 / 8))
+        const chunkDuration = response.data?.duration || (chunkSize / (128 * 1024 / 8))
         runningOffsetSec += chunkDuration
 
-        // Update progress
         job.progress = i + 1
         console.log(`[index-audio] job=${jobId} chunk ${i+1}/${chunks} done — ${segs.length} segs, offset ${Math.round(runningOffsetSec)}s`)
       }
@@ -189,6 +205,9 @@ router.post('/index-audio', audioIndexUpload.single('audio'), async (req, res) =
       job.status = 'error'
       job.error  = err.response?.data?.error?.message || err.message
       setTimeout(() => jobs.delete(jobId), 10 * 60 * 1000)
+    } finally {
+      // Always delete the temp file from disk — success or failure
+      try { fs.unlinkSync(tempFilePath) } catch {}
     }
   })()
 })
