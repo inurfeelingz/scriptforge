@@ -1,33 +1,40 @@
 // frontend/src/hooks/useKBVoice.js
 // KB voice system:
 //   - Speech input: Web Speech API (free, browser native)
-//   - Speech output: ElevenLabs TTS via backend proxy (uses existing ElevenLabs key)
+//   - Speech output: ElevenLabs TTS via backend proxy
 //
-// Usage:
-//   const { listening, speaking, audioLevel, startListening, stopListening, speak, stopSpeaking } = useKBVoice({ onTranscript })
+// FIX: auto-restart on no-speech so a brief pause doesn't kill the session.
+// FIX: removed racing getUserMedia call — let SpeechRecognition handle its own mic.
+// FIX: short startup delay so mic hardware is ready before recognition begins.
 
 import { useState, useRef, useCallback, useEffect } from 'react'
 import { getSession } from '../lib/supabase'
 
-export default function useKBVoice({ onTranscript, onError, enabled = true }) {
-  const [listening,   setListening]   = useState(false)
-  const [speaking,    setSpeaking]    = useState(false)
-  const [audioLevel,  setAudioLevel]  = useState(0)
-  const [supported,   setSupported]   = useState(false)
+const MAX_RESTARTS   = 8    // max silent restarts before giving up
+const RESTART_DELAY  = 300  // ms to wait before restarting after no-speech
 
-  const recognitionRef = useRef(null)
-  const audioRef       = useRef(null)
-  const analyserRef    = useRef(null)
-  const audioCtxRef    = useRef(null)
-  const rafRef         = useRef(null)
+export default function useKBVoice({ onTranscript, onError, enabled = true }) {
+  const [listening,  setListening]  = useState(false)
+  const [speaking,   setSpeaking]   = useState(false)
+  const [audioLevel, setAudioLevel] = useState(0)
+  const [supported,  setSupported]  = useState(false)
+
+  const recognitionRef  = useRef(null)
+  const audioRef        = useRef(null)
+  const analyserRef     = useRef(null)
+  const audioCtxRef     = useRef(null)
+  const rafRef          = useRef(null)
+  const accumulatedRef  = useRef('')   // full transcript built across restarts
+  const restartCountRef = useRef(0)
+  const activeRef       = useRef(false) // true = user wants to be listening
 
   // Check browser support on mount
   useEffect(() => {
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
-    setSupported(!!SpeechRecognition)
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition
+    setSupported(!!SR)
   }, [])
 
-  // ── AUDIO LEVEL ANALYSIS (for orb animation while speaking) ──────────────────
+  // ── AUDIO LEVEL ANALYSIS ──────────────────────────────────────────────────
   function startAnalysis(stream) {
     if (audioCtxRef.current) { try { audioCtxRef.current.close() } catch {} }
     const ctx = new AudioContext()
@@ -49,72 +56,156 @@ export default function useKBVoice({ onTranscript, onError, enabled = true }) {
 
   function stopAnalysis() {
     cancelAnimationFrame(rafRef.current)
-    if (audioCtxRef.current) { try { audioCtxRef.current.close() } catch {}; audioCtxRef.current = null }
+    if (audioCtxRef.current) {
+      try { audioCtxRef.current.close() } catch {}
+      audioCtxRef.current = null
+    }
     setAudioLevel(0)
   }
 
-  // ── VOICE INPUT ───────────────────────────────────────────────────────────────
-  const startListening = useCallback(() => {
-    if (!enabled) return
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
-    if (!SpeechRecognition) return
+  // ── INTERNAL: start one recognition session ───────────────────────────────
+  // Called by startListening and also by the auto-restart logic.
+  const startRecognition = useCallback(() => {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition
+    if (!SR || !activeRef.current) return
 
-    const rec = new SpeechRecognition()
-    rec.continuous      = true   // keep listening until user stops manually
-    rec.interimResults  = true   // show words appearing as feedback only
-    rec.lang            = 'en-US'
+    // Stop any previous instance cleanly
+    if (recognitionRef.current) {
+      try { recognitionRef.current.abort() } catch {}
+      recognitionRef.current = null
+    }
+
+    const rec = new SR()
+    rec.continuous     = false  // single utterance — we restart manually
+    rec.interimResults = true
+    rec.lang           = 'en-US'
+    rec.maxAlternatives = 1
     recognitionRef.current = rec
 
-    let accumulated = ''
     rec.onresult = (e) => {
       let interim = ''
-      // Accumulate all final results so far
-      for (let i = 0; i < e.results.length; i++) {
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const t = e.results[i][0].transcript
         if (e.results[i].isFinal) {
-          accumulated += e.results[i][0].transcript + ' '
+          accumulatedRef.current += t + ' '
+          restartCountRef.current = 0 // got real speech — reset restart counter
         } else {
-          interim += e.results[i][0].transcript
+          interim += t
         }
       }
-      // Show live feedback — don't send yet, wait for user to stop
-      onTranscript?.({ text: accumulated.trim(), isFinal: false, interim: interim || accumulated.trim() })
+      // Show live feedback
+      onTranscript?.({
+        text:    accumulatedRef.current.trim(),
+        isFinal: false,
+        interim: interim || accumulatedRef.current.trim(),
+      })
     }
-    // When recognition ends (user tapped stop), send the full accumulated text
+
     rec.onend = () => {
-      setListening(false)
-      stopAnalysis()
-      if (accumulated.trim()) {
-        onTranscript?.({ text: accumulated.trim(), isFinal: true, interim: '' })
-      }
-      accumulated = ''
+      // Only handle end if we're still supposed to be listening
+      if (!activeRef.current) return
+
+      // If no-speech or abrupt end — restart silently (user hasn't tapped stop)
+      setTimeout(() => {
+        if (activeRef.current) {
+          restartCountRef.current++
+          if (restartCountRef.current <= MAX_RESTARTS) {
+            startRecognition()
+          } else {
+            // Gave up after MAX_RESTARTS silent attempts — send what we have
+            activeRef.current = false
+            setListening(false)
+            stopAnalysis()
+            if (accumulatedRef.current.trim()) {
+              onTranscript?.({ text: accumulatedRef.current.trim(), isFinal: true, interim: '' })
+            }
+            accumulatedRef.current = ''
+            restartCountRef.current = 0
+          }
+        }
+      }, RESTART_DELAY)
     }
 
     rec.onerror = (e) => {
       console.warn('[voice] error:', e.error)
-      setListening(false)
-      stopAnalysis()
+
+      if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
+        // Hard permission error — stop everything
+        activeRef.current = false
+        setListening(false)
+        stopAnalysis()
+        accumulatedRef.current = ''
+        restartCountRef.current = 0
+        onError?.('not-allowed')
+        return
+      }
+
+      if (e.error === 'no-speech' || e.error === 'audio-capture' || e.error === 'network') {
+        // Transient error — onend will fire and auto-restart handles it
+        // Just suppress these from showing to the user — they're expected
+        return
+      }
+
+      // Other errors — show to user but still attempt restart via onend
       onError?.(e.error)
     }
 
-    navigator.mediaDevices?.getUserMedia({ audio: true }).then(stream => {
-      startAnalysis(stream)
-    }).catch(() => {})
+    try {
+      rec.start()
+    } catch (err) {
+      console.warn('[voice] rec.start() threw:', err.message)
+      // InvalidStateError usually means a previous instance is still running
+      // onend will fire and restart
+    }
+  }, [onTranscript, onError])
 
-    rec.start()
+  // ── START LISTENING ───────────────────────────────────────────────────────
+  const startListening = useCallback(() => {
+    if (!enabled) return
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition
+    if (!SR) return
+    if (activeRef.current) return // already listening
+
+    activeRef.current       = true
+    accumulatedRef.current  = ''
+    restartCountRef.current = 0
     setListening(true)
-  }, [enabled, onTranscript])
 
+    // Start level analysis for orb animation
+    // Use a separate getUserMedia just for the analyser — don't race with SR
+    navigator.mediaDevices?.getUserMedia({ audio: true, video: false })
+      .then(stream => startAnalysis(stream))
+      .catch(() => {}) // non-fatal — orb just won't animate
+
+    // Small delay gives the mic hardware time to initialise
+    // before Web Speech API tries to read from it
+    setTimeout(() => startRecognition(), 150)
+  }, [enabled, startRecognition])
+
+  // ── STOP LISTENING ────────────────────────────────────────────────────────
+  // Called when user taps the mic button to stop.
+  // Sends whatever was accumulated so far.
   const stopListening = useCallback(() => {
-    recognitionRef.current?.stop()  // triggers onend which handles final send
+    activeRef.current = false
     setListening(false)
     stopAnalysis()
-  }, [])
 
-  // ── VOICE OUTPUT (ElevenLabs via backend) ─────────────────────────────────────
+    try { recognitionRef.current?.stop() } catch {}
+    recognitionRef.current = null
+
+    // Send accumulated text immediately (don't wait for onend)
+    const text = accumulatedRef.current.trim()
+    if (text) {
+      onTranscript?.({ text, isFinal: true, interim: '' })
+    }
+    accumulatedRef.current  = ''
+    restartCountRef.current = 0
+  }, [onTranscript])
+
+  // ── VOICE OUTPUT (ElevenLabs via backend) ─────────────────────────────────
   const speak = useCallback(async (text) => {
     if (!enabled || !text?.trim()) return
 
-    // Stop any current speech
     if (audioRef.current) {
       audioRef.current.pause()
       audioRef.current = null
@@ -132,30 +223,25 @@ export default function useKBVoice({ onTranscript, onError, enabled = true }) {
           'Content-Type':  'application/json',
           'Authorization': `Bearer ${session?.access_token}`,
         },
-        body: JSON.stringify({ text: text.slice(0, 500) }), // cap at 500 chars per TTS call
+        body: JSON.stringify({ text: text.slice(0, 500) }),
       })
 
       if (!res.ok) throw new Error('TTS failed')
 
-      const blob = await res.blob()
-      const url  = URL.createObjectURL(blob)
+      const blob  = await res.blob()
+      const url   = URL.createObjectURL(blob)
       const audio = new Audio(url)
       audioRef.current = audio
 
-      // Animate orb while speaking — use audio's volume as proxy
       audio.addEventListener('timeupdate', () => {
-        // Pulse orb with a sin wave while audio plays
-        const progress = audio.currentTime / (audio.duration || 1)
         setAudioLevel(0.3 + Math.abs(Math.sin(audio.currentTime * 8)) * 0.4)
       })
-
       audio.addEventListener('ended', () => {
         setSpeaking(false)
         setAudioLevel(0)
         URL.revokeObjectURL(url)
         audioRef.current = null
       })
-
       audio.addEventListener('error', () => {
         setSpeaking(false)
         setAudioLevel(0)
@@ -163,7 +249,6 @@ export default function useKBVoice({ onTranscript, onError, enabled = true }) {
       })
 
       await audio.play()
-
     } catch (err) {
       setSpeaking(false)
       setAudioLevel(0)
@@ -183,10 +268,15 @@ export default function useKBVoice({ onTranscript, onError, enabled = true }) {
   // Clean up on unmount
   useEffect(() => {
     return () => {
-      stopListening()
-      stopSpeaking()
+      activeRef.current = false
+      try { recognitionRef.current?.abort() } catch {}
+      stopAnalysis()
+      if (audioRef.current) { audioRef.current.pause(); audioRef.current = null }
     }
   }, [])
 
-  return { listening, speaking, audioLevel, supported, startListening, stopListening, speak, stopSpeaking }
+  return {
+    listening, speaking, audioLevel, supported,
+    startListening, stopListening, speak, stopSpeaking,
+  }
 }
