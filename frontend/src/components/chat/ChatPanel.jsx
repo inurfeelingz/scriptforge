@@ -288,11 +288,31 @@ export default function ChatPanel() {
 
   // ── File upload handler with async job polling ────────────────────────────
   async function handleFileUpload(e) {
-    const file = e.target.files?.[0]
-    if (!file || !activeCategoryId) return
+    const files = Array.from(e.target.files || [])
+    if (!files.length || !activeCategoryId) return
 
+    // Separate audio files from everything else
+    const audioFiles = files.filter(f => {
+      const n = f.name.toLowerCase()
+      return f.type.startsWith('audio/') || /\.(mp3|m4a|wav|aac|ogg|flac)$/i.test(n)
+    })
+    const otherFiles = files.filter(f => !audioFiles.includes(f))
+
+    // Process non-audio files first (fast — no transcription needed)
+    for (const file of otherFiles) {
+      await handleSingleFile(file)
+    }
+
+    // Process audio files — queue them all, show combined progress
+    if (audioFiles.length) {
+      await handleAudioFiles(audioFiles)
+    }
+
+    e.target.value = ''
+  }
+
+  async function handleSingleFile(file) {
     const name     = file.name.toLowerCase()
-    const isAudio  = file.type.startsWith('audio/') || /\.(mp3|m4a|wav|aac|ogg|flac)$/i.test(name)
     const isVideo  = file.type.startsWith('video/') || /\.(mp4|mov|mkv|webm)$/i.test(name)
     const isCSV    = /\.csv$/i.test(name)
     const isScript = /\.(txt|md|fdx|fountain)$/i.test(name)
@@ -300,7 +320,6 @@ export default function ChatPanel() {
     const isDoc    = /\.(pdf|doc|docx)$/i.test(name)
     const isXLS    = /\.(xls|xlsx)$/i.test(name)
 
-    // Block video — too large, use audio extraction workflow instead
     if (isVideo) {
       setMessages(prev => [...prev, {
         role: 'assistant',
@@ -308,43 +327,139 @@ export default function ChatPanel() {
         isError: true,
         timestamp: new Date().toISOString(),
       }])
-      e.target.value = ''
       return
     }
 
     setIndexingAudio(true)
-    setIndexProgress('Uploading…')
 
     try {
       const { supabase: sb } = await import('../../lib/supabase')
       const { data: { session: sess } } = await sb.auth.getSession()
       const BASE = import.meta.env.VITE_API_URL || '/api'
 
-      if (isAudio) {
-        // Upload to Supabase Storage first — avoids Railway's 30s proxy timeout
-        // on large file uploads. Railway then downloads from Supabase (fast,
-        // server-to-server) and transcribes with Whisper.
-        const fileMB = Math.round(file.size / 1024 / 1024)
-        setIndexProgress(`Uploading ${fileMB}MB to storage…`)
+      if (isImage) {
+        setIndexProgress(`Reading ${file.name}…`)
+        const reader = new FileReader()
+        const base64 = await new Promise((res, rej) => {
+          reader.onload = () => res(reader.result.split(',')[1])
+          reader.onerror = rej
+          reader.readAsDataURL(file)
+        })
+        await sb.from('vault_entries').insert({
+          user_id:     sess.user.id,
+          category_id: activeCategoryId,
+          type:        'image',
+          title:       file.name.replace(/\.[^.]+$/i, ''),
+          content:     `[IMAGE: ${file.name}]`,
+          image_b64:   base64.slice(0, 200000),
+          tags:        ['uploaded', 'image'],
+        })
+        setIndexProgress('')
+        setMessages(prev => [...prev, {
+          role: 'assistant',
+          content: `Got the image "${file.name}" — saved to vault. What do you want me to do with it?`,
+          timestamp: new Date().toISOString(),
+        }])
 
-        const storagePath = `audio-uploads/${req?.user?.id || sess.user.id}/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`
+      } else if (isDoc) {
+        setIndexProgress(`Reading ${file.name}…`)
+        const fd = new FormData()
+        fd.append('file', file)
+        fd.append('categoryId', activeCategoryId)
+        fd.append('title', file.name.replace(/\.[^.]+$/i, ''))
+        const res  = await fetch(BASE + '/kb/index-doc', {
+          method: 'POST', headers: { Authorization: 'Bearer ' + sess?.access_token }, body: fd,
+        })
+        const data = await res.json()
+        if (!res.ok) throw new Error(data.error || 'Document indexing failed')
+        setIndexProgress('')
+        setMessages(prev => [...prev, {
+          role: 'assistant',
+          content: `Indexed "${file.name}" — ${data.wordCount || 0} words extracted and saved to vault.`,
+          timestamp: new Date().toISOString(),
+        }])
+
+      } else if (isXLS || isCSV) {
+        setIndexProgress(`Reading ${file.name}…`)
+        const fd = new FormData()
+        fd.append('file', file)
+        fd.append('categoryId', activeCategoryId)
+        const res  = await fetch(BASE + '/analytics/upload', {
+          method: 'POST', headers: { Authorization: 'Bearer ' + sess?.access_token }, body: fd,
+        })
+        const data = await res.json()
+        if (!res.ok) throw new Error(data.error || 'Upload failed')
+        setIndexProgress('')
+        setMessages(prev => [...prev, {
+          role: 'assistant',
+          content: `Got the data file "${file.name}" — ${data.videoCount || 0} rows processed. Want a breakdown?`,
+          timestamp: new Date().toISOString(),
+        }])
+
+      } else if (isScript) {
+        setIndexProgress(`Reading ${file.name}…`)
+        const text = await file.text()
+        const { data: { session: sess2 } } = await sb.auth.getSession()
+        await sb.from('vault_entries').insert({
+          user_id:     sess2.user.id,
+          category_id: activeCategoryId,
+          type:        'script',
+          title:       file.name.replace(/\.[^.]+$/i, ''),
+          content:     text.slice(0, 10000),
+          tags:        ['uploaded'],
+        })
+        setIndexProgress('')
+        setMessages(prev => [...prev, {
+          role: 'assistant',
+          content: `Script "${file.name}" saved — ${text.trim().split(/\s+/).length} words. Want me to review it for hook strength or pacing?`,
+          timestamp: new Date().toISOString(),
+        }])
+      }
+
+    } catch (err) {
+      setIndexProgress('')
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        content: `Error with "${file.name}": ${err.message}`,
+        isError: true,
+        timestamp: new Date().toISOString(),
+      }])
+    }
+
+    setIndexingAudio(false)
+  }
+
+  async function handleAudioFiles(audioFiles) {
+    setIndexingAudio(true)
+
+    try {
+      const { supabase: sb } = await import('../../lib/supabase')
+      const { data: { session: sess } } = await sb.auth.getSession()
+      const BASE = import.meta.env.VITE_API_URL || '/api'
+
+      const totalMB = Math.round(audioFiles.reduce((s, f) => s + f.size, 0) / 1024 / 1024)
+      const jobIds  = []
+
+      // Upload all audio files to Supabase Storage first, fire jobs in parallel
+      for (let i = 0; i < audioFiles.length; i++) {
+        const file = audioFiles[i]
+        const fileMB = Math.round(file.size / 1024 / 1024)
+        setIndexProgress(`Uploading ${i + 1}/${audioFiles.length}: ${file.name} (${fileMB}MB)…`)
+
+        const storagePath = `audio-uploads/${sess.user.id}/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`
 
         const { error: storageErr } = await sb.storage
           .from('session-audio')
           .upload(storagePath, file, { contentType: file.type || 'audio/mpeg', upsert: false })
 
-        if (storageErr) throw new Error('Storage upload failed: ' + storageErr.message)
+        if (storageErr) throw new Error(`Storage upload failed for "${file.name}": ` + storageErr.message)
 
-        // Get a signed URL valid for 2 hours so Railway can download it
         const { data: signedData, error: signErr } = await sb.storage
           .from('session-audio')
           .createSignedUrl(storagePath, 7200)
 
-        if (signErr || !signedData?.signedUrl) throw new Error('Could not get signed URL')
+        if (signErr || !signedData?.signedUrl) throw new Error('Could not get signed URL for ' + file.name)
 
-        setIndexProgress(`Transcribing ${fileMB}MB…`)
-
-        // Send Railway just the URL + metadata — no file transfer to Railway
         const uploadRes = await fetch(BASE + '/session/index-audio', {
           method:  'POST',
           headers: { Authorization: 'Bearer ' + sess?.access_token, 'Content-Type': 'application/json' },
@@ -359,142 +474,46 @@ export default function ChatPanel() {
         const uploadData = await uploadRes.json()
         if (!uploadRes.ok) throw new Error(uploadData.error)
 
-        const { jobId } = uploadData
-
-        const result = await pollIndexAudioJob(
-          jobId,
-          sess?.access_token,
-          (progress, total) => {
-            setIndexProgress(total > 0 ? `Transcribing… chunk ${progress}/${total}` : 'Transcribing…')
-          }
-        )
-
-        setIndexProgress('')
-        const mins = Math.round((result.duration || 0) / 60)
-        setMessages(prev => [...prev, {
-          role:      'assistant',
-          content:   `Indexed "${file.name}" — ${mins} min transcribed across ${result.segments || 0} segments with timecodes. I can now reference everything in this session. Want to talk through it?`,
-          sessionId: result.sessionId,
-          timestamp: new Date().toISOString(),
-        }])
-
-      } else if (isImage) {
-        setIndexProgress('Reading image…')
-        // Convert to base64 and send to KB as vision context
-        const reader = new FileReader()
-        const base64 = await new Promise((res, rej) => {
-          reader.onload = () => res(reader.result.split(',')[1])
-          reader.onerror = rej
-          reader.readAsDataURL(file)
-        })
-        // Save as vault entry with image data + ask KB to describe/analyse
-        const { error } = await sb.from('vault_entries').insert({
-          user_id:     sess.user.id,
-          category_id: activeCategoryId,
-          type:        'image',
-          title:       file.name.replace(/\.[^.]+$/i, ''),
-          content:     `[IMAGE: ${file.name}]`,
-          image_b64:   base64.slice(0, 200000), // cap at ~200KB base64
-          tags:        ['uploaded', 'image'],
-        })
-        if (error) throw new Error(error.message)
-        setIndexProgress('')
-        setMessages(prev => [...prev, {
-          role:      'assistant',
-          content:   `Got the image "${file.name}" — saved to vault. What do you want me to do with it? I can analyse it for thumbnail composition, reference it for styling, or use it to inform episode content.`,
-          timestamp: new Date().toISOString(),
-        }])
-
-      } else if (isDoc) {
-        setIndexProgress('Reading document…')
-        const fd = new FormData()
-        fd.append('file', file)
-        fd.append('categoryId', activeCategoryId)
-        fd.append('title', file.name.replace(/\.[^.]+$/i, ''))
-
-        const res  = await fetch(BASE + '/kb/index-doc', {
-          method: 'POST', headers: { Authorization: 'Bearer ' + sess?.access_token }, body: fd,
-        })
-        const data = await res.json()
-        if (!res.ok) throw new Error(data.error || 'Document indexing failed')
-        setIndexProgress('')
-        setMessages(prev => [...prev, {
-          role:      'assistant',
-          content:   `Indexed "${file.name}" — ${data.wordCount || 0} words extracted. I can now reference this document in our conversations. What do you want to do with it?`,
-          timestamp: new Date().toISOString(),
-        }])
-
-      } else if (isXLS) {
-        setIndexProgress('Reading spreadsheet…')
-        const fd = new FormData()
-        fd.append('file', file)
-        fd.append('categoryId', activeCategoryId)
-        const res  = await fetch(BASE + '/analytics/upload', {
-          method: 'POST', headers: { Authorization: 'Bearer ' + sess?.access_token }, body: fd,
-        })
-        const data = await res.json()
-        if (!res.ok) throw new Error(data.error || 'Spreadsheet upload failed')
-        setIndexProgress('')
-        setMessages(prev => [...prev, {
-          role:      'assistant',
-          content:   `Got the spreadsheet "${file.name}" — ${data.videoCount || 0} rows processed. Want me to break down what I'm seeing?`,
-          timestamp: new Date().toISOString(),
-        }])
-
-      } else if (isCSV) {
-        setIndexProgress('Reading analytics data…')
-        const fd = new FormData()
-        fd.append('file', file)
-        fd.append('categoryId', activeCategoryId)
-        const res  = await fetch(BASE + '/analytics/upload', {
-          method: 'POST', headers: { Authorization: 'Bearer ' + sess?.access_token }, body: fd,
-        })
-        const data = await res.json()
-        if (!res.ok) throw new Error(data.error || 'Analytics upload failed')
-        const rows = (await file.text()).trim().split('\n').length - 1
-        setIndexProgress('')
-        setMessages(prev => [...prev, {
-          role:      'assistant',
-          content:   `Got the analytics CSV — ${rows} rows uploaded. I'll use this to inform your next episode recommendations. Want a breakdown?`,
-          timestamp: new Date().toISOString(),
-        }])
-
-      } else if (isScript) {
-        setIndexProgress('Reading script…')
-        const text      = await file.text()
-        const wordCount = text.trim().split(/\s+/).length
-        const { error } = await sb.from('vault_entries').insert({
-          user_id:     sess.user.id,
-          category_id: activeCategoryId,
-          type:        'script',
-          title:       file.name.replace(/\.[^.]+$/i, ''),
-          content:     text.slice(0, 10000),
-          tags:        ['uploaded'],
-        })
-        if (error) throw new Error(error.message)
-        setIndexProgress('')
-        setMessages(prev => [...prev, {
-          role:      'assistant',
-          content:   `Script saved to vault — ${wordCount} words. Want me to review it for hook strength, pacing, or retention points?`,
-          timestamp: new Date().toISOString(),
-        }])
-
-      } else {
-        throw new Error('File type not supported. Upload audio, image, PDF, DOC, XLS, CSV, or script files.')
+        jobIds.push({ jobId: uploadData.jobId, name: file.name })
       }
+
+      // Now poll all jobs simultaneously
+      setIndexProgress(`Transcribing ${audioFiles.length} file${audioFiles.length > 1 ? 's' : ''}…`)
+
+      const results = await Promise.all(jobIds.map(({ jobId, name }) =>
+        pollIndexAudioJob(jobId, sess?.access_token, () => {})
+      ))
+
+      setIndexProgress('')
+
+      // Build a combined confirmation message listing all indexed sessions
+      const sessionLines = results.map((result, i) => {
+        const mins = Math.round((result.duration || 0) / 60)
+        const segs = result.segments || 0
+        return `"${audioFiles[i].name}" — ${mins}min, ${segs} segments`
+      }).join('\n')
+
+      const sessionIds = results.map(r => r.sessionId).filter(Boolean)
+
+      setMessages(prev => [...prev, {
+        role:       'assistant',
+        content:    `Indexed ${audioFiles.length} session${audioFiles.length > 1 ? 's' : ''}:\n${sessionLines}\n\nI can reference all of them now. ${audioFiles.length > 1 ? 'Want to build the EDL, or talk through what was recorded?' : 'Want to talk through it?'}`,
+        sessionIds,
+        timestamp:  new Date().toISOString(),
+      }])
 
     } catch (err) {
       setIndexProgress('')
       setMessages(prev => [...prev, {
-        role:    'assistant',
-        content: err.message,
-        isError: true,
+        role:      'assistant',
+        content:   `Audio upload error: ${err.message}`,
+        isError:   true,
         timestamp: new Date().toISOString(),
       }])
     }
 
     setIndexingAudio(false)
-    e.target.value = ''
+  }
   }
 
   // Auto-focus on mount
@@ -1126,7 +1145,7 @@ export default function ChatPanel() {
             style={{ fontSize:10, padding:'3px 8px', borderRadius:6, border:'1px solid rgba(255,255,255,0.06)', background:'transparent', color: indexingAudio ? 'rgba(74,222,128,0.6)' : 'rgba(255,255,255,0.3)', cursor: indexingAudio ? 'wait' : 'pointer', fontFamily:"'Figtree',sans-serif", display:'flex', alignItems:'center', gap:4 }}
           >
             <Plus size={9}/> {indexingAudio ? indexProgress || 'Processing…' : 'Upload'}
-            <input type="file" accept="audio/*,.mp3,.m4a,.wav,.aac,.ogg,.flac,image/*,.jpg,.jpeg,.png,.gif,.webp,.heic,.pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,.md,.fountain,.fdx" onChange={handleFileUpload} disabled={indexingAudio} style={{ display:'none' }}/>
+            <input type="file" multiple accept="audio/*,.mp3,.m4a,.wav,.aac,.ogg,.flac,image/*,.jpg,.jpeg,.png,.gif,.webp,.heic,.pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,.md,.fountain,.fdx" onChange={handleFileUpload} disabled={indexingAudio} style={{ display:'none' }}/>
           </label>
 
           <button onClick={newChat}
