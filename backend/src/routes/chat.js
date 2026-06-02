@@ -189,6 +189,59 @@ router.post('/message', async (req, res) => {
 
     const msgLower = message.toLowerCase()
 
+    // ── Transcript review mode ───────────────────────────────────────────────
+    // KB presents the transcript minute by minute so the creator can say
+    // keep/cut for each section. That conversation becomes the edit brief.
+    const transcriptReviewTriggers = [
+      'review the transcript', 'go through the transcript', 'review my session',
+      'what did i say', 'walk me through', 'show me the transcript',
+      'transcript review', 'what was in the session', 'read the session',
+      'comb through', 'what happened in', 'what did i record',
+    ]
+    if (transcriptReviewTriggers.some(t => msgLower.includes(t))) {
+      const { data: sessions } = await supabase
+        .from('session_journals')
+        .select('id, title, transcript, duration_ms')
+        .eq('user_id', req.user.id)
+        .eq('category_id', categoryId)
+        .eq('status', 'ready')
+        .order('created_at', { ascending: false })
+        .limit(5)
+
+      if (!sessions?.length) {
+        send('chunk', { text: "No indexed sessions yet. Upload your audio files first using the Upload button." })
+        send('done',  { response: "No indexed sessions yet. Upload your audio files first using the Upload button." })
+        clearInterval(keepalive)
+        return res.end()
+      }
+
+      // Parse first session into minute blocks
+      const session   = sessions[0]
+      const lines     = (session.transcript || '').split('\n').map(line => {
+        const m = line.match(/^\[(\d+):(\d+)\]\s*(.*)/)
+        if (!m) return null
+        return { min: parseInt(m[1]), text: m[3].trim() }
+      }).filter(Boolean)
+
+      const blocks = {}
+      for (const l of lines) {
+        blocks[l.min] = blocks[l.min] || []
+        blocks[l.min].push(l.text)
+      }
+
+      const preview = Object.entries(blocks).slice(0, 5).map(([min, texts]) =>
+        `[Minute ${min}] ${texts.slice(0, 3).join(' ').slice(0, 150)}...`
+      ).join('\n')
+
+      const totalMins = Math.round((session.duration_ms || 0) / 60000)
+      const response  = `Reviewing "${session.title}" — ${totalMins} minutes total.\n\n${preview}\n\nThat's the first 5 minutes. Tell me what to keep or cut, and I'll go through the rest. Say "keep" or "cut" for each section, or give me specific instructions like "cut everything before minute 15" and I'll map it to the full transcript.`
+
+      send('chunk', { text: response })
+      send('done',  { response, action: `edl:review:${session.id}` })
+      clearInterval(keepalive)
+      return res.end()
+    }
+
     // Step 1: User wants an EDL — show available sessions
     // Cast a wide net — KB must NEVER generate fake EDL text, always route through actions
     const edlListTriggers = [

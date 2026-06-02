@@ -171,6 +171,7 @@ router.post('/index-audio', express.json(), async (req, res) => {
         form.append('model', 'whisper-1')
         form.append('language', 'en')
         form.append('response_format', 'verbose_json')
+        form.append('timestamp_granularities[]', 'word')
         form.append('timestamp_granularities[]', 'segment')
 
         const response = await axios.post(
@@ -200,12 +201,15 @@ router.post('/index-audio', express.json(), async (req, res) => {
         try { fs.unlinkSync(chunkPath) } catch {}
       }
 
-      // Build full transcript with timecodes
+      // Build full transcript with second-level timecodes from word timestamps
+      // Format: [M:SS] text — one line per segment for KB readability
+      // Word-level data is also stored for EDL precision cutting
       const fullTranscript = allSegments
         .map(s => {
           const m   = Math.floor(s.start / 60)
           const sec = Math.floor(s.start % 60).toString().padStart(2, '0')
-          return `[${m}:${sec}] ${s.text}`
+          const ms  = Math.round((s.start % 1) * 1000).toString().padStart(3, '0')
+          return `[${m}:${sec}.${ms}] ${s.text}`
         })
         .join('\n')
 
@@ -224,6 +228,7 @@ router.post('/index-audio', express.json(), async (req, res) => {
           transcript:      fullTranscript,
           status:          'ready',
           duration_ms:     durationMs,
+          key_moments:     allSegments.slice(0, 20).map(s => `[${Math.floor(s.start/60)}:${Math.floor(s.start%60).toString().padStart(2,'0')}] ${s.text.slice(0,60)}`),
           created_at:      new Date().toISOString(),
         })
         .select()

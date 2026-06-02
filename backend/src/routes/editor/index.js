@@ -759,7 +759,7 @@ router.post('/build-session-edl', async (req, res) => {
   if (!categoryId || !sessionIdA) return res.status(400).json({ error: 'categoryId and sessionIdA required' })
 
   try {
-    const [{ data: sA }, sessionBResult, { data: cat }, chatHistory, plannedEpisode] = await Promise.all([
+    const [{ data: sA }, sessionBResult, { data: cat }, chatHistory, plannedEpisode, assetsResult] = await Promise.all([
       supabase.from('session_journals').select('title, transcript').eq('id', sessionIdA).eq('user_id', req.user.id).single(),
       sessionIdB
         ? supabase.from('session_journals').select('title, transcript').eq('id', sessionIdB).eq('user_id', req.user.id).single()
@@ -785,9 +785,18 @@ router.post('/build-session-edl', async (req, res) => {
         .single()
         .then(r => r.data)
         .catch(() => null),
+      // Pull creator's asset library (b-roll, SFX, reactions)
+      supabase.from('editor_assets')
+        .select('filename, type, tags, duration_ms')
+        .eq('user_id', req.user.id)
+        .eq('category_id', categoryId)
+        .order('type')
+        .then(r => r.data || [])
+        .catch(() => []),
     ])
 
-    const sB = sessionBResult?.data || null
+    const sB     = sessionBResult?.data || null
+    const assets = assetsResult || []
     if (!sA?.transcript) return res.status(404).json({ error: 'Primary transcript not found' })
 
     // Extract episode structure from chat history
@@ -855,22 +864,81 @@ router.post('/build-session-edl', async (req, res) => {
       instructions ? `ADDITIONAL NOTES: ${instructions}` : null,
     ].filter(Boolean).join('\n\n')
 
+    // Build asset library context for Claude
+    const assetContext = assets.length ? [
+      assets.filter(a => ['broll','reaction','meme'].includes(a.type)).length
+        ? `B-ROLL & REACTION CLIPS AVAILABLE (insert on V2 overlay track):
+${
+            assets.filter(a => ['broll','reaction','meme'].includes(a.type))
+              .map(a => `  ${a.filename} [${a.type}] tags:${(a.tags||[]).join(',')}`)
+              .join('\n')
+          }` : null,
+      assets.filter(a => a.type === 'sfx').length
+        ? `SOUND EFFECTS AVAILABLE (insert on A2 track):
+${
+            assets.filter(a => a.type === 'sfx')
+              .map(a => `  ${a.filename} tags:${(a.tags||[]).join(',')}`)
+              .join('\n')
+          }` : null,
+      assets.filter(a => a.type === 'music').length
+        ? `BACKGROUND MUSIC AVAILABLE (A3 track):
+${
+            assets.filter(a => a.type === 'music')
+              .map(a => `  ${a.filename}`)
+              .join('\n')
+          }` : null,
+    ].filter(Boolean).join('\n\n') : ''
+
     const cutRes = await aiClient.messages.create({
       model:      process.env.CLAUDE_MODEL || 'claude-sonnet-4-5',
       max_tokens: 4000,
       system: `You are a YouTube video editor making a documentary-style creator video.
-Output ONLY valid JSON array — no preamble, no markdown.
-Format: [{"startMs":number,"endMs":number,"source":"screen"|"camera","reason":"brief reason"}]
+Output ONLY valid JSON object — no preamble, no markdown.
+Format:
+{
+  "cuts": [{"startMs":number,"endMs":number,"source":"screen"|"camera","reason":"brief reason"}],
+  "voiceover": [{"recMs":number,"label":"VO_01","line":"the actual VO line to record","durationMs":number}],
+  "broll": [{"recMs":number,"filename":"exact_filename.mp4","durationMs":number,"reason":"why this asset fits here"}],
+  "sfx": [{"recMs":number,"filename":"exact_filename.mp3","reason":"what moment this punctuates"}],
+  "titles": [{"recMs":number,"text":"title card text","style":"lower_third"|"full_screen"|"caption","durationMs":number}],
+  "chapters": [{"recMs":number,"label":"chapter name for YouTube description"}]
+}
 
-CRITICAL CUTTING RULES:
+CUTTING RULES:
 - Target exactly ${targetMinutes} minutes total (${targetMinutes * 60000}ms)
-- Each cut must be 15-45 seconds maximum. NO cut longer than 60 seconds. If a moment needs more time, make two cuts.
-- You are DISCARDING most of the footage. A 60-minute session becomes 8 minutes — that means you keep roughly 13% and throw away 87%.
-- Cut mid-sentence if needed — if someone starts rambling, cut as soon as the interesting part ends
-- NEVER include: setup, troubleshooting, waiting, silence, repeated takes (keep only the best take), "um" heavy sections, anything where nothing is happening
-- ALWAYS include: the moment something clicks, energy spikes, key decisions, peak performances, the best take of each section
-- Cold open: start with the most exciting moment in the whole session — not minute 0
-- Each cut must earn its place. If you're unsure, cut it.`,
+- Each cut 15-45 seconds maximum. NO cut longer than 60 seconds.
+- You are DISCARDING most of the footage — keep roughly 13%, throw away 87%.
+- Cut mid-sentence if needed. Never include: setup, troubleshooting, waiting, silence, repeated takes, filler.
+- Always include: moments something clicks, energy spikes, key decisions, peak performances, best takes.
+- Cold open: start with the most exciting moment — not minute 0.
+
+VOICEOVER RULES:
+- Add 3-8 VO cues that bridge cuts and carry the narrative
+- recMs = record timecode on the cut timeline (starts at 3600000ms)
+- Each VO is 1-3 sentences, short, punchy, designed to be recorded separately
+- durationMs = estimated duration at ~130 words/min
+
+B-ROLL & REACTION RULES (only if assets are provided):
+- Insert reaction clips at punchline moments, surprising reveals, or when you say something funny
+- Insert broll clips to cover jump cuts or add visual context
+- filename must exactly match one of the provided asset filenames
+- recMs = where it appears on the cut timeline
+- durationMs = how long to hold it (usually 2000-4000ms for reactions)
+
+SOUND EFFECT RULES (only if sfx assets provided):
+- Place sfx at energy peaks, punchlines, transitions
+- filename must exactly match a provided sfx filename
+
+TITLE CARD RULES:
+- Add lower thirds to introduce key moments ("44 minutes in", "The hook")
+- Add captions for key phrases that land hard
+- full_screen titles for section breaks only
+- Keep text short — 5 words maximum
+
+CHAPTER MARKER RULES:
+- Add 4-8 chapters that make sense as YouTube timestamps
+- recMs = position on cut timeline
+- Label should describe what's happening, not be generic ("Beat hunt" not "Part 2")`,
       messages: [{
         role: 'user',
         content: `Creator: "${cat?.name}". Niche: ${cat?.niche}.${audiencePain ? ` Audience: ${audiencePain}.` : ''}
@@ -878,19 +946,32 @@ Target: exactly ${targetMinutes} minutes.
 
 ${episodeContext || 'No episode plan — cut for maximum retention, discard everything slow.'}
 
+${assetContext || 'No assets uploaded yet — skip broll, sfx, leave those arrays empty.'}
+
 FULL TRANSCRIPT (minute by minute):
 ${transcriptSummary}
 
-Return cut list JSON. Remember: 15-45 seconds per cut, total = ${targetMinutes} minutes, discard 87% of footage.`,
+Return the complete JSON object with all arrays: cuts, voiceover, broll, sfx, titles, chapters.`,
       }],
     })
 
-    let cuts = []
+    let result = { cuts: [], voiceover: [], broll: [], sfx: [], titles: [], chapters: [] }
     try {
-      cuts = JSON.parse((cutRes.content[0]?.text || '[]').replace(/```json|```/g, '').trim())
+      result = JSON.parse((cutRes.content[0]?.text || '{}').replace(/```json|```/g, '').trim())
     } catch {
-      return res.status(500).json({ error: 'Failed to parse cut list — try again' })
+      try {
+        result.cuts = JSON.parse((cutRes.content[0]?.text || '[]').replace(/```json|```/g, '').trim())
+      } catch {
+        return res.status(500).json({ error: 'Failed to parse cut list — try again' })
+      }
     }
+
+    const cuts      = result.cuts      || []
+    const voiceover = result.voiceover || []
+    const broll     = result.broll     || []
+    const sfx       = result.sfx       || []
+    const titles    = result.titles    || []
+    const chapters  = result.chapters  || []
 
     if (!cuts.length) return res.status(500).json({ error: 'No cuts returned — provide more specific instructions' })
 
@@ -913,6 +994,7 @@ Return cut list JSON. Remember: 15-45 seconds per cut, total = ${targetMinutes} 
     let edl = `TITLE: ${title.replace(/[^\x20-\x7E]/g, '_').slice(0, 64)}\nFCM: NON-DROP FRAME\n\n`
     let recMs = 3600000
 
+    // Video cuts
     cuts.forEach((cut, i) => {
       const n        = String(i + 1).padStart(3, '0')
       const clipName = cut.source === 'camera' ? clipNameB : clipNameA
@@ -925,7 +1007,80 @@ Return cut list JSON. Remember: 15-45 seconds per cut, total = ${targetMinutes} 
       recMs += durMs
     })
 
-    const totalMs  = recMs - 3600000
+    const totalMs = recMs - 3600000
+
+    // ── Voiceover track (A1 in DaVinci) ─────────────────────────────────────
+    if (voiceover.length) {
+      edl += `\n* ─── VOICEOVER TRACK ───────────────────────────────────────────────────\n`
+      edl += `* Record these lines and name files VO_01.mp3, VO_02.mp3 etc.\n\n`
+      voiceover.forEach((vo, i) => {
+        const n      = String(cuts.length + i + 1).padStart(3, '0')
+        const durMs  = vo.durationMs || Math.round((vo.line.split(' ').length / 130) * 60000)
+        const recIn  = vo.recMs || (3600000 + Math.round(totalMs * i / voiceover.length))
+        const recOut = recIn + durMs
+        const reel   = `VO_${String(i+1).padStart(2,'0')}              `.slice(0,32)
+        edl += `${n}  ${reel} AA/V C        00:00:00:00 ${msToTC(durMs)} ${msToTC(recIn)} ${msToTC(recOut)}\n`
+        edl += `* FROM CLIP NAME: ${vo.label || `VO_${String(i+1).padStart(2,'0')}.mp3`}\n`
+        edl += `* LOC: ${msToTC(recIn)} YELLOW  ${vo.line}\n\n`
+      })
+    }
+
+    // ── B-roll overlay track (V2 in DaVinci) ─────────────────────────────────
+    if (broll.length) {
+      let eventN = cuts.length + voiceover.length + 1
+      edl += `\n* ─── B-ROLL OVERLAY TRACK (V2) ────────────────────────────────────────\n`
+      edl += `* Import these files into DaVinci Media Pool and they will auto-link.\n\n`
+      broll.forEach(b => {
+        const n      = String(eventN++).padStart(3, '0')
+        const durMs  = b.durationMs || 3000
+        const recIn  = b.recMs || 3600000
+        const reel   = sanitiseReel(b.filename)
+        edl += `${n}  ${reel} V   C        00:00:00:00 ${msToTC(durMs)} ${msToTC(recIn)} ${msToTC(recIn + durMs)}\n`
+        edl += `* FROM CLIP NAME: ${b.filename}\n`
+        edl += `* LOC: ${msToTC(recIn)} CYAN  ${b.reason || 'B-roll overlay'}\n\n`
+      })
+    }
+
+    // ── Sound effects track (A2 in DaVinci) ──────────────────────────────────
+    if (sfx.length) {
+      let eventN = cuts.length + voiceover.length + broll.length + 1
+      edl += `\n* ─── SOUND EFFECTS TRACK (A2) ─────────────────────────────────────────\n\n`
+      sfx.forEach(s => {
+        const n      = String(eventN++).padStart(3, '0')
+        const durMs  = 2000
+        const recIn  = s.recMs || 3600000
+        const reel   = sanitiseReel(s.filename)
+        edl += `${n}  ${reel} AA   C        00:00:00:00 ${msToTC(durMs)} ${msToTC(recIn)} ${msToTC(recIn + durMs)}\n`
+        edl += `* FROM CLIP NAME: ${s.filename}\n`
+        edl += `* LOC: ${msToTC(recIn)} GREEN  ${s.reason || 'SFX'}\n\n`
+      })
+    }
+
+    // ── Title cards — LOC markers with text (DaVinci Text+ tool) ─────────────
+    if (titles.length) {
+      edl += `\n* ─── TITLE CARDS ───────────────────────────────────────────────────────\n`
+      edl += `* In DaVinci: add Text+ clips on V3, match recIn timecodes below.\n\n`
+      titles.forEach(t => {
+        const durMs = t.durationMs || 3000
+        edl += `* TITLE [${msToTC(t.recMs || 3600000)}] [${t.style || 'lower_third'}] [${msToTC(durMs)}]  "${t.text}"\n`
+      })
+      edl += '\n'
+    }
+
+    // ── Chapter markers — paste into YouTube description ──────────────────────
+    if (chapters.length) {
+      edl += `\n* ─── YOUTUBE CHAPTERS ──────────────────────────────────────────────────\n`
+      edl += `* Paste these into your YouTube description:\n*\n`
+      chapters.forEach(c => {
+        const recMs    = (c.recMs || 3600000) - 3600000
+        const mins     = Math.floor(recMs / 60000)
+        const secs     = Math.floor((recMs % 60000) / 1000)
+        const hhmmss   = `${String(Math.floor(mins/60)).padStart(2,'0')}:${String(mins%60).padStart(2,'0')}:${String(secs).padStart(2,'0')}`
+        edl += `* ${hhmmss} ${c.label}\n`
+      })
+      edl += '\n'
+    }
+
     const filename = `${title.replace(/[^\w\s-]/g, '').replace(/\s+/g, '_').slice(0, 50)}_edit.edl`
 
     try {
@@ -941,10 +1096,25 @@ Return cut list JSON. Remember: 15-45 seconds per cut, total = ${targetMinutes} 
     res.setHeader('Content-Type', 'text/plain; charset=utf-8')
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`)
     res.setHeader('X-EDL-Summary', JSON.stringify({
-      cutCount: cuts.length,
-      totalMinutes: Math.round(totalMs / 60000 * 10) / 10,
+      cutCount:        cuts.length,
+      voiceoverCount:  voiceover.length,
+      brollCount:      broll.length,
+      sfxCount:        sfx.length,
+      titleCount:      titles.length,
+      chapterCount:    chapters.length,
+      totalMinutes:    Math.round(totalMs / 60000 * 10) / 10,
       originalMinutes: Math.round((linesA[linesA.length - 1]?.ms || 0) / 60000),
       filename,
+      voiceover:       voiceover.map(v => ({ label: v.label, line: v.line })),
+      chapters:        chapters.map(c => {
+        const recMs  = (c.recMs || 3600000) - 3600000
+        const mins   = Math.floor(recMs / 60000)
+        const secs   = Math.floor((recMs % 60000) / 1000)
+        const hh     = String(Math.floor(mins / 60)).padStart(2, '0')
+        const mm     = String(mins % 60).padStart(2, '0')
+        const ss     = String(secs).padStart(2, '0')
+        return { time: hh + ':' + mm + ':' + ss, label: c.label }
+      }),
     }))
     res.send(edl)
 
@@ -1001,6 +1171,189 @@ router.get('/edl-exports/:id/download', async (req, res) => {
   res.setHeader('Content-Type', 'text/plain')
   res.setHeader('Content-Disposition', `attachment; filename="${filename}"`)
   res.send(data.edl_content)
+})
+
+// ─── ASSET LIBRARY ───────────────────────────────────────────────────────────
+// POST /api/editor/assets/upload — upload b-roll, GIF, SFX to Supabase Storage
+// GET  /api/editor/assets?categoryId= — list available assets
+// DELETE /api/editor/assets/:id — remove an asset
+
+const assetUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 200 * 1024 * 1024 }, // 200MB
+})
+
+function detectAssetType(filename) {
+  const lower = filename.toLowerCase()
+  if (lower.startsWith('sfx_') || lower.startsWith('sound_'))    return 'sfx'
+  if (lower.startsWith('music_') || lower.startsWith('bg_'))     return 'music'
+  if (lower.startsWith('reaction_'))                              return 'reaction'
+  if (lower.startsWith('meme_'))                                  return 'meme'
+  if (lower.startsWith('broll_') || lower.startsWith('b_roll_')) return 'broll'
+  if (lower.startsWith('title_') || lower.startsWith('text_'))   return 'title'
+  // Fallback by extension
+  if (/\.(mp3|wav|aac|ogg|flac)$/i.test(filename))               return 'sfx'
+  if (/\.(gif|webp)$/i.test(filename))                           return 'reaction'
+  return 'broll'
+}
+
+router.post('/assets/upload', assetUpload.single('file'), async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'File required' })
+  const { categoryId } = req.body
+  if (!categoryId) return res.status(400).json({ error: 'categoryId required' })
+
+  try {
+    const type        = detectAssetType(req.file.originalname)
+    const safeName    = req.file.originalname.replace(/[^a-zA-Z0-9._\-]/g, '_')
+    const storagePath = `editor-assets/${req.user.id}/${Date.now()}_${safeName}`
+
+    const { error: uploadErr } = await supabase.storage
+      .from('session-audio')
+      .upload(storagePath, req.file.buffer, {
+        contentType: req.file.mimetype,
+        upsert: false,
+      })
+    if (uploadErr) throw new Error(uploadErr.message)
+
+    const { data: urlData } = supabase.storage
+      .from('session-audio')
+      .getPublicUrl(storagePath)
+
+    // Check if a placeholder with this filename already exists — replace it
+    const { data: existing } = await supabase
+      .from('editor_assets')
+      .select('id')
+      .eq('user_id', req.user.id)
+      .eq('category_id', categoryId)
+      .eq('filename', req.file.originalname)
+      .single()
+
+    let asset, dbErr
+    if (existing) {
+      // Update the placeholder with the real file
+      const res2 = await supabase
+        .from('editor_assets')
+        .update({ storage_path: storagePath, file_url: urlData?.publicUrl, is_placeholder: false })
+        .eq('id', existing.id)
+        .select()
+        .single()
+      asset = res2.data; dbErr = res2.error
+    } else {
+      const res2 = await supabase
+        .from('editor_assets')
+        .insert({
+          user_id:        req.user.id,
+          category_id:    categoryId,
+          filename:       req.file.originalname,
+          display_name:   req.file.originalname.replace(/\.[^.]+$/, '').replace(/_/g, ' '),
+          type,
+          storage_path:   storagePath,
+          file_url:       urlData?.publicUrl,
+          is_placeholder: false,
+          tags:           [type, ...req.file.originalname.replace(/\.[^.]+$/, '').split('_').slice(1)],
+        })
+        .select()
+        .single()
+      asset = res2.data; dbErr = res2.error
+    }
+
+    if (dbErr) throw new Error(dbErr.message)
+    res.json({ asset })
+  } catch (err) {
+    console.error('[editor/assets/upload]', err.message)
+    res.status(500).json({ error: err.message })
+  }
+})
+
+router.get('/assets', async (req, res) => {
+  const { categoryId, type } = req.query
+  if (!categoryId) return res.status(400).json({ error: 'categoryId required' })
+
+  // Auto-seed default placeholders on first load for this category
+  const { count } = await supabase
+    .from('editor_assets')
+    .select('id', { count: 'exact', head: true })
+    .eq('user_id', req.user.id)
+    .eq('category_id', categoryId)
+
+  if (count === 0) {
+    // Seed via RPC function
+    await supabase.rpc('seed_default_assets', {
+      p_user_id:     req.user.id,
+      p_category_id: categoryId,
+    }).catch(() => {})
+  }
+
+  let query = supabase
+    .from('editor_assets')
+    .select('id, filename, display_name, type, file_url, tags, duration_ms, is_placeholder, created_at')
+    .eq('user_id', req.user.id)
+    .eq('category_id', categoryId)
+    .order('type')
+    .order('filename')
+
+  if (type) query = query.eq('type', type)
+
+  const { data } = await query
+  res.json({ assets: data || [] })
+})
+
+router.delete('/assets/:id', async (req, res) => {
+  const { data: asset } = await supabase
+    .from('editor_assets')
+    .select('storage_path')
+    .eq('id', req.params.id)
+    .eq('user_id', req.user.id)
+    .single()
+
+  if (!asset) return res.status(404).json({ error: 'Asset not found' })
+
+  await supabase.storage.from('session-audio').remove([asset.storage_path])
+  await supabase.from('editor_assets').delete().eq('id', req.params.id)
+  res.json({ ok: true })
+})
+
+// ─── TRANSCRIPT REVIEW ────────────────────────────────────────────────────────
+// POST /api/editor/transcript-review
+// Returns the transcript split into 1-minute blocks for KB review mode
+
+router.post('/transcript-review', async (req, res) => {
+  const { sessionId, categoryId } = req.body
+  if (!sessionId || !categoryId) return res.status(400).json({ error: 'sessionId and categoryId required' })
+
+  const { data: session } = await supabase
+    .from('session_journals')
+    .select('title, transcript, duration_ms')
+    .eq('id', sessionId)
+    .eq('user_id', req.user.id)
+    .single()
+
+  if (!session?.transcript) return res.status(404).json({ error: 'Session not found' })
+
+  // Parse into minute blocks
+  const lines = session.transcript.split('\n').map(line => {
+    const m = line.match(/^\[(\d+):(\d+)\]\s*(.*)/)
+    if (!m) return null
+    return { ms: (parseInt(m[1]) * 60 + parseInt(m[2])) * 1000, min: parseInt(m[1]), text: m[3].trim() }
+  }).filter(Boolean)
+
+  const blocks = {}
+  for (const line of lines) {
+    if (!blocks[line.min]) blocks[line.min] = []
+    blocks[line.min].push(line)
+  }
+
+  const minutes = Object.entries(blocks).map(([min, lines]) => ({
+    minute:  parseInt(min),
+    lines,
+    summary: lines.map(l => l.text).join(' ').slice(0, 200),
+  }))
+
+  res.json({
+    title:        session.title,
+    totalMinutes: Math.round((session.duration_ms || 0) / 60000),
+    minutes,
+  })
 })
 
 module.exports = router
