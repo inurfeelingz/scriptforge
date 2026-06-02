@@ -197,15 +197,21 @@ let stylesInjected = false
 
 // ── POLL HELPER ───────────────────────────────────────────────────────────────
 // Polls GET /session/index-audio/:jobId every 4 seconds until done or error.
-async function pollIndexAudioJob(jobId, authToken, onProgress) {
+async function pollIndexAudioJob(jobId, _authToken, onProgress) {
   const BASE = import.meta.env.VITE_API_URL || '/api'
   const MAX_POLLS = 120  // 120 × 4s = 8 minutes max
 
   for (let i = 0; i < MAX_POLLS; i++) {
     await new Promise(r => setTimeout(r, 4000))
 
+    // Always get a fresh token — avoids 401 if session refreshed during upload
+    const { supabase: sb } = await import('../../lib/supabase')
+    const { data: { session } } = await sb.auth.getSession()
+    const token = session?.access_token
+    if (!token) throw new Error('Session expired — please refresh the page')
+
     const res = await fetch(`${BASE}/session/index-audio/${jobId}`, {
-      headers: { Authorization: `Bearer ${authToken}` },
+      headers: { Authorization: `Bearer ${token}` },
     })
 
     if (!res.ok) throw new Error(`Poll failed: ${res.status}`)
