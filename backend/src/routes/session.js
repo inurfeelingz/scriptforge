@@ -125,8 +125,7 @@ router.post('/index-audio', express.json(), async (req, res) => {
       job.total = numChunks
       console.log(`[index-audio] job=${jobId} — ${Math.round(totalSecs/60)}min, ${numChunks} chunk(s)`)
 
-    // ── Extract + transcribe each time-based chunk ──────────────────────────
-    try {
+      // ── Extract + transcribe each time-based chunk ──────────────────────────
       for (let i = 0; i < numChunks; i++) {
         const startSec = i * CHUNK_SECS
         const durSec   = Math.min(CHUNK_SECS, totalSecs - startSec)
