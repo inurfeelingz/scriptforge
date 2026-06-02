@@ -321,23 +321,45 @@ export default function ChatPanel() {
       const BASE = import.meta.env.VITE_API_URL || '/api'
 
       if (isAudio) {
-        // Async job — returns immediately, polls for completion
-        const fd = new FormData()
-        fd.append('audio', file)
-        fd.append('categoryId', activeCategoryId)
-        fd.append('title', file.name.replace(/\.[^.]+$/i, ''))
+        // Upload to Supabase Storage first — avoids Railway's 30s proxy timeout
+        // on large file uploads. Railway then downloads from Supabase (fast,
+        // server-to-server) and transcribes with Whisper.
+        const fileMB = Math.round(file.size / 1024 / 1024)
+        setIndexProgress(`Uploading ${fileMB}MB to storage…`)
 
+        const storagePath = `audio-uploads/${req?.user?.id || sess.user.id}/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`
+
+        const { error: storageErr } = await sb.storage
+          .from('session-audio')
+          .upload(storagePath, file, { contentType: file.type || 'audio/mpeg', upsert: false })
+
+        if (storageErr) throw new Error('Storage upload failed: ' + storageErr.message)
+
+        // Get a signed URL valid for 2 hours so Railway can download it
+        const { data: signedData, error: signErr } = await sb.storage
+          .from('session-audio')
+          .createSignedUrl(storagePath, 7200)
+
+        if (signErr || !signedData?.signedUrl) throw new Error('Could not get signed URL')
+
+        setIndexProgress(`Transcribing ${fileMB}MB…`)
+
+        // Send Railway just the URL + metadata — no file transfer to Railway
         const uploadRes = await fetch(BASE + '/session/index-audio', {
-          method: 'POST',
-          headers: { Authorization: 'Bearer ' + sess?.access_token },
-          body: fd,
+          method:  'POST',
+          headers: { Authorization: 'Bearer ' + sess?.access_token, 'Content-Type': 'application/json' },
+          body:    JSON.stringify({
+            audioUrl:    signedData.signedUrl,
+            storagePath,
+            categoryId:  activeCategoryId,
+            title:       file.name.replace(/\.[^.]+$/i, ''),
+            fileSizeMb:  fileMB,
+          }),
         })
         const uploadData = await uploadRes.json()
         if (!uploadRes.ok) throw new Error(uploadData.error)
 
         const { jobId } = uploadData
-        const fileMB    = Math.round(file.size / 1024 / 1024)
-        setIndexProgress(`Transcribing ${fileMB}MB — checking progress…`)
 
         const result = await pollIndexAudioJob(
           jobId,
@@ -350,8 +372,8 @@ export default function ChatPanel() {
         setIndexProgress('')
         const mins = Math.round((result.duration || 0) / 60)
         setMessages(prev => [...prev, {
-          role: 'assistant',
-          content: `Indexed "${file.name}" — ${mins} min transcribed across ${result.segments || 0} segments with timecodes. I can now reference everything in this session. Want to talk through it?`,
+          role:      'assistant',
+          content:   `Indexed "${file.name}" — ${mins} min transcribed across ${result.segments || 0} segments with timecodes. I can now reference everything in this session. Want to talk through it?`,
           sessionId: result.sessionId,
           timestamp: new Date().toISOString(),
         }])
