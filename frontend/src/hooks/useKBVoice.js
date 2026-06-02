@@ -214,8 +214,17 @@ export default function useKBVoice({ onTranscript, onError, enabled = true }) {
     setSpeaking(true)
 
     try {
-      const session = await getSession()
-      const BASE    = (import.meta.env.VITE_API_URL || '/api')
+      // Retry getSession up to 3 times — token may not be ready immediately after stream
+      let session = await getSession()
+      if (!session?.access_token) {
+        await new Promise(r => setTimeout(r, 500))
+        session = await getSession()
+      }
+      if (!session?.access_token) {
+        await new Promise(r => setTimeout(r, 1000))
+        session = await getSession()
+      }
+      const BASE = (import.meta.env.VITE_API_URL || '/api')
 
       const res = await fetch(`${BASE}/chat/speak`, {
         method:  'POST',
