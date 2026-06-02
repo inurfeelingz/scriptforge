@@ -759,16 +759,56 @@ router.post('/build-session-edl', async (req, res) => {
   if (!categoryId || !sessionIdA) return res.status(400).json({ error: 'categoryId and sessionIdA required' })
 
   try {
-    const [{ data: sA }, sessionBResult, { data: cat }] = await Promise.all([
+    const [{ data: sA }, sessionBResult, { data: cat }, chatHistory, plannedEpisode] = await Promise.all([
       supabase.from('session_journals').select('title, transcript').eq('id', sessionIdA).eq('user_id', req.user.id).single(),
       sessionIdB
         ? supabase.from('session_journals').select('title, transcript').eq('id', sessionIdB).eq('user_id', req.user.id).single()
         : Promise.resolve({ data: null }),
       supabase.from('categories').select('name, niche, audience_model').eq('id', categoryId).single(),
+      // Pull recent chat history — this has the episode structure KB and creator planned
+      supabase.from('chat_history')
+        .select('messages')
+        .eq('user_id', req.user.id)
+        .eq('category_id', categoryId)
+        .order('updated_at', { ascending: false })
+        .limit(1)
+        .single()
+        .then(r => r.data?.messages || [])
+        .catch(() => []),
+      // Pull any planned episode structure
+      supabase.from('kb_planned_episodes')
+        .select('track_name, summary, themes, track_context')
+        .eq('user_id', req.user.id)
+        .eq('category_id', categoryId)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single()
+        .then(r => r.data)
+        .catch(() => null),
     ])
 
     const sB = sessionBResult?.data || null
     if (!sA?.transcript) return res.status(404).json({ error: 'Primary transcript not found' })
+
+    // Extract episode structure from chat history
+    const episodePlanMessages = (chatHistory || [])
+      .filter(m => m.role === 'assistant' && (
+        m.content?.includes('COLD OPEN') || m.content?.includes('cold open') ||
+        m.content?.includes('EDL') || m.content?.includes('episode structure') ||
+        m.content?.includes('EPISODE STRUCTURE') || m.content?.includes('voice over') ||
+        m.content?.includes('voiceover') || m.content?.includes('VO ') ||
+        m.content?.includes('minute') || m.content?.toLowerCase().includes('rewind') ||
+        m.content?.toLowerCase().includes('cut') || m.content?.toLowerCase().includes('hook')
+      ))
+      .slice(-8)
+      .map(m => m.content.slice(0, 2000))  // more content per message
+      .join('\n\n---\n\n')
+
+    const recentUserMessages = (chatHistory || [])
+      .filter(m => m.role === 'user')
+      .slice(-10)
+      .map(m => m.content.slice(0, 400))
+      .join('\n')
 
     function parseLines(transcript) {
       return transcript.split('\n').map(line => {
@@ -788,41 +828,60 @@ router.post('/build-session-edl', async (req, res) => {
       ...linesB.map(l => ({ ...l, source: 'camera', clip: clipNameB })),
     ].sort((a, b) => a.ms - b.ms)
 
-    const critical = [
-      ...allLines.slice(0, 30),
-      ...allLines.filter((_, i) => i >= 30 && i < allLines.length - 10 && i % 5 === 0),
-      ...allLines.slice(-10),
-    ]
+    // Send EVERY line — Claude needs full detail to make tight 15-45 second cuts
+    // Group into minute blocks so Claude can reason about what's happening when
+    const minuteBlocks = {}
+    for (const line of allLines) {
+      const min = Math.floor(line.ms / 60000)
+      if (!minuteBlocks[min]) minuteBlocks[min] = []
+      minuteBlocks[min].push(line)
+    }
 
-    const transcriptSummary = critical.map(l => {
-      const m = Math.floor(l.ms / 60000)
-      const s = Math.floor((l.ms % 60000) / 1000)
-      return `[${m}:${String(s).padStart(2,'0')}][${l.source}] ${l.text}`
+    // Build transcript as minute-by-minute blocks — much easier for Claude to cut precisely
+    const transcriptSummary = Object.entries(minuteBlocks).map(([min, lines]) => {
+      const blockText = lines.map(l => {
+        const s = Math.floor((l.ms % 60000) / 1000)
+        return `  [${min}:${String(s).padStart(2,'0')}][${l.source}] ${l.text}`
+      }).join('\n')
+      return `\n--- MINUTE ${min} ---\n${blockText}`
     }).join('\n')
 
     const audiencePain = cat?.audience_model?.geminiInsights?.psychographics?.corePainPoint || ''
 
+    const episodeContext = [
+      plannedEpisode ? `PLANNED EPISODE: "${plannedEpisode.track_name}" — ${plannedEpisode.summary || ''}` : null,
+      episodePlanMessages ? `EPISODE STRUCTURE AGREED WITH CREATOR:\n${episodePlanMessages}` : null,
+      recentUserMessages ? `CREATOR'S RECENT INSTRUCTIONS:\n${recentUserMessages}` : null,
+      instructions ? `ADDITIONAL NOTES: ${instructions}` : null,
+    ].filter(Boolean).join('\n\n')
+
     const cutRes = await aiClient.messages.create({
       model:      process.env.CLAUDE_MODEL || 'claude-sonnet-4-5',
-      max_tokens: 2000,
-      system: `You are a YouTube video editor specialising in retention. Cut documentary-style creator content.
+      max_tokens: 4000,
+      system: `You are a YouTube video editor making a documentary-style creator video.
 Output ONLY valid JSON array — no preamble, no markdown.
 Format: [{"startMs":number,"endMs":number,"source":"screen"|"camera","reason":"brief reason"}]
-Rules:
-- Target ~${targetMinutes} minutes total
-- Keep: hooks, energy peaks, moments of discovery, decisions, anything marked ★✨⚡
-- Cut: dead air >3s, repeated explanations, uninteresting troubleshooting, filler
-- Cold open must hook within 30 seconds
-- Use camera for reaction/wide shots, screen for direct dialogue and monitor content`,
+
+CRITICAL CUTTING RULES:
+- Target exactly ${targetMinutes} minutes total (${targetMinutes * 60000}ms)
+- Each cut must be 15-45 seconds maximum. NO cut longer than 60 seconds. If a moment needs more time, make two cuts.
+- You are DISCARDING most of the footage. A 60-minute session becomes 8 minutes — that means you keep roughly 13% and throw away 87%.
+- Cut mid-sentence if needed — if someone starts rambling, cut as soon as the interesting part ends
+- NEVER include: setup, troubleshooting, waiting, silence, repeated takes (keep only the best take), "um" heavy sections, anything where nothing is happening
+- ALWAYS include: the moment something clicks, energy spikes, key decisions, peak performances, the best take of each section
+- Cold open: start with the most exciting moment in the whole session — not minute 0
+- Each cut must earn its place. If you're unsure, cut it.`,
       messages: [{
         role: 'user',
-        content: `Creator: "${cat?.name}". Niche: ${cat?.niche}.${audiencePain ? ` Audience pain: ${audiencePain}.` : ''}
-Target: ~${targetMinutes}min.${instructions ? ` Notes: ${instructions}` : ''}
+        content: `Creator: "${cat?.name}". Niche: ${cat?.niche}.${audiencePain ? ` Audience: ${audiencePain}.` : ''}
+Target: exactly ${targetMinutes} minutes.
 
-TRANSCRIPT (both sources merged, timecodes in ms):
+${episodeContext || 'No episode plan — cut for maximum retention, discard everything slow.'}
+
+FULL TRANSCRIPT (minute by minute):
 ${transcriptSummary}
 
-Return the cut list JSON.`,
+Return cut list JSON. Remember: 15-45 seconds per cut, total = ${targetMinutes} minutes, discard 87% of footage.`,
       }],
     })
 
@@ -835,7 +894,16 @@ Return the cut list JSON.`,
 
     if (!cuts.length) return res.status(500).json({ error: 'No cuts returned — provide more specific instructions' })
 
-    const { msToTC } = timelineBuilder
+    // Use fps from request or default to 24 (most modern cameras/phones)
+    const fps = req.body.fps || 24
+    const msToTC = (ms) => {
+      const totalFrames = Math.round(ms * fps / 1000)
+      const ff = totalFrames % fps
+      const ss = Math.floor(totalFrames / fps) % 60
+      const mm = Math.floor(totalFrames / fps / 60) % 60
+      const hh = Math.floor(totalFrames / fps / 3600)
+      return [hh, mm, ss, ff].map(n => String(n).padStart(2, '0')).join(':')
+    }
 
     function sanitiseReel(filename) {
       return (filename || 'AX').replace(/\.[^.]+$/, '').replace(/[^a-zA-Z0-9_\-]/g, '_').slice(0, 32).padEnd(32)
