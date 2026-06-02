@@ -28,7 +28,6 @@ export default function EDLBuilder() {
   const [uploading,    setUploading]    = useState(false)
   const [error,        setError]        = useState(null)
   const [done,         setDone]         = useState(null)
-  const fileInputRef = useRef(null)
 
   const BASE = import.meta.env.VITE_API_URL || '/api'
 
@@ -243,46 +242,48 @@ export default function EDLBuilder() {
 
       {/* Asset Library */}
       <div style={S.section}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-          <label style={{ ...S.label, marginBottom: 0 }}>Asset library — b-roll, reactions, SFX</label>
-          <button style={S.uploadBtn} onClick={() => fileInputRef.current?.click()} disabled={uploading}>
-            {uploading ? <span style={S.spinner}/> : '+'}
-            {uploading ? 'Uploading…' : 'Upload assets'}
-          </button>
-          <input ref={fileInputRef} type="file" multiple accept="video/*,audio/*,image/*,.gif"
-            onChange={handleAssetUpload} style={{ display: 'none' }} />
-        </div>
-        <p style={{ fontSize: 11, color: 'var(--color-text-secondary)', marginBottom: 12, lineHeight: 1.5 }}>
-          Placeholders are pre-loaded — Claude references them by name even before you upload.
-          Upload a file with the exact filename shown to link it. Name files with the prefix shown (e.g. <code>reaction_laugh.mp4</code>).
+        <label style={S.label}>Asset library</label>
+        <p style={{ fontSize: 12, color: 'var(--color-text-secondary)', marginBottom: 20, lineHeight: 1.6 }}>
+          Slots are pre-loaded — Claude places them in the EDL by name even without the files.
+          Click <strong>+ Add</strong> on any type to upload. Filename must match exactly.
         </p>
 
-
-
-        {Object.entries(assetsByType).map(([type, list]) => (
-          <div key={type} style={{ marginBottom: 10 }}>
-            <p style={{ fontSize: 11, fontWeight: 700, color: TYPE_META[type]?.color || 'var(--color-text-secondary)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>
-              {TYPE_META[type]?.label || type} ({list.length})
-            </p>
-            {list.map(a => (
-              <div key={a.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', borderRadius: 6, background: 'var(--color-background-secondary)', marginBottom: 4, opacity: a.is_placeholder ? 0.55 : 1 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 }}>
-                  <span style={{ fontSize: 13, color: 'var(--color-text-primary)', fontWeight: 500 }}>
-                    {a.display_name || a.filename}
-                  </span>
-                  {a.is_placeholder
-                    ? <span style={{ fontSize: 10, color: 'var(--color-text-secondary)', fontStyle: 'italic' }}>no file yet</span>
-                    : <span style={{ fontSize: 10, color: 'rgba(74,222,128,0.7)', fontWeight: 700 }}>✓ linked</span>
-                  }
+        {Object.entries(TYPE_META).map(([type, meta]) => {
+          const typeAssets = assetsByType[type] || []
+          const linked     = typeAssets.filter(a => !a.is_placeholder).length
+          const accept     = (type === 'sfx' || type === 'music') ? 'audio/*' : type === 'meme' ? 'image/*,video/*,.gif' : 'video/*,image/*'
+          return (
+            <div key={type} style={{ marginBottom: 20 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: meta.color, textTransform: 'uppercase', letterSpacing: 0.8 }}>{meta.label}</span>
+                  <span style={{ fontSize: 11, color: 'var(--color-text-secondary)' }}>{linked}/{typeAssets.length} linked</span>
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <span style={{ fontSize: 10, color: 'var(--color-text-secondary)', opacity: 0.5 }}>{a.filename}</span>
-                  {!a.is_placeholder && <button style={S.del} onClick={() => deleteAsset(a.id)}>✕</button>}
-                </div>
+                <label style={{ ...S.uploadBtn, cursor: uploading ? 'not-allowed' : 'pointer', fontSize: 11, padding: '5px 12px' }}>
+                  {uploading ? <span style={S.spinner}/> : '+'} Add
+                  <input type="file" multiple accept={accept} onChange={handleAssetUpload} style={{ display: 'none' }} disabled={uploading} />
+                </label>
               </div>
-            ))}
-          </div>
-        ))}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 5 }}>
+                {typeAssets.map(a => (
+                  <div key={a.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 10px', borderRadius: 8, border: `1px solid ${a.is_placeholder ? 'var(--color-border-tertiary)' : meta.color + '55'}`, background: a.is_placeholder ? 'transparent' : meta.color + '11' }}>
+                    <div style={{ minWidth: 0, flex: 1 }}>
+                      <p style={{ fontSize: 12, fontWeight: 500, color: a.is_placeholder ? 'var(--color-text-secondary)' : 'var(--color-text-primary)', marginBottom: 1 }}>
+                        {a.display_name || a.filename}
+                      </p>
+                      <p style={{ fontSize: 10, color: 'var(--color-text-secondary)', opacity: 0.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {a.is_placeholder ? a.filename : '✓ linked'}
+                      </p>
+                    </div>
+                    {!a.is_placeholder && (
+                      <button style={{ ...S.del, marginLeft: 6, flexShrink: 0, padding: '2px 7px' }} onClick={() => deleteAsset(a.id)}>✕</button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )
+        })}
       </div>
 
       {/* Settings */}
