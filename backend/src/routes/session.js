@@ -93,10 +93,7 @@ router.post('/index-audio', express.json(), async (req, res) => {
     const FormData = require('form-data')
     const ffmpeg   = require('fluent-ffmpeg')
 
-    try {
-      const ffmpegPath = require('ffmpeg-static')
-      ffmpeg.setFfmpegPath(ffmpegPath)
-    } catch { /* ffmpeg must be on PATH */ }
+    try { ffmpeg.setFfmpegPath(require('ffmpeg-static')) } catch {}
 
     try {
       // ── Step 1: Download from Supabase Storage ──────────────────────────────
