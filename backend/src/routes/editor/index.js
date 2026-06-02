@@ -1277,11 +1277,12 @@ router.get('/assets', async (req, res) => {
     .eq('category_id', categoryId)
 
   if (count === 0) {
-    // Seed via RPC function
-    await supabase.rpc('seed_default_assets', {
-      p_user_id:     req.user.id,
-      p_category_id: categoryId,
-    }).catch(() => {})
+    try {
+      await supabase.rpc('seed_default_assets', {
+        p_user_id:     req.user.id,
+        p_category_id: categoryId,
+      })
+    } catch {}
   }
 
   let query = supabase
