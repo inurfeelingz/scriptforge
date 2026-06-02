@@ -142,7 +142,7 @@ export default function EDLBuilder() {
                     {Math.round((s.duration_ms || 0) / 60000)}min
                   </p>
                 </div>
-                <div style={{ display: 'flex', gap: 6 }}>
+                <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                   {['screen', 'camera'].map(role => (
                     <button key={role}
                       onClick={() => setAssignments(prev => ({ ...prev, [s.id]: role }))}
@@ -150,6 +150,21 @@ export default function EDLBuilder() {
                       {role}
                     </button>
                   ))}
+                  <button onClick={async () => {
+                    if (!confirm(`Delete "${s.title}"?`)) return
+                    try {
+                      const sess = await getSession()
+                      await fetch(`${BASE}/session/${s.id}`, {
+                        method: 'DELETE',
+                        headers: { Authorization: `Bearer ${sess?.access_token}` }
+                      })
+                      setSessions(prev => prev.filter(x => x.id !== s.id))
+                      setAssignments(prev => { const n = {...prev}; delete n[s.id]; return n })
+                      setClipNames(prev => { const n = {...prev}; delete n[s.id]; return n })
+                    } catch (e) { setError(e.message) }
+                  }} style={{ padding: '5px 10px', borderRadius: 6, border: '1px solid rgba(255,80,80,0.2)', background: 'none', cursor: 'pointer', fontSize: 11, color: 'rgba(255,80,80,0.5)' }}>
+                    ✕
+                  </button>
                 </div>
               </div>
               <div>
