@@ -210,6 +210,10 @@ router.post('/index-audio', express.json(), async (req, res) => {
         .join('\n')
 
       // Save as session journal
+      const durationMs = allSegments.length
+        ? Math.round(allSegments[allSegments.length - 1].end * 1000)
+        : 0
+
       const { data: session, error: insertError } = await supabase
         .from('session_journals')
         .insert({
@@ -219,6 +223,7 @@ router.post('/index-audio', express.json(), async (req, res) => {
           voice_memo_text: fullTranscript,
           transcript:      fullTranscript,
           status:          'ready',
+          duration_ms:     durationMs,
           created_at:      new Date().toISOString(),
         })
         .select()

@@ -204,7 +204,7 @@ router.post('/message', async (req, res) => {
     ]
     if (edlListTriggers.some(t => msgLower.includes(t))) {
       send('chunk', { text: "Let me check what indexed sessions you have." })
-      send('done',  { response: "Let me check what indexed sessions you have.", action: 'edl:list_sessions' })
+      send('done',  { response: "Let me check what indexed sessions you have.", action: `edl:list_sessions:${categoryId}` })
       clearInterval(keepalive)
       return res.end()
     }
@@ -220,7 +220,6 @@ router.post('/message', async (req, res) => {
     const hasBuildIntent = edlBuildTriggers.some(t => msgLower.includes(t))
 
     if (hasBuildIntent) {
-      const { supabase } = require('../../utils/supabase')
       const { data: sessions } = await supabase
         .from('session_journals')
         .select('id, title')
