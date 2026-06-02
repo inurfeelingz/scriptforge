@@ -10,14 +10,16 @@ export default function EDLBuilder() {
   const { activeCategory } = useStore()
   const cat = activeCategory?.()
 
-  const [sessions,    setSessions]    = useState([])
-  const [assignments, setAssignments] = useState({}) // { id: 'screen'|'camera' }
-  const [clipNames,   setClipNames]   = useState({}) // { id: 'filename.mp4' }
-  const [targetMins,  setTargetMins]  = useState(8)
-  const [loading,     setLoading]     = useState(true)
-  const [building,    setBuilding]    = useState(false)
-  const [error,       setError]       = useState(null)
-  const [done,        setDone]        = useState(null)
+  const [sessions,      setSessions]      = useState([])
+  const [assignments,   setAssignments]   = useState({}) // { id: 'screen'|'camera' }
+  const [clipNames,     setClipNames]     = useState({}) // { id: 'filename.mp4' }
+  const [targetMins,    setTargetMins]    = useState(8)
+  const [fps,           setFps]           = useState(24)
+  const [instructions,  setInstructions]  = useState('')
+  const [loading,       setLoading]       = useState(true)
+  const [building,      setBuilding]      = useState(false)
+  const [error,         setError]         = useState(null)
+  const [done,          setDone]          = useState(null)
 
   const BASE = import.meta.env.VITE_API_URL || '/api'
 
@@ -86,6 +88,8 @@ export default function EDLBuilder() {
           clipNameA:     clipNames[screenSession.id] || 'SCREEN.mp4',
           clipNameB:     clipNames[cameraSession?.id] || 'CAMERA.mp4',
           targetMinutes: targetMins,
+          fps,
+          instructions,
         }),
       })
 
@@ -192,6 +196,35 @@ export default function EDLBuilder() {
               </button>
             ))}
           </div>
+        </div>
+      )}
+
+      {sessions.length > 0 && (
+        <div style={{ marginBottom: 20 }}>
+          <label style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)', display: 'block', marginBottom: 8 }}>Footage frame rate</label>
+          <div style={{ display: 'flex', gap: 8 }}>
+            {[24, 25, 30, 60].map(f => (
+              <button key={f} onClick={() => setFps(f)}
+                style={{ padding: '7px 14px', borderRadius: 7, border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600, background: fps === f ? 'rgba(74,222,128,1)' : 'rgba(255,255,255,0.08)', color: fps === f ? '#080808' : 'rgba(255,255,255,0.5)' }}>
+                {f}fps
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {sessions.length > 0 && (
+        <div style={{ marginBottom: 20 }}>
+          <label style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)', display: 'block', marginBottom: 8 }}>
+            Edit brief — tell Claude what to keep and cut (optional but makes a huge difference)
+          </label>
+          <textarea
+            value={instructions}
+            onChange={e => setInstructions(e.target.value)}
+            placeholder={`e.g. "Cold open at 44 minutes when I'm recording the hook. Cut back to 15 minutes for the challenge setup. Keep all the recording takes from 32-40 mins. Cut everything before minute 7. The best hook take is around 38:53."`}
+            rows={5}
+            style={{ width: '100%', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, padding: '10px 12px', color: '#e8eaed', fontSize: 13, fontFamily: "'Figtree', sans-serif", outline: 'none', boxSizing: 'border-box', resize: 'vertical', lineHeight: 1.5 }}
+          />
         </div>
       )}
 
