@@ -628,6 +628,7 @@ router.post('/speak', async (req, res) => {
         .eq('id', categoryId)
         .eq('user_id', req.user.id)
         .single()
+        .then(r => r)
         .catch(() => ({ data: null }))
       if (cat?.voice_profile?.elevenLabsVoiceId) {
         voiceId = cat.voice_profile.elevenLabsVoiceId
