@@ -119,13 +119,12 @@ router.post('/index-audio', express.json(), async (req, res) => {
       })
 
       // When ffprobe can't determine duration (returns 0), extract the whole
-      // file in one shot — no seek, no duration limit. This handles MP3s with
-      // missing or malformed headers that confuse ffprobe.
+      // file as ONE chunk at very low bitrate to stay under Whisper's 25MB limit.
+      // 32kbps mono = ~14MB/hour — safe for files up to ~1.5hrs.
       const durationUnknown = totalSecs === 0
-      const effectiveSecs   = durationUnknown ? 36000 : totalSecs  // assume max 10hrs if unknown
-      const numChunks = Math.max(1, Math.ceil(effectiveSecs / CHUNK_SECS))
+      const numChunks = durationUnknown ? 1 : Math.max(1, Math.ceil(totalSecs / CHUNK_SECS))
       job.total = numChunks
-      console.log(`[index-audio] job=${jobId} — ${durationUnknown ? 'duration unknown' : Math.round(totalSecs/60) + 'min'}, ${numChunks} chunk(s)`)
+      console.log(`[index-audio] job=${jobId} — ${durationUnknown ? 'duration unknown, single chunk' : Math.round(totalSecs/60) + 'min, ' + numChunks + ' chunk(s)'}`)
 
       // ── Extract + transcribe each time-based chunk ──────────────────────────
       for (let i = 0; i < numChunks; i++) {
@@ -133,32 +132,29 @@ router.post('/index-audio', express.json(), async (req, res) => {
         const chunkPath = path.join(os.tmpdir(), `wc-chunk-${jobId}-${i}.mp3`)
         tmpChunks.push(chunkPath)
 
-        // FFmpeg: extract this time window as mono MP3 at 64kbps/16kHz
         await new Promise((resolve, reject) => {
           const cmd = ffmpeg(tempFilePath)
             .inputOptions(['-analyzeduration', '100M', '-probesize', '100M'])
             .noVideo()
             .audioCodec('libmp3lame')
-            .audioBitrate('64k')
+            .audioBitrate(durationUnknown ? '32k' : '64k')  // lower bitrate when unknown duration
             .audioChannels(1)
             .audioFrequency(16000)
             .output(chunkPath)
-          if (startSec > 0) cmd.seekInput(startSec)
-          // Only set duration limit when we know the actual duration
-          // If duration is unknown, extract everything from startSec onwards
+          if (!durationUnknown && startSec > 0) cmd.seekInput(startSec)
           if (!durationUnknown) cmd.duration(CHUNK_SECS)
           cmd.on('end', resolve).on('error', reject).run()
         })
 
         const chunkStat = fs.statSync(chunkPath)
+        console.log(`[index-audio] chunk ${i+1}/${numChunks} extracted: ${Math.round(chunkStat.size/1024/1024)}MB`)
+
         if (chunkStat.size < 1024) {
           console.log(`[index-audio] chunk ${i+1} empty — done`)
-          break  // past end of file — stop chunking
+          break
         }
         if (chunkStat.size > MAX_CHUNK_MB * 1024 * 1024) {
-          // Chunk too large — split it further by re-extracting with a shorter window
-          console.warn(`[index-audio] chunk ${i+1} too large (${Math.round(chunkStat.size/1024/1024)}MB) — splitting`)
-          // For now skip and continue — next chunk will pick up from next window
+          console.warn(`[index-audio] chunk ${i+1} still too large (${Math.round(chunkStat.size/1024/1024)}MB) — skipping`)
           continue
         }
 
