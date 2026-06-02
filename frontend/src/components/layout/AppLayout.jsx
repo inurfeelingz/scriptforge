@@ -30,6 +30,7 @@ const PILL_ITEMS = [
   { to: '/sound',     icon: Music2,    label: 'Sound'     },
   { to: '/schedule',  icon: Calendar,  label: 'Schedule'  },
   { to: '/edl-builder', icon: Scissors, label: 'EDL'       },
+  { to: 'https://whispaedits-production.up.railway.app', icon: Zap, label: 'Edits', external: true },
 ]
 
 const GREEN     = 'rgba(74,222,128,1)'
@@ -197,10 +198,11 @@ export default function AppLayout() {
   }
 
   // ── PILL BUTTON ─────────────────────────────────────────────────────────────
-  function PillButton({ to, icon: Icon, label, onClick }) {
+  function PillButton({ to, icon: Icon, label, onClick, external }) {
     const active = location.pathname === to
     const handleClick = () => {
       if (onClick) { onClick(); return }
+      if (external) { window.open(to, '_blank'); setPillExpanded(false); return }
       navigate(to)
       setPillExpanded(false)
     }
