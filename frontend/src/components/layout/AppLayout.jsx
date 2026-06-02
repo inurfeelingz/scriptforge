@@ -10,7 +10,7 @@ import {
   Settings, LogOut, Sparkles,
   Plus, RefreshCw, BarChart2, Calendar,
   X, BookMarked, Search,
-  ChevronRight, Zap, Music2, Mic,
+  ChevronRight, Zap, Music2, Mic, Scissors,
 } from 'lucide-react'
 import CommandPalette  from './CommandPalette'
 import ChatPanel       from '../chat/ChatPanel'
@@ -29,6 +29,7 @@ const PILL_ITEMS = [
   { to: '/analytics', icon: BarChart2, label: 'Insights'  },
   { to: '/sound',     icon: Music2,    label: 'Sound'     },
   { to: '/schedule',  icon: Calendar,  label: 'Schedule'  },
+  { to: '/edl-builder', icon: Scissors, label: 'EDL'       },
 ]
 
 const GREEN     = 'rgba(74,222,128,1)'

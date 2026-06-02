@@ -128,6 +128,7 @@ export default function App() {
             <Route path="journals"     element={<Navigate to="/" replace />} />
             <Route path="shorts"       element={<Navigate to="/pipeline" replace />} />
             <Route path="editor"       element={<Navigate to="/pipeline" replace />} />
+            <Route path="edl-builder"  element={<AuthGuard><EDLBuilder /></AuthGuard>} />
           </Route>
 
 
