@@ -197,21 +197,15 @@ let stylesInjected = false
 
 // ── POLL HELPER ───────────────────────────────────────────────────────────────
 // Polls GET /session/index-audio/:jobId every 4 seconds until done or error.
-async function pollIndexAudioJob(jobId, _authToken, onProgress) {
+async function pollIndexAudioJob(jobId, authToken, onProgress) {
   const BASE = import.meta.env.VITE_API_URL || '/api'
   const MAX_POLLS = 120  // 120 × 4s = 8 minutes max
 
   for (let i = 0; i < MAX_POLLS; i++) {
     await new Promise(r => setTimeout(r, 4000))
 
-    // Always get a fresh token — avoids 401 if session refreshed during upload
-    const { supabase: sb } = await import('../../lib/supabase')
-    const { data: { session } } = await sb.auth.getSession()
-    const token = session?.access_token
-    if (!token) throw new Error('Session expired — please refresh the page')
-
     const res = await fetch(`${BASE}/session/index-audio/${jobId}`, {
-      headers: { Authorization: `Bearer ${token}` },
+      headers: { Authorization: `Bearer ${authToken}` },
     })
 
     if (!res.ok) throw new Error(`Poll failed: ${res.status}`)
@@ -260,7 +254,8 @@ export default function ChatPanel() {
   const [greeted,       setGreeted]       = useState(false)
   const [indexingAudio, setIndexingAudio] = useState(false)
   const [indexProgress, setIndexProgress] = useState('')
-  const [edlState,      setEdlState]      = useState(null)  // null | 'syncing' | 'building' | { exportId, filename, cutCount, totalMinutes }
+  const [edlState,      setEdlState]      = useState(null)
+  const [edlAssign,     setEdlAssign]     = useState({})  // { sessionId: 'screen'|'camera' }
   const bottomRef     = useRef(null)
   const inputRef      = useRef(null)
   const abortRef      = useRef(null)
@@ -294,31 +289,11 @@ export default function ChatPanel() {
 
   // ── File upload handler with async job polling ────────────────────────────
   async function handleFileUpload(e) {
-    const files = Array.from(e.target.files || [])
-    if (!files.length || !activeCategoryId) return
+    const file = e.target.files?.[0]
+    if (!file || !activeCategoryId) return
 
-    // Separate audio files from everything else
-    const audioFiles = files.filter(f => {
-      const n = f.name.toLowerCase()
-      return f.type.startsWith('audio/') || /\.(mp3|m4a|wav|aac|ogg|flac)$/i.test(n)
-    })
-    const otherFiles = files.filter(f => !audioFiles.includes(f))
-
-    // Process non-audio files first (fast — no transcription needed)
-    for (const file of otherFiles) {
-      await handleSingleFile(file)
-    }
-
-    // Process audio files — queue them all, show combined progress
-    if (audioFiles.length) {
-      await handleAudioFiles(audioFiles)
-    }
-
-    e.target.value = ''
-  }
-
-  async function handleSingleFile(file) {
     const name     = file.name.toLowerCase()
+    const isAudio  = file.type.startsWith('audio/') || /\.(mp3|m4a|wav|aac|ogg|flac)$/i.test(name)
     const isVideo  = file.type.startsWith('video/') || /\.(mp4|mov|mkv|webm)$/i.test(name)
     const isCSV    = /\.csv$/i.test(name)
     const isScript = /\.(txt|md|fdx|fountain)$/i.test(name)
@@ -326,6 +301,7 @@ export default function ChatPanel() {
     const isDoc    = /\.(pdf|doc|docx)$/i.test(name)
     const isXLS    = /\.(xls|xlsx)$/i.test(name)
 
+    // Block video — too large, use audio extraction workflow instead
     if (isVideo) {
       setMessages(prev => [...prev, {
         role: 'assistant',
@@ -333,46 +309,88 @@ export default function ChatPanel() {
         isError: true,
         timestamp: new Date().toISOString(),
       }])
+      e.target.value = ''
       return
     }
 
     setIndexingAudio(true)
+    setIndexProgress('Uploading…')
 
     try {
       const { supabase: sb } = await import('../../lib/supabase')
       const { data: { session: sess } } = await sb.auth.getSession()
       const BASE = import.meta.env.VITE_API_URL || '/api'
 
-      if (isImage) {
-        setIndexProgress(`Reading ${file.name}…`)
+      if (isAudio) {
+        // Async job — returns immediately, polls for completion
+        const fd = new FormData()
+        fd.append('audio', file)
+        fd.append('categoryId', activeCategoryId)
+        fd.append('title', file.name.replace(/\.[^.]+$/i, ''))
+
+        const uploadRes = await fetch(BASE + '/session/index-audio', {
+          method: 'POST',
+          headers: { Authorization: 'Bearer ' + sess?.access_token },
+          body: fd,
+        })
+        const uploadData = await uploadRes.json()
+        if (!uploadRes.ok) throw new Error(uploadData.error)
+
+        const { jobId } = uploadData
+        const fileMB    = Math.round(file.size / 1024 / 1024)
+        setIndexProgress(`Transcribing ${fileMB}MB — checking progress…`)
+
+        const result = await pollIndexAudioJob(
+          jobId,
+          sess?.access_token,
+          (progress, total) => {
+            setIndexProgress(total > 0 ? `Transcribing… chunk ${progress}/${total}` : 'Transcribing…')
+          }
+        )
+
+        setIndexProgress('')
+        const mins = Math.round((result.duration || 0) / 60)
+        setMessages(prev => [...prev, {
+          role: 'assistant',
+          content: `Indexed "${file.name}" — ${mins} min transcribed across ${result.segments || 0} segments with timecodes. I can now reference everything in this session. Want to talk through it?`,
+          sessionId: result.sessionId,
+          timestamp: new Date().toISOString(),
+        }])
+
+      } else if (isImage) {
+        setIndexProgress('Reading image…')
+        // Convert to base64 and send to KB as vision context
         const reader = new FileReader()
         const base64 = await new Promise((res, rej) => {
           reader.onload = () => res(reader.result.split(',')[1])
           reader.onerror = rej
           reader.readAsDataURL(file)
         })
-        await sb.from('vault_entries').insert({
+        // Save as vault entry with image data + ask KB to describe/analyse
+        const { error } = await sb.from('vault_entries').insert({
           user_id:     sess.user.id,
           category_id: activeCategoryId,
           type:        'image',
           title:       file.name.replace(/\.[^.]+$/i, ''),
           content:     `[IMAGE: ${file.name}]`,
-          image_b64:   base64.slice(0, 200000),
+          image_b64:   base64.slice(0, 200000), // cap at ~200KB base64
           tags:        ['uploaded', 'image'],
         })
+        if (error) throw new Error(error.message)
         setIndexProgress('')
         setMessages(prev => [...prev, {
-          role: 'assistant',
-          content: `Got the image "${file.name}" — saved to vault. What do you want me to do with it?`,
+          role:      'assistant',
+          content:   `Got the image "${file.name}" — saved to vault. What do you want me to do with it? I can analyse it for thumbnail composition, reference it for styling, or use it to inform episode content.`,
           timestamp: new Date().toISOString(),
         }])
 
       } else if (isDoc) {
-        setIndexProgress(`Reading ${file.name}…`)
+        setIndexProgress('Reading document…')
         const fd = new FormData()
         fd.append('file', file)
         fd.append('categoryId', activeCategoryId)
         fd.append('title', file.name.replace(/\.[^.]+$/i, ''))
+
         const res  = await fetch(BASE + '/kb/index-doc', {
           method: 'POST', headers: { Authorization: 'Bearer ' + sess?.access_token }, body: fd,
         })
@@ -380,13 +398,13 @@ export default function ChatPanel() {
         if (!res.ok) throw new Error(data.error || 'Document indexing failed')
         setIndexProgress('')
         setMessages(prev => [...prev, {
-          role: 'assistant',
-          content: `Indexed "${file.name}" — ${data.wordCount || 0} words extracted and saved to vault.`,
+          role:      'assistant',
+          content:   `Indexed "${file.name}" — ${data.wordCount || 0} words extracted. I can now reference this document in our conversations. What do you want to do with it?`,
           timestamp: new Date().toISOString(),
         }])
 
-      } else if (isXLS || isCSV) {
-        setIndexProgress(`Reading ${file.name}…`)
+      } else if (isXLS) {
+        setIndexProgress('Reading spreadsheet…')
         const fd = new FormData()
         fd.append('file', file)
         fd.append('categoryId', activeCategoryId)
@@ -394,131 +412,68 @@ export default function ChatPanel() {
           method: 'POST', headers: { Authorization: 'Bearer ' + sess?.access_token }, body: fd,
         })
         const data = await res.json()
-        if (!res.ok) throw new Error(data.error || 'Upload failed')
+        if (!res.ok) throw new Error(data.error || 'Spreadsheet upload failed')
         setIndexProgress('')
         setMessages(prev => [...prev, {
-          role: 'assistant',
-          content: `Got the data file "${file.name}" — ${data.videoCount || 0} rows processed. Want a breakdown?`,
+          role:      'assistant',
+          content:   `Got the spreadsheet "${file.name}" — ${data.videoCount || 0} rows processed. Want me to break down what I'm seeing?`,
+          timestamp: new Date().toISOString(),
+        }])
+
+      } else if (isCSV) {
+        setIndexProgress('Reading analytics data…')
+        const fd = new FormData()
+        fd.append('file', file)
+        fd.append('categoryId', activeCategoryId)
+        const res  = await fetch(BASE + '/analytics/upload', {
+          method: 'POST', headers: { Authorization: 'Bearer ' + sess?.access_token }, body: fd,
+        })
+        const data = await res.json()
+        if (!res.ok) throw new Error(data.error || 'Analytics upload failed')
+        const rows = (await file.text()).trim().split('\n').length - 1
+        setIndexProgress('')
+        setMessages(prev => [...prev, {
+          role:      'assistant',
+          content:   `Got the analytics CSV — ${rows} rows uploaded. I'll use this to inform your next episode recommendations. Want a breakdown?`,
           timestamp: new Date().toISOString(),
         }])
 
       } else if (isScript) {
-        setIndexProgress(`Reading ${file.name}…`)
-        const text = await file.text()
-        const { data: { session: sess2 } } = await sb.auth.getSession()
-        await sb.from('vault_entries').insert({
-          user_id:     sess2.user.id,
+        setIndexProgress('Reading script…')
+        const text      = await file.text()
+        const wordCount = text.trim().split(/\s+/).length
+        const { error } = await sb.from('vault_entries').insert({
+          user_id:     sess.user.id,
           category_id: activeCategoryId,
           type:        'script',
           title:       file.name.replace(/\.[^.]+$/i, ''),
           content:     text.slice(0, 10000),
           tags:        ['uploaded'],
         })
+        if (error) throw new Error(error.message)
         setIndexProgress('')
         setMessages(prev => [...prev, {
-          role: 'assistant',
-          content: `Script "${file.name}" saved — ${text.trim().split(/\s+/).length} words. Want me to review it for hook strength or pacing?`,
+          role:      'assistant',
+          content:   `Script saved to vault — ${wordCount} words. Want me to review it for hook strength, pacing, or retention points?`,
           timestamp: new Date().toISOString(),
         }])
+
+      } else {
+        throw new Error('File type not supported. Upload audio, image, PDF, DOC, XLS, CSV, or script files.')
       }
 
     } catch (err) {
       setIndexProgress('')
       setMessages(prev => [...prev, {
-        role: 'assistant',
-        content: `Error with "${file.name}": ${err.message}`,
+        role:    'assistant',
+        content: err.message,
         isError: true,
         timestamp: new Date().toISOString(),
       }])
     }
 
     setIndexingAudio(false)
-  }
-
-  async function handleAudioFiles(audioFiles) {
-    setIndexingAudio(true)
-
-    try {
-      const { supabase: sb } = await import('../../lib/supabase')
-      const { data: { session: sess } } = await sb.auth.getSession()
-      const BASE = import.meta.env.VITE_API_URL || '/api'
-
-      const totalMB = Math.round(audioFiles.reduce((s, f) => s + f.size, 0) / 1024 / 1024)
-      const jobIds  = []
-
-      // Upload all audio files to Supabase Storage first, fire jobs in parallel
-      for (let i = 0; i < audioFiles.length; i++) {
-        const file = audioFiles[i]
-        const fileMB = Math.round(file.size / 1024 / 1024)
-        setIndexProgress(`Uploading ${i + 1}/${audioFiles.length}: ${file.name} (${fileMB}MB)…`)
-
-        const storagePath = `audio-uploads/${sess.user.id}/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`
-
-        const { error: storageErr } = await sb.storage
-          .from('session-audio')
-          .upload(storagePath, file, { contentType: file.type || 'audio/mpeg', upsert: false })
-
-        if (storageErr) throw new Error(`Storage upload failed for "${file.name}": ` + storageErr.message)
-
-        const { data: signedData, error: signErr } = await sb.storage
-          .from('session-audio')
-          .createSignedUrl(storagePath, 7200)
-
-        if (signErr || !signedData?.signedUrl) throw new Error('Could not get signed URL for ' + file.name)
-
-        const uploadRes = await fetch(BASE + '/session/index-audio', {
-          method:  'POST',
-          headers: { Authorization: 'Bearer ' + sess?.access_token, 'Content-Type': 'application/json' },
-          body:    JSON.stringify({
-            audioUrl:    signedData.signedUrl,
-            storagePath,
-            categoryId:  activeCategoryId,
-            title:       file.name.replace(/\.[^.]+$/i, ''),
-            fileSizeMb:  fileMB,
-          }),
-        })
-        const uploadData = await uploadRes.json()
-        if (!uploadRes.ok) throw new Error(uploadData.error)
-
-        jobIds.push({ jobId: uploadData.jobId, name: file.name })
-      }
-
-      // Now poll all jobs simultaneously
-      setIndexProgress(`Transcribing ${audioFiles.length} file${audioFiles.length > 1 ? 's' : ''}…`)
-
-      const results = await Promise.all(jobIds.map(({ jobId, name }) =>
-        pollIndexAudioJob(jobId, sess?.access_token, () => {})
-      ))
-
-      setIndexProgress('')
-
-      // Build a combined confirmation message listing all indexed sessions
-      const sessionLines = results.map((result, i) => {
-        const mins = Math.round((result.duration || 0) / 60)
-        const segs = result.segments || 0
-        return `"${audioFiles[i].name}" — ${mins}min, ${segs} segments`
-      }).join('\n')
-
-      const sessionIds = results.map(r => r.sessionId).filter(Boolean)
-
-      setMessages(prev => [...prev, {
-        role:       'assistant',
-        content:    `Indexed ${audioFiles.length} session${audioFiles.length > 1 ? 's' : ''}:\n${sessionLines}\n\nI can reference all of them now. ${audioFiles.length > 1 ? 'Want to build the EDL, or talk through what was recorded?' : 'Want to talk through it?'}`,
-        sessionIds,
-        timestamp:  new Date().toISOString(),
-      }])
-
-    } catch (err) {
-      setIndexProgress('')
-      setMessages(prev => [...prev, {
-        role:      'assistant',
-        content:   `Audio upload error: ${err.message}`,
-        isError:   true,
-        timestamp: new Date().toISOString(),
-      }])
-    }
-
-    setIndexingAudio(false)
+    e.target.value = ''
   }
 
   // Auto-focus on mount
@@ -549,40 +504,30 @@ export default function ChatPanel() {
 
     Promise.all([historyPromise, greetPromise]).then(([history, greetData]) => {
       setMessages(history)
-
-      // If backend explicitly says greet:false (session still active, < 5 mins)
-      // trust it — do not append any greeting, just show the history as-is
-      if (greetData?.greet === false) return
-
       let greetMsg = greetData?.message || null
 
-      // Only generate a fallback greeting if backend didn't return one AND
-      // this is a genuinely new chat with no history
-      if (!greetMsg && !history.length) {
-        const openers = [
-          "What are we making?",
-          "Your workspace is set up. What's the first episode about?",
-          "Let's build something. What's on your mind?",
-          "Ready when you are. What's the episode?",
-          "Start with the thumbnail — what's the image that stops the scroll?",
-        ]
-        greetMsg = openers[Math.floor(Math.random() * openers.length)]
-      }
-
-      // If there's history but no backend greeting (backend returned null message
-      // with greet:true meaning it wanted to greet but had nothing specific) —
-      // show a minimal re-entry prompt only if > 30 mins away
-      if (!greetMsg && history.length) {
-        const last = history[history.length - 1]
-        const minsAgo = last?.timestamp
-          ? Math.round((Date.now() - new Date(last.timestamp).getTime()) / 60000)
-          : 0
-        if (minsAgo >= 30) {
-          const lastUserMsg = [...history].reverse().find(m => m.role === 'user')
-          const snippet = lastUserMsg?.content?.slice(0, 60) || ''
-          greetMsg = snippet
-            ? `Welcome back — you were working on "${snippet}". Want to pick that up?`
-            : null
+      if (!greetMsg) {
+        if (!history.length) {
+          const openers = [
+            "What are we making?",
+            "Your workspace is set up. What's the first episode about?",
+            "Let's build something. What's on your mind?",
+            "Ready when you are. What's the episode?",
+            "Start with the thumbnail — what's the image that stops the scroll?",
+          ]
+          greetMsg = openers[Math.floor(Math.random() * openers.length)]
+        } else {
+          const last = history[history.length - 1]
+          const minsAgo = last?.timestamp
+            ? Math.round((Date.now() - new Date(last.timestamp).getTime()) / 60000)
+            : 0
+          if (minsAgo >= 5) {
+            const lastUserMsg = [...history].reverse().find(m => m.role === 'user')
+            const snippet = lastUserMsg?.content?.slice(0, 60) || ''
+            greetMsg = snippet
+              ? `You were working on something earlier — "${snippet}". Want to pick that up, or start something new?`
+              : null
+          }
         }
       }
 
@@ -768,24 +713,24 @@ export default function ChatPanel() {
       const auth = { Authorization: 'Bearer ' + sess?.access_token }
 
       if (parts[1] === 'list_sessions') {
-        // KB wants to show which sessions are available to sync
         const res  = await fetch(`${BASE}/editor/sessions?categoryId=${activeCategoryId}`, { headers: auth })
         const data = await res.json()
         const sessions = data.sessions || []
         if (!sessions.length) {
           setMessages(prev => [...prev, {
-            role: 'assistant',
-            content: 'No indexed sessions found. Upload your screen capture audio and camera audio first using the Upload button, then come back and ask me to build the EDL.',
+            role:      'assistant',
+            content:   'No indexed sessions found. Upload your audio files first using the Upload button.',
             timestamp: new Date().toISOString(),
           }])
           return
         }
+        // Show interactive session picker — no typing required
         setMessages(prev => [...prev, {
-          role:        'assistant',
-          content:     `I can see ${sessions.length} indexed session${sessions.length > 1 ? 's' : ''}:\n${sessions.map((s, i) => `${i+1}. "${s.title}" — ${Math.round((s.duration_ms || 0) / 60000)}min`).join('\n')}\n\nTell me which is the screen capture and which is the camera footage, and what to call the original video files (e.g. "screen is SESSION_CAM.mp4, camera is WRITING_A_SONG_CAM.mp4").`,
-          isSessionList: true,
+          role:          'assistant',
+          content:       `${sessions.length} session${sessions.length > 1 ? 's' : ''} indexed. Tap to assign each one:`,
+          isSessionPicker: true,
           sessions,
-          timestamp:   new Date().toISOString(),
+          timestamp:     new Date().toISOString(),
         }])
         return
       }
@@ -1031,6 +976,47 @@ export default function ChatPanel() {
           {messages.map((msg, i) => (
             <div key={i} className={`kb-msg ${msg.role}`}>
               <div style={{ position:'relative', display:'inline-block', maxWidth:'82%' }} className="kb-msg-wrapper">
+                {/* Session picker — tap to assign screen/camera */}
+                {msg.isSessionPicker && (
+                  <div style={{ padding:'14px', borderRadius:10, border:'1px solid rgba(74,222,128,0.15)', background:'rgba(74,222,128,0.03)' }}>
+                    <p style={{ fontSize:12, color:'rgba(74,222,128,0.8)', fontFamily:"'Figtree',sans-serif", marginBottom:10, fontWeight:600 }}>{msg.content}</p>
+                    {(msg.sessions || []).map(s => {
+                      const assigned = edlAssign[s.id]
+                      return (
+                        <div key={s.id} style={{ marginBottom:8, padding:'10px 12px', borderRadius:8, background:'rgba(255,255,255,0.03)', border:`1px solid ${assigned ? 'rgba(74,222,128,0.3)' : 'rgba(255,255,255,0.07)'}` }}>
+                          <p style={{ fontSize:12, color:'rgba(255,255,255,0.8)', fontFamily:"'Figtree',sans-serif", marginBottom:6 }}>
+                            {s.title} — {Math.round((s.duration_ms || 0) / 60000)}min
+                          </p>
+                          <div style={{ display:'flex', gap:6 }}>
+                            {['screen', 'camera'].map(role => (
+                              <button key={role} onClick={() => setEdlAssign(prev => ({ ...prev, [s.id]: role }))}
+                                style={{ padding:'5px 12px', borderRadius:6, border:'none', cursor:'pointer', fontSize:11, fontFamily:"'Figtree',sans-serif", fontWeight:600, textTransform:'uppercase', letterSpacing:0.5, background: assigned === role ? 'rgba(74,222,128,1)' : 'rgba(255,255,255,0.07)', color: assigned === role ? '#080808' : 'rgba(255,255,255,0.5)' }}>
+                                {role}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )
+                    })}
+                    {/* Build button — shows when all sessions assigned */}
+                    {Object.keys(edlAssign).length >= (msg.sessions || []).length && Object.keys(edlAssign).length > 0 && (() => {
+                      const screenSession = (msg.sessions || []).find(s => edlAssign[s.id] === 'screen')
+                      const cameraSession = (msg.sessions || []).find(s => edlAssign[s.id] === 'camera')
+                      if (!screenSession) return null
+                      const sidA  = screenSession.id
+                      const sidB  = cameraSession?.id || 'none'
+                      const clipA = encodeURIComponent(screenSession.title + '.mp4')
+                      const clipB = encodeURIComponent((cameraSession?.title || 'camera') + '.mp4')
+                      return (
+                        <button onClick={() => handleEdlAction(`edl:sync_then_build:${sidA}:${sidB}:${clipA}:${clipB}:8`, '')}
+                          style={{ marginTop:10, width:'100%', padding:'10px 0', borderRadius:8, border:'none', background:'rgba(74,222,128,1)', color:'#080808', cursor:'pointer', fontSize:13, fontWeight:700, fontFamily:"'Figtree',sans-serif" }}>
+                          Build EDL →
+                        </button>
+                      )
+                    })()}
+                  </div>
+                )}
+
                 {/* EDL ready — download button */}
                 {msg.isEdlReady && (
                   <div style={{ padding:'12px 14px', borderRadius:10, border:'1px solid rgba(74,222,128,0.2)', background:'rgba(74,222,128,0.05)', marginBottom:4 }}>
@@ -1063,7 +1049,7 @@ export default function ChatPanel() {
                 )}
 
                 {/* Normal bubble for non-special messages */}
-                {!msg.isEdlReady && !msg.isWorking && (
+                {!msg.isEdlReady && !msg.isWorking && !msg.isSessionPicker && (
                 <div
                   className={`kb-bubble ${msg.role} ${msg.isError ? 'error' : ''}`}
                   style={{ maxWidth:'100%', cursor: msg.isEpisodeReady ? 'pointer' : 'default' }}
@@ -1074,7 +1060,7 @@ export default function ChatPanel() {
                   {msg.isEpisodeReady && <span style={{ marginLeft:8, fontSize:11, opacity:0.7 }}>→</span>}
                 </div>
                 )}
-                {msg.role === 'assistant' && !msg.isError && !msg.isGenerating && !msg.isEpisodeReady && !msg.isEdlReady && !msg.isWorking && (
+                {msg.role === 'assistant' && !msg.isError && !msg.isGenerating && !msg.isEpisodeReady && !msg.isEdlReady && !msg.isWorking && !msg.isSessionPicker && (
                   <button
                     onClick={() => saveToVault(msg.content)}
                     title="Save to vault"
@@ -1150,7 +1136,7 @@ export default function ChatPanel() {
             style={{ fontSize:10, padding:'3px 8px', borderRadius:6, border:'1px solid rgba(255,255,255,0.06)', background:'transparent', color: indexingAudio ? 'rgba(74,222,128,0.6)' : 'rgba(255,255,255,0.3)', cursor: indexingAudio ? 'wait' : 'pointer', fontFamily:"'Figtree',sans-serif", display:'flex', alignItems:'center', gap:4 }}
           >
             <Plus size={9}/> {indexingAudio ? indexProgress || 'Processing…' : 'Upload'}
-            <input type="file" multiple accept="audio/*,.mp3,.m4a,.wav,.aac,.ogg,.flac,image/*,.jpg,.jpeg,.png,.gif,.webp,.heic,.pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,.md,.fountain,.fdx" onChange={handleFileUpload} disabled={indexingAudio} style={{ display:'none' }}/>
+            <input type="file" accept="audio/*,.mp3,.m4a,.wav,.aac,.ogg,.flac,image/*,.jpg,.jpeg,.png,.gif,.webp,.heic,.pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,.md,.fountain,.fdx" onChange={handleFileUpload} disabled={indexingAudio} style={{ display:'none' }}/>
           </label>
 
           <button onClick={newChat}
