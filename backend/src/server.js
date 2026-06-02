@@ -129,6 +129,7 @@ app.use('/api/vault',      authMiddleware, vaultRoutes)
 // YouTube OAuth — browser redirects have no Authorization header
 app.use('/api/analytics/youtube/callback', analyticsRoutes)
 app.use('/api/analytics/youtube/connect',  analyticsRoutes)
+app.use('/api/analytics/youtube/debug',    analyticsRoutes)  // public — no auth needed for env check
 app.use('/api/analytics',                  authMiddleware, analyticsRoutes)
 
 app.use('/api/billing/webhook', billingRoutes)  // PayPal webhook — no auth token
