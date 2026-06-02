@@ -28,6 +28,7 @@ const Teleprompter   = lazy(() => import('./pages/Teleprompter'))
 const StoryboardPage = lazy(() => import('./pages/StoryboardPage'))
 const SeriesPage     = lazy(() => import('./pages/SeriesPage'))
 const EpisodeReview  = lazy(() => import('./pages/EpisodeReview'))
+const EDLBuilder     = lazy(() => import('./pages/EDLBuilder'))
 
 function useKeepAlive() {
   useEffect(() => {
