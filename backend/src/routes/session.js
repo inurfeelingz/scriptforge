@@ -101,10 +101,17 @@ router.post('/index-audio', express.json(), async (req, res) => {
       console.log(`[index-audio] job=${jobId} — downloading (${fileSizeMb || '?'}MB)`)
       tempFilePath = path.join(os.tmpdir(), `whispa-${jobId}.audio`)
 
-      const dlRes = await axios.get(audioUrl, { responseType: 'stream', timeout: 600000 })
+      const dlRes = await axios.get(audioUrl, {
+        responseType: 'stream',
+        timeout:      0,          // no timeout on the connection itself
+        maxRedirects: 5,
+        httpAgent:    new (require('http').Agent)({ keepAlive: true }),
+        httpsAgent:   new (require('https').Agent)({ keepAlive: true }),
+      })
       await new Promise((resolve, reject) => {
         const writer = fs.createWriteStream(tempFilePath)
         dlRes.data.pipe(writer)
+        dlRes.data.on('error', reject)
         writer.on('finish', resolve)
         writer.on('error', reject)
       })
