@@ -713,9 +713,11 @@ export default function ChatPanel() {
       const auth = { Authorization: 'Bearer ' + sess?.access_token }
 
       if (parts[1] === 'list_sessions') {
-        const res  = await fetch(`${BASE}/editor/sessions?categoryId=${activeCategoryId}`, { headers: auth })
+        const catId = parts[2] || activeCategoryId
+        const res  = await fetch(`${BASE}/editor/sessions?categoryId=${catId}`, { headers: auth })
         const data = await res.json()
         const sessions = data.sessions || []
+        console.log('[EDL] sessions fetched:', sessions.length, 'categoryId:', catId)
         if (!sessions.length) {
           setMessages(prev => [...prev, {
             role:      'assistant',
@@ -724,13 +726,12 @@ export default function ChatPanel() {
           }])
           return
         }
-        // Show interactive session picker — no typing required
         setMessages(prev => [...prev, {
-          role:          'assistant',
-          content:       `${sessions.length} session${sessions.length > 1 ? 's' : ''} indexed. Tap to assign each one:`,
+          role:            'assistant',
+          content:         `${sessions.length} session${sessions.length > 1 ? 's' : ''} indexed. Tap to assign each one:`,
           isSessionPicker: true,
           sessions,
-          timestamp:     new Date().toISOString(),
+          timestamp:       new Date().toISOString(),
         }])
         return
       }
