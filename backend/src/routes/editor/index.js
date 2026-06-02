@@ -860,13 +860,15 @@ Return the cut list JSON.`,
     const totalMs  = recMs - 3600000
     const filename = `${title.replace(/[^\w\s-]/g, '').replace(/\s+/g, '_').slice(0, 50)}_edit.edl`
 
-    await supabase.from('edl_exports').insert({
-      user_id: req.user.id, category_id: categoryId,
-      session_id_a: sessionIdA, session_id_b: sessionIdB || null,
-      title, edl_content: edl, cut_count: cuts.length,
-      total_ms: totalMs, offset_ms: offsetMs,
-      created_at: new Date().toISOString(),
-    }).catch(() => {})
+    try {
+      await supabase.from('edl_exports').insert({
+        user_id: req.user.id, category_id: categoryId,
+        session_id_a: sessionIdA, session_id_b: sessionIdB || null,
+        title, edl_content: edl, cut_count: cuts.length,
+        total_ms: totalMs, offset_ms: offsetMs,
+        created_at: new Date().toISOString(),
+      })
+    } catch {} // non-fatal — EDL is returned regardless
 
     res.setHeader('Content-Type', 'text/plain; charset=utf-8')
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`)
