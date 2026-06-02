@@ -190,11 +190,17 @@ router.post('/message', async (req, res) => {
     const msgLower = message.toLowerCase()
 
     // Step 1: User wants an EDL — show available sessions
+    // Cast a wide net — KB must NEVER generate fake EDL text, always route through actions
     const edlListTriggers = [
       'build the edl', 'make the edl', 'create the edl', 'build an edl',
       'cut for retention', 'edit this session', 'make my edit', 'build my edit',
       'cut this down', 'sync the audio', 'sync my sessions', 'sync and build',
-      'i want an edl', 'need an edl',
+      'i want an edl', 'need an edl', 'building an edl', 'we are building',
+      'build the edit', 'make the edit', 'create the edit', 'cut the footage',
+      'edit the footage', 'edit the video', 'cut the video', 'build the video',
+      'process the edl', 'generate the edl', 'export the edl', 'download the edl',
+      'ready to download', 'edl file', 'edl export', 'edl ready',
+      'build it for davinci', 'cut for davinci', 'davinci edl',
     ]
     if (edlListTriggers.some(t => msgLower.includes(t))) {
       send('chunk', { text: "Let me check what indexed sessions you have." })
@@ -203,13 +209,13 @@ router.post('/message', async (req, res) => {
       return res.end()
     }
 
-    // Step 2: User has confirmed which sessions and clip names — run sync then build
-    // Pattern: user says something like "screen is SESSION_A, camera is SESSION_B, clips are SCREEN.mp4 and CAM.mp4"
-    // We use Claude to extract the session IDs and clip names from the conversation, then fire the action
+    // Step 2: User confirms sessions / clip names — extract and build
     const edlBuildTriggers = [
       'screen is', 'camera is', "that's the screen", "that's the camera",
       'screen capture is', 'use session', 'sync those', 'go ahead and sync',
-      'yes sync', 'build it now', 'cut those', 'yes build',
+      'yes sync', 'build it now', 'cut those', 'yes build', 'proceed',
+      'synchronizing yes', 'after synchronizing', 'confirm', 'i confirm',
+      'yes proceed', 'go ahead', "let's go", 'start the build', 'build now',
     ]
     const hasBuildIntent = edlBuildTriggers.some(t => msgLower.includes(t))
 
@@ -265,6 +271,18 @@ router.post('/message', async (req, res) => {
       }
       clearInterval(keepalive)
       return res.end()
+    }
+
+    // EDL instruction — injected into every message to prevent fake EDL generation
+    // This runs BEFORE the main Claude stream so it's always in context
+    if (!systemContext.includes('NEVER write EDL content as text')) {
+      systemContext += `
+
+CRITICAL EDL RULE: You NEVER write EDL files, timecodes, or cut lists as text in chat. NEVER.
+If someone asks you to build, generate, export, download, or create an EDL — say only:
+"Let me check what sessions you have indexed." and stop. The system handles the rest.
+If you write fake timecodes or fake EDL structure in chat, the download button will never appear
+and the user cannot edit their video. Route ALL EDL requests through the action system only.`
     }
 
     const startFreshTriggers = ['start fresh', 'new chat', 'start over', 'fresh start', 'clear', 'reset chat']
