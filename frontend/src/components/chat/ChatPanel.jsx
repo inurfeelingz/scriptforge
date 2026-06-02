@@ -514,7 +514,6 @@ export default function ChatPanel() {
 
     setIndexingAudio(false)
   }
-  }
 
   // Auto-focus on mount
   useEffect(() => {
