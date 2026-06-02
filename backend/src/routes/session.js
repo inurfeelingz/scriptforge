@@ -177,10 +177,10 @@ router.post('/index-audio', express.json(), async (req, res) => {
           'https://api.openai.com/v1/audio/transcriptions',
           form,
           {
-            headers: { ...form.getHeaders(), Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
+            headers:          { ...form.getHeaders(), Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
             maxBodyLength:    Infinity,
             maxContentLength: Infinity,
-            timeout:          180000,
+            timeout:          0,  // no timeout — a 14MB file can take 3-5 mins
           }
         )
 
