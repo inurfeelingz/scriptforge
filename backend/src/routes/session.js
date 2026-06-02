@@ -66,39 +66,28 @@ const audioIndexUpload = multer({
   limits: { fileSize: 500 * 1024 * 1024 },  // 500MB
 })
 
-router.post('/index-audio', audioIndexUpload.single('audio'), async (req, res) => {
-  if (!req.file)                   return res.status(400).json({ error: 'Audio file required' })
+router.post('/index-audio', express.json(), async (req, res) => {
+  const { audioUrl, storagePath, categoryId, title = 'Indexed Audio', fileSizeMb } = req.body
+  if (!audioUrl)   return res.status(400).json({ error: 'audioUrl required' })
+  if (!categoryId) return res.status(400).json({ error: 'categoryId required' })
   if (!process.env.OPENAI_API_KEY) return res.status(503).json({ error: 'OPENAI_API_KEY not configured' })
 
-  const { categoryId, title = 'Indexed Audio' } = req.body
-  if (!categoryId) return res.status(400).json({ error: 'categoryId required' })
-
-  const tempFilePath = req.file.path  // disk path written by multer
-
-  // Create the job record immediately
   const jobId = makeJobId()
   jobs.set(jobId, {
-    id:         jobId,
-    userId:     req.user.id,
-    status:     'processing',
-    progress:   0,
-    total:      0,
-    transcript: null,
-    sessionId:  null,
-    error:      null,
-    createdAt:  Date.now(),
+    id: jobId, userId: req.user.id, status: 'processing',
+    progress: 0, total: 0, transcript: null, sessionId: null, error: null, createdAt: Date.now(),
   })
 
-  // Respond immediately — client can start polling
   res.status(202).json({ jobId, status: 'processing' })
 
   // ── Background worker ───────────────────────────────────────────────────────
   ;(async () => {
-    const job           = jobs.get(jobId)
-    const CHUNK_SECS    = 600  // 10 minutes per chunk — clean time-based split via FFmpeg
-    const MAX_CHUNK_MB  = 24   // Whisper hard limit is 25MB; stay under
-    const allSegments   = []
-    const tmpChunks     = []
+    const job         = jobs.get(jobId)
+    const CHUNK_SECS  = 600
+    const MAX_CHUNK_MB = 24
+    const allSegments = []
+    const tmpChunks   = []
+    let   tempFilePath = null
 
     const axios    = require('axios')
     const FormData = require('form-data')
@@ -107,19 +96,34 @@ router.post('/index-audio', audioIndexUpload.single('audio'), async (req, res) =
     try {
       const ffmpegPath = require('ffmpeg-static')
       ffmpeg.setFfmpegPath(ffmpegPath)
-    } catch { /* ffmpeg-static not installed — ffmpeg must be on PATH */ }
+    } catch { /* ffmpeg must be on PATH */ }
 
-    // ── Get duration via ffprobe ────────────────────────────────────────────
-    const totalSecs = await new Promise(resolve => {
-      const ffmpeg_ = require('fluent-ffmpeg')
-      ffmpeg_.ffprobe(tempFilePath, ['-analyzeduration', '100M', '-probesize', '100M'], (err, meta) => {
-        resolve(err ? 0 : Math.ceil(meta?.format?.duration || 0))
+    try {
+      // ── Step 1: Download from Supabase Storage ──────────────────────────────
+      // Server-to-server — fast, no Railway proxy timeout
+      console.log(`[index-audio] job=${jobId} — downloading (${fileSizeMb || '?'}MB)`)
+      tempFilePath = path.join(os.tmpdir(), `whispa-${jobId}.audio`)
+
+      const dlRes = await axios.get(audioUrl, { responseType: 'stream', timeout: 600000 })
+      await new Promise((resolve, reject) => {
+        const writer = fs.createWriteStream(tempFilePath)
+        dlRes.data.pipe(writer)
+        writer.on('finish', resolve)
+        writer.on('error', reject)
       })
-    })
+      console.log(`[index-audio] job=${jobId} — downloaded OK`)
 
-    const numChunks = Math.max(1, Math.ceil(totalSecs / CHUNK_SECS))
-    job.total = numChunks
-    console.log(`[index-audio] job=${jobId} — ${req.file.originalname} ${Math.round(req.file.size/1024/1024)}MB, ${Math.round(totalSecs/60)}min, ${numChunks} chunk(s)`)
+      // ── Step 2: Get duration via ffprobe ──────────────────────────────────
+      const totalSecs = await new Promise(resolve => {
+        const ffmpeg_ = require('fluent-ffmpeg')
+        ffmpeg_.ffprobe(tempFilePath, ['-analyzeduration', '100M', '-probesize', '100M'], (err, meta) => {
+          resolve(err ? 0 : Math.ceil(meta?.format?.duration || 0))
+        })
+      })
+
+      const numChunks = Math.max(1, Math.ceil(totalSecs / CHUNK_SECS))
+      job.total = numChunks
+      console.log(`[index-audio] job=${jobId} — ${Math.round(totalSecs/60)}min, ${numChunks} chunk(s)`)
 
     // ── Extract + transcribe each time-based chunk ──────────────────────────
     try {
@@ -236,7 +240,7 @@ router.post('/index-audio', audioIndexUpload.single('audio'), async (req, res) =
       setTimeout(() => jobs.delete(jobId), 10 * 60 * 1000)
     } finally {
       // Always delete temp files — success or failure
-      try { fs.unlinkSync(tempFilePath) } catch {}
+      if (tempFilePath) { try { fs.unlinkSync(tempFilePath) } catch {} }
       tmpChunks.forEach(p => { try { fs.unlinkSync(p) } catch {} })
     }
   })()
