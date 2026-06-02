@@ -73,7 +73,8 @@ app.use((req, res, next) => {
   const isSSE        = req.path.endsWith('/generate') || req.path.endsWith('/message')
   const isProcess    = req.path.includes('/process')
   const isTranscribe = req.path.includes('/transcribe')
-  if (isSSE || isProcess || isTranscribe) return next()
+  const isOAuth      = req.path.includes('/youtube/connect') || req.path.includes('/youtube/callback')
+  if (isSSE || isProcess || isTranscribe || isOAuth) return next()
   const t = setTimeout(() => {
     if (!res.headersSent) res.status(503).json({ error: 'Request timed out' })
   }, 30000)
