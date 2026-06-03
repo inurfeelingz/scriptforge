@@ -883,16 +883,32 @@ router.post('/build-session-edl', async (req, res) => {
       }).filter(Boolean)
 
       const windows = []
-      for (const tcMs of momentTimecodes) {
-        const windowLines = allLines.filter(l => Math.abs(l.ms - tcMs) <= 30000)
+      for (let mi = 0; mi < momentTimecodes.length; mi++) {
+        const tcMs    = momentTimecodes[mi]
+        const rawMoment = sessionMeta.key_moments[mi] || ''
+        const typeMatch = rawMoment.match(/\[(\w+)\]/)
+        const momentType = typeMatch ? typeMatch[1] : 'moment'
+        // Pull tight 8s window around the peak — 4s before, 4s after
+        const windowLines = allLines.filter(l => Math.abs(l.ms - tcMs) <= 4000)
+        // Plus 10s of context before for continuity
+        const contextLines = allLines.filter(l => l.ms >= tcMs - 14000 && l.ms < tcMs - 4000)
         if (windowLines.length) {
           const min = Math.floor(tcMs / 60000)
           const sec = Math.floor((tcMs % 60000) / 1000)
-          windows.push('--- MOMENT [' + min + ':' + String(sec).padStart(2,'0') + '] ---\n' +
+          const peakTC = min + ':' + String(sec).padStart(2,'0')
+          windows.push(
+            '--- ' + momentType.toUpperCase() + ' PEAK @ [' + peakTC + '] ---\n' +
+            '// CONTEXT (before peak):\n' +
+            contextLines.map(l => {
+              const s = Math.floor((l.ms % 60000) / 1000)
+              return '  [' + Math.floor(l.ms/60000) + ':' + String(s).padStart(2,'0') + '] ' + l.text
+            }).join('\n') +
+            '\n// PEAK WINDOW (cut here):\n' +
             windowLines.map(l => {
               const s = Math.floor((l.ms % 60000) / 1000)
-              return '  [' + Math.floor(l.ms/60000) + ':' + String(s).padStart(2,'0') + '][' + l.source + '] ' + l.text
-            }).join('\n'))
+              return '  [' + Math.floor(l.ms/60000) + ':' + String(s).padStart(2,'0') + '] >>> ' + l.text + ' <<<'
+            }).join('\n')
+          )
         }
       }
       transcriptSummary = windows.join('\n\n')
@@ -965,8 +981,11 @@ Format:
 
 CUTTING RULES:
 - Target exactly ${targetMinutes} minutes total (${targetMinutes * 60000}ms)
-- Each cut 15-45 seconds maximum. NO cut longer than 60 seconds.
-- You are DISCARDING most of the footage — keep roughly 13%, throw away 87%.
+- Each cut is exactly 8 seconds (192 frames at 24fps). endMs = startMs + 8000. No exceptions.
+- Cut INTO the action — start 1-2 seconds before the peak moment, not at the beginning of a sentence.
+- Cut OUT on the peak — reaction, punchline, decision moment. Never cut mid-ramble.
+- You are DISCARDING most of the footage — keep roughly 8%, throw away 92%.
+- Be brutal. If a moment is not immediately interesting, cut it.
 - Cut mid-sentence if needed. Never include: setup, troubleshooting, waiting, silence, repeated takes, filler.
 - Always include: moments something clicks, energy spikes, key decisions, peak performances, best takes.
 - Cold open: start with the most exciting moment — not minute 0.
