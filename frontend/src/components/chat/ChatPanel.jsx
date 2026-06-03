@@ -824,6 +824,32 @@ export default function ChatPanel() {
     }, 5000)
   }
 
+
+  // Poll EDL build job until done, then show download
+  async function pollEdlJob(jobId, auth, BASE) {
+    return new Promise((resolve, reject) => {
+      const poll = setInterval(async () => {
+        try {
+          const r = await fetch(BASE + '/editor/edl-job/' + jobId, { headers: auth })
+          if (r.status === 404) { clearInterval(poll); reject(new Error('Job expired')); return }
+          if (r.headers.get('Content-Type')?.includes('text/plain')) {
+            // Done — EDL content returned
+            clearInterval(poll)
+            let summary = {}
+            try { summary = JSON.parse(r.headers.get('X-EDL-Summary') || '{}') } catch {}
+            const blob = await r.blob()
+            const url  = URL.createObjectURL(blob)
+            resolve({ url, summary })
+            return
+          }
+          const data = await r.json()
+          if (data.status === 'error') { clearInterval(poll); reject(new Error(data.error)); return }
+          // still processing — keep polling
+        } catch (err) { clearInterval(poll); reject(err) }
+      }, 4000)
+    })
+  }
+
   // KB sends action: 'edl:sync' or 'edl:build:sessionIdA:sessionIdB:offsetMs:clipA:clipB'
   // This function executes the actual API call and shows the result as a chat bubble.
 
@@ -928,7 +954,7 @@ export default function ChatPanel() {
           role: 'assistant', content: 'Cutting for retention…', isWorking: true, timestamp: new Date().toISOString(),
         }])
 
-        const buildRes = await fetch(`${BASE}/editor/build-session-edl`, {
+        const buildStartRes = await fetch(`${BASE}/editor/build-session-edl`, {
           method: 'POST', headers: { ...auth, 'Content-Type': 'application/json' },
           body: JSON.stringify({
             categoryId:    activeCategoryId,
@@ -940,12 +966,13 @@ export default function ChatPanel() {
             targetMinutes: parseInt(targetMins) || 8,
           }),
         })
-        if (!buildRes.ok) { const e = await buildRes.json(); throw new Error(e.error) }
+        if (!buildStartRes.ok) { const e = await buildStartRes.json(); throw new Error(e.error) }
+        const { jobId: buildJobId } = await buildStartRes.json()
 
-        let summary = {}
-        try { summary = JSON.parse(buildRes.headers.get('X-EDL-Summary') || '{}') } catch {}
-        const blob     = await buildRes.blob()
-        const url      = URL.createObjectURL(blob)
+        setMessages(prev => prev.filter(m => !m.isWorking))
+        setMessages(prev => [...prev, { role: 'assistant', content: 'Cutting for retention — this takes about 30 seconds…', isWorking: true, timestamp: new Date().toISOString() }])
+
+        const { url, summary } = await pollEdlJob(buildJobId, auth, BASE)
         const exportId = `edl-${Date.now()}`
         window.__edlDownloads = window.__edlDownloads || {}
         window.__edlDownloads[exportId] = { url, filename: summary.filename || 'edit.edl' }
@@ -976,7 +1003,7 @@ export default function ChatPanel() {
           timestamp: new Date().toISOString(),
         }])
 
-        const res = await fetch(`${BASE}/editor/build-session-edl`, {
+        const startRes = await fetch(`${BASE}/editor/build-session-edl`, {
           method: 'POST', headers: { ...auth, 'Content-Type': 'application/json' },
           body: JSON.stringify({
             categoryId:    activeCategoryId,
@@ -989,21 +1016,18 @@ export default function ChatPanel() {
           }),
         })
 
-        if (!res.ok) {
-          const errData = await res.json()
+        if (!startRes.ok) {
+          const errData = await startRes.json()
           throw new Error(errData.error)
         }
 
-        // Parse summary from header
-        let summary = {}
-        try { summary = JSON.parse(res.headers.get('X-EDL-Summary') || '{}') } catch {}
+        const { jobId: edlJobId } = await startRes.json()
 
-        // Get the EDL content as blob for download
-        const blob    = await res.blob()
-        const url     = URL.createObjectURL(blob)
+        setMessages(prev => prev.filter(m => !m.isWorking))
+        setMessages(prev => [...prev, { role: 'assistant', content: 'Cutting for retention — this takes about 30 seconds…', isWorking: true, timestamp: new Date().toISOString() }])
+
+        const { url, summary } = await pollEdlJob(edlJobId, auth, BASE)
         const exportId = `edl-${Date.now()}`
-
-        // Store blob URL temporarily for download
         window.__edlDownloads = window.__edlDownloads || {}
         window.__edlDownloads[exportId] = { url, filename: summary.filename || 'edit.edl' }
 
