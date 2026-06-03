@@ -655,16 +655,18 @@ function mapScriptToTimecodes(voScript) {
 router.post('/competitor-research', async (req, res) => {
   const { categoryId } = req.body
   if (!categoryId) return res.status(400).json({ error: 'categoryId required' })
-  try {
-    const { data: cat } = await supabase.from('categories').select('niche, name').eq('id', categoryId).single()
-    const { researchCompetitors } = require('../services/geminiService')
-    const intel = await researchCompetitors(cat?.niche || '', cat?.name || '')
-    await supabase.from('categories').update({ competitor_intel: intel, updated_at: new Date().toISOString() }).eq('id', categoryId).eq('user_id', req.user.id)
-    res.json({ success: true, intel })
-  } catch (err) {
-    console.error('[competitor-research]', err.message)
-    res.status(500).json({ error: err.message })
-  }
+  res.status(202).json({ status: 'processing', message: 'Competitor research started' })
+  setImmediate(async () => {
+    try {
+      const { data: cat } = await supabase.from('categories').select('niche, name').eq('id', categoryId).single()
+      const { researchCompetitors } = require('../services/geminiService')
+      const intel = await researchCompetitors(cat?.niche || '', cat?.name || '')
+      await supabase.from('categories').update({ competitor_intel: intel, updated_at: new Date().toISOString() }).eq('id', categoryId).eq('user_id', req.user.id)
+      console.log('[competitor-research] done for', categoryId)
+    } catch (err) {
+      console.error('[competitor-research]', err.message)
+    }
+  })
 })
 
 // ─── AUDIENCE RESEARCH ────────────────────────────────────────────────────────
@@ -672,15 +674,16 @@ router.post('/competitor-research', async (req, res) => {
 router.post('/audience-research', async (req, res) => {
   const { categoryId } = req.body
   if (!categoryId) return res.status(400).json({ error: 'categoryId required' })
-  try {
-    const { runAudienceResearch } = require('../services/smartScheduler')
-    await runAudienceResearch(req.user.id, categoryId)
-    const { data: cat } = await supabase.from('categories').select('audience_model').eq('id', categoryId).single()
-    res.json({ success: true, audienceModel: cat?.audience_model?.geminiInsights || null })
-  } catch (err) {
-    console.error('[audience-research]', err.message)
-    res.status(500).json({ error: err.message })
-  }
+  res.status(202).json({ status: 'processing', message: 'Audience research started — check back in 30 seconds' })
+  setImmediate(async () => {
+    try {
+      const { runAudienceResearch } = require('../services/smartScheduler')
+      await runAudienceResearch(req.user.id, categoryId)
+      console.log('[audience-research] done for', categoryId)
+    } catch (err) {
+      console.error('[audience-research]', err.message)
+    }
+  })
 })
 
 // ─── AUDIENCE UPLOAD ──────────────────────────────────────────────────────────

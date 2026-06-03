@@ -253,7 +253,8 @@ router.delete('/assets/:id', async (req, res) => {
 router.post('/episodes/:episodeId/design', async (req, res) => {
   const { episodeId } = req.params
   const { categoryId } = req.body
-
+  res.status(202).json({ status: 'processing', message: 'Sound design generating — refresh in 20 seconds' })
+  setImmediate(async () => {
   // Load episode
   const { data: episode } = await supabase
     .from('episodes')
@@ -407,11 +408,12 @@ Return JSON:
       }
     }
 
-    res.json({ placements, mixNotes, totalDurationMs: totalMs })
+    console.log('[sound/design] done for episode', episodeId, '—', placements.length, 'placements')
 
   } catch (err) {
-    res.status(502).json({ error: 'Sound design failed: ' + err.message })
+    console.error('[sound/design]', err.message)
   }
+  }) // end setImmediate
 })
 
 // ─── LOCK / UNLOCK PLACEMENT ─────────────────────────────────────────────────

@@ -15,7 +15,8 @@ const SHOT_TYPES = ['ecu','cu','mcu','ms','mws','ws','ews','ots','two','low','hi
 router.post('/generate', async (req, res) => {
   const { episodeId, categoryId, gender = 'male', maxFrames = 20 } = req.body
   if (!episodeId) return res.status(400).json({ error: 'episodeId required' })
-
+  res.status(202).json({ status: 'processing', message: 'Storyboard generating — refresh in 20 seconds' })
+  setImmediate(async () => {
   try {
     // Load the episode
     const { data: episode, error: epErr } = await supabase
@@ -111,8 +112,8 @@ Keep it practical and achievable for a solo creator. Max ${maxFrames} shots.`,
 
   } catch (err) {
     console.error('[storyboard/generate]', err.message)
-    res.status(500).json({ error: err.message })
   }
+  }) // end setImmediate
 })
 
 // ── GET /api/storyboard ────────────────────────────────────────────────────────
