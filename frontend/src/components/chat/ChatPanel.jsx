@@ -323,15 +323,31 @@ export default function ChatPanel() {
 
       if (isAudio) {
         // Async job — returns immediately, polls for completion
-        const fd = new FormData()
-        fd.append('audio', file)
-        fd.append('categoryId', activeCategoryId)
-        fd.append('title', file.name.replace(/\.[^.]+$/i, ''))
+        // Step 1: Upload to Supabase Storage first
+        const fileMB = Math.round(file.size / 1024 / 1024)
+        setIndexProgress(`Uploading ${fileMB}MB to storage…`)
+        const storagePath = `audio/${sess.user.id}/${Date.now()}-${file.name}`
+        const { error: storageErr } = await sb.storage
+          .from('session-audio')
+          .upload(storagePath, file, { contentType: file.type, upsert: true })
+        if (storageErr) throw new Error('Upload failed: ' + storageErr.message)
 
+        const { data: { publicUrl: audioUrl } } = sb.storage
+          .from('session-audio')
+          .getPublicUrl(storagePath)
+
+        // Step 2: Pass URL to backend for transcription
+        setIndexProgress('Starting transcription…')
         const uploadRes = await fetch(BASE + '/session/index-audio', {
           method: 'POST',
-          headers: { Authorization: 'Bearer ' + sess?.access_token },
-          body: fd,
+          headers: { Authorization: 'Bearer ' + sess?.access_token, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            audioUrl,
+            storagePath,
+            categoryId: activeCategoryId,
+            title: file.name.replace(/\.[^.]+$/i, ''),
+            fileSizeMb: fileMB,
+          }),
         })
         const uploadData = await uploadRes.json()
         if (!uploadRes.ok) throw new Error(uploadData.error)
