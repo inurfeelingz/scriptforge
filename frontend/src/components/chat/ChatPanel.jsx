@@ -519,7 +519,18 @@ export default function ChatPanel() {
       .catch(() => null)
 
     Promise.all([historyPromise, greetPromise]).then(([history, greetData]) => {
-      setMessages(history)
+      // Restore moments cards from localStorage and merge after history
+      let withCards = history
+      try {
+        const saved = localStorage.getItem('kb_moments_' + activeCategoryId)
+        if (saved) {
+          const cardMsg = JSON.parse(saved)
+          if (!history.some(m => m.isMomentsCards)) {
+            withCards = [...history, cardMsg]
+          }
+        }
+      } catch {}
+      setMessages(withCards)
       let greetMsg = greetData?.message || null
 
       if (!greetMsg) {
@@ -830,9 +841,22 @@ export default function ChatPanel() {
           }])
           return
         }
+        // Single session — build directly without picker
+        if (sessions.length === 1) {
+          const s = sessions[0]
+          const clipA = encodeURIComponent(s.title + '.mp4')
+          setMessages(prev => [...prev, {
+            role: 'assistant',
+            content: 'One session found — building EDL from "' + s.title + '" now.',
+            isWorking: true,
+            timestamp: new Date().toISOString(),
+          }])
+          handleEdlAction('edl:build:' + s.id + ':none:0:' + clipA + ':CAMERA.mp4:8', '')
+          return
+        }
         setMessages(prev => [...prev, {
           role:            'assistant',
-          content:         `${sessions.length} session${sessions.length > 1 ? 's' : ''} indexed. Tap to assign each one:`,
+          content:         `${sessions.length} sessions indexed. Tap to assign each one:`,
           isSessionPicker: true,
           sessions,
           timestamp:       new Date().toISOString(),
@@ -1002,22 +1026,6 @@ export default function ChatPanel() {
     }
   }
 
-
-  // Restore moments cards from localStorage on mount
-  useEffect(() => {
-    if (!activeCategoryId) return
-    try {
-      const saved = localStorage.getItem('kb_moments_' + activeCategoryId)
-      if (saved) {
-        const msg = JSON.parse(saved)
-        setMessages(prev => {
-          // Only restore if not already in messages
-          if (prev.some(m => m.isMomentsCards)) return prev
-          return [...prev, msg]
-        })
-      }
-    } catch {}
-  }, [activeCategoryId])
 
   // ── HISTORY VIEW ──────────────────────────────────────────────────────────
   if (view === 'history') {
