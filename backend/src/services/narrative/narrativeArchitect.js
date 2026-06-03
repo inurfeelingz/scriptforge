@@ -178,8 +178,9 @@ Return ONLY valid JSON — no preamble, no markdown:
     "retentionAnchor": "At minute X you will see Y — tease this early"
   },
   "cameraStrategy": {
-    "screenCapture": "When to use screen footage (beat types that work on screen)",
-    "faceCam": "When to cut to face cam (emotional reactions, talking head)"
+    "screenCapture": "Specific content keywords that should trigger screen cut (e.g. DAW, beat, scrolling, software names, 'look at this')",
+    "faceCam": "Specific content keywords that should trigger face cam cut (e.g. reactions, 'I feel', breakthroughs, direct address to viewer)",
+    "defaultWhenUnclear": "screen|camera"
   }
 }`
 

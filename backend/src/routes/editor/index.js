@@ -755,6 +755,17 @@ router.get('/edl-job/:jobId', (req, res) => {
   if (!job) return res.status(404).json({ error: 'Job not found or expired' })
   if (job.userId !== req.user.id) return res.status(403).json({ error: 'Forbidden' })
   if (job.status === 'processing') return res.json({ status: 'processing' })
+  if (job.status === 'review') {
+    return res.json({
+      status: 'review',
+      cuts: job.cuts,
+      voiceover: job.voiceover,
+      clipNameA: job.clipNameA,
+      clipNameB: job.clipNameB,
+      verification: job.verification,
+      narrativePlan: job.narrativePlan,
+    })
+  }
   if (job.status === 'done') {
     res.setHeader('X-EDL-Summary', job.summary)
     res.setHeader('Content-Type', 'text/plain; charset=utf-8')
@@ -1013,7 +1024,11 @@ CUTTING RULES:
 - Each cut is exactly 8 seconds. endMs = startMs + 8000.
 - Every cut must serve its narrativeSection — label each cut with which section it belongs to
 - Cuts must set each other up — Cut 3 should make Cut 7 land harder
-- Screen capture = process/work moments. Face cam = reactions and talking head moments
+- CAMERA SELECTION RULES (both clips have same audio — choose based on CONTENT not source):
+  - screen: anything about the DAW, beat, scrolling, clicking, software, screen activity, "look at this", "I found", "check this out"
+  - camera: reactions, emotions, declarations, "I feel", "this is crazy", laughter, frustration, breakthroughs, talking directly to viewer
+  - When in doubt about a transition or bridge moment: camera
+  - Never alternate randomly — every source choice must be justified by what is being said or done
 - Cut INTO the action — start 1-2 seconds before the peak moment, not at the beginning of a sentence.
 - Cut OUT on the peak — reaction, punchline, decision moment. Never cut mid-ramble.
 - You are DISCARDING most of the footage — keep roughly 8%, throw away 92%.
@@ -1267,12 +1282,22 @@ Return the complete JSON object with all arrays: cuts, voiceover, broll, sfx, ti
     }
     const job = edlJobs.get(jobId)
     if (job) {
-      job.status   = 'done'
-      job.edl      = edl
-      job.filename = filename
-      job.summary  = JSON.stringify(summaryObj)
+      job.status    = 'review'   // Waiting for user clip selections
+      job.cuts      = cuts
+      job.voiceover = voiceover
+      job.broll     = broll
+      job.sfx       = sfx
+      job.titles    = titles
+      job.chapters  = chapters
+      job.clipNameA = clipNameA
+      job.clipNameB = clipNameB
+      job.sessionTitle = title
+      job.filename  = filename
+      job.summaryObj = summaryObj
+      job.verification = verification
+      job.narrativePlan = narrativePlan
     }
-    console.log('[build-session-edl] job=' + jobId + ' done — ' + cuts.length + ' cuts')
+    console.log('[build-session-edl] job=' + jobId + ' ready for review — ' + cuts.length + ' cuts')
 
   } catch (err) {
     console.error('[editor/build-session-edl]', err.message)
@@ -1432,6 +1457,99 @@ router.post('/build-shorts-edl', async (req, res) => {
       if (job) { job.status = 'error'; job.error = err.message }
     }
   })
+})
+
+
+// POST /api/editor/edl-job/:jobId/build
+// User submits their clip selections — backend assembles final EDL
+router.post('/edl-job/:jobId/build', async (req, res) => {
+  const job = edlJobs.get(req.params.jobId)
+  if (!job) return res.status(404).json({ error: 'Job not found or expired' })
+  if (job.userId !== req.user.id) return res.status(403).json({ error: 'Forbidden' })
+  if (job.status !== 'review') return res.status(400).json({ error: 'Job not in review state' })
+
+  const { selections } = req.body  // Array of { cutIndex, source: 'screen'|'camera' }
+  if (!selections?.length) return res.status(400).json({ error: 'No selections provided' })
+
+  // Apply user selections to cuts
+  const cuts      = job.cuts.map((cut, i) => {
+    const sel = selections.find(s => s.cutIndex === i)
+    return sel ? { ...cut, source: sel.source } : cut
+  })
+  const voiceover = job.voiceover || []
+  const broll     = job.broll     || []
+  const sfx       = job.sfx       || []
+  const titles    = job.titles    || []
+  const chapters  = job.chapters  || []
+  const clipNameA = job.clipNameA
+  const clipNameB = job.clipNameB
+  const filename  = job.filename
+  const summaryObj = job.summaryObj || {}
+  const verification = job.verification
+  const title     = job.sessionTitle || 'WhispaCuts Edit'
+
+  const fps = 24
+  const SRC_OFFSET_MS = 3600000
+  const msToTC = (ms) => {
+    const totalFrames = Math.round(ms * fps / 1000)
+    const ff = totalFrames % fps
+    const ss = Math.floor(totalFrames / fps) % 60
+    const mm = Math.floor(totalFrames / fps / 60) % 60
+    const hh = Math.floor(totalFrames / fps / 3600)
+    return [hh, mm, ss, ff].map(n => String(n).padStart(2, '0')).join(':')
+  }
+  const srcTC = (ms) => msToTC(ms + SRC_OFFSET_MS)
+  const sanitiseReel = (fn) => (fn || 'AX').replace(/\.[^.]+$/, '').replace(/[^a-zA-Z0-9_\-]/g, '_').slice(0, 32).padEnd(32)
+
+  const verifyNotes = verification ? [
+    '* STORY SCORE: Stickiness ' + (verification.overallScore?.stickiness || '?') + '/10 | Virality ' + (verification.overallScore?.virality || '?') + '/10 | Polish ' + (verification.overallScore?.polish || '?') + '/10',
+    '* PREDICTED RETENTION: ' + (verification.overallScore?.predictedAvgRetention || '?') + '%',
+    verification.priorityFixes?.[0] ? '* TOP FIX: [' + verification.priorityFixes[0].timecode + '] ' + verification.priorityFixes[0].fix : null,
+  ].filter(Boolean).join('\n') : ''
+
+  let edl = 'TITLE: ' + title.replace(/[^\x20-\x7E]/g, '_').slice(0, 64) + '\nFCM: NON-DROP FRAME\n\n'
+  if (verifyNotes) edl += verifyNotes + '\n\n'
+
+  let recMs = 3600000
+  cuts.forEach((cut, i) => {
+    const n        = String(i + 1).padStart(3, '0')
+    const clipName = cut.source === 'camera' ? clipNameB : clipNameA
+    const reel     = sanitiseReel(clipName)
+    const durMs    = cut.endMs - cut.startMs
+    edl += n + '  ' + reel + ' V   C        ' + srcTC(cut.startMs) + ' ' + srcTC(cut.endMs) + ' ' + msToTC(recMs) + ' ' + msToTC(recMs + durMs) + '\n'
+    edl += n + '  ' + reel + ' AA  C        ' + srcTC(cut.startMs) + ' ' + srcTC(cut.endMs) + ' ' + msToTC(recMs) + ' ' + msToTC(recMs + durMs) + '\n'
+    edl += '* FROM CLIP NAME: ' + clipName + '\n'
+    if (cut.reason || cut.narrativeSection) edl += '* LOC: ' + msToTC(recMs) + ' WHITE  [' + (cut.narrativeSection || '') + '] ' + (cut.reason || cut.emotionalPurpose || '') + '\n'
+    edl += '\n'
+    recMs += durMs
+  })
+
+  if (voiceover.length) {
+    edl += '\n* ─── VOICEOVER TRACK ───────────────────────────────────────────────────\n'
+    edl += '* Record these lines and name files VO_01.mp3, VO_02.mp3 etc.\n\n'
+    voiceover.forEach((vo, i) => {
+      const n      = String(cuts.length + i + 1).padStart(3, '0')
+      const durMs  = vo.durationMs || Math.round((vo.line.split(' ').length / 130) * 60000)
+      const recIn  = vo.recMs || (3600000 + Math.round((recMs - 3600000) * i / voiceover.length))
+      const recOut = recIn + durMs
+      const reel   = ('VO_' + String(i+1).padStart(2,'0') + '              ').slice(0,32)
+      edl += n + '  ' + reel + ' AA/V C        00:00:00:00 ' + msToTC(durMs) + ' ' + msToTC(recIn) + ' ' + msToTC(recOut) + '\n'
+      edl += '* FROM CLIP NAME: ' + (vo.label || ('VO_' + String(i+1).padStart(2,'0') + '.mp3')) + '\n'
+      edl += '* LOC: ' + msToTC(recIn) + ' YELLOW  ' + vo.line + '\n\n'
+    })
+  }
+
+  const totalMs = recMs - 3600000
+  const finalFilename = filename || 'edit.edl'
+
+  job.status  = 'done'
+  job.edl     = edl
+  job.summary = JSON.stringify({ ...summaryObj, cutCount: cuts.length, totalMinutes: Math.round(totalMs / 60000 * 10) / 10, filename: finalFilename })
+
+  res.setHeader('X-EDL-Summary', job.summary)
+  res.setHeader('Content-Type', 'text/plain; charset=utf-8')
+  res.setHeader('Content-Disposition', 'attachment; filename="' + finalFilename + '"')
+  res.send(edl)
 })
 
 // ─── SESSION JOURNALS FOR EDL PICKER ─────────────────────────────────────────
