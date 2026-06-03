@@ -190,6 +190,34 @@ router.post('/message', async (req, res) => {
     const msgLower = message.toLowerCase()
 
 
+
+    // -- Build episode structure from moments
+    const buildEpisodeTriggers = [
+      'build the episode structure', 'build episode structure',
+      'structure the episode', 'episode structure', 'plan the episode',
+    ]
+    if (buildEpisodeTriggers.some(t => msgLower.includes(t)) && message.match(/\[\d+:\d+\]/)) {
+      const structureRes = await client.messages.create({
+        model:      process.env.CLAUDE_MODEL || 'claude-sonnet-4-5',
+        max_tokens: 800,
+        system: 'Build a YouTube episode structure from these selected moments. Return ONLY valid JSON with no preamble: { "trackName": string, "mood": string, "genre": string, "bpm": string, "voiceMemoText": string, "thumbnailConcept": string, "structure": [{ "section": string, "timecode": string, "description": string }] }. voiceMemoText is a 2-3 sentence episode brief. thumbnailConcept is one visual sentence.',
+        messages: [{ role: 'user', content: 'Build episode structure from these moments:\n' + message }],
+      })
+      let plan = {}
+      try {
+        const raw = (structureRes.content[0]?.text || '{}').replace(/```[a-z]*/g, '').replace(/```/g, '').trim()
+        plan = JSON.parse(raw)
+      } catch (e) { plan = {} }
+      if (plan.voiceMemoText) {
+        const fillData = JSON.stringify({ mood: plan.mood || '', genre: plan.genre || '', bpm: plan.bpm || '', voiceMemoText: plan.voiceMemoText, thumbnailConcept: plan.thumbnailConcept || '', trackName: plan.trackName || '' })
+        const structureText = (plan.structure || []).map((s, idx) => (idx+1) + '. [' + s.timecode + '] ' + s.section + ' - ' + s.description).join('\n')
+        const reply = 'Episode structure built. Filling the Generate form now.\n\n' + structureText + '\n\nHead to Generate to review and produce it.'
+        send('chunk', { text: reply })
+        send('done',  { response: reply, action: 'fill_episode:' + fillData })
+        clearInterval(keepalive)
+        return res.end()
+      }
+    }
     // ── Map moments — fires async job, polls in frontend ─────────────────────
     const mapMomentsTriggers = [
       'map this session', 'map the session', 'find interesting moments',
