@@ -899,17 +899,16 @@ export default function ChatPanel() {
           }])
           return
         }
-        // Single session — build directly without picker
+        // Single session — ask for video filename before building
         if (sessions.length === 1) {
           const s = sessions[0]
-          const clipA = encodeURIComponent(s.title + '.mp4')
           setMessages(prev => [...prev, {
-            role: 'assistant',
-            content: 'One session found — building EDL from "' + s.title + '" now.',
-            isWorking: true,
-            timestamp: new Date().toISOString(),
+            role:          'assistant',
+            content:       'Found session "' + s.title + '". What is your video file named? (e.g. 20260603 SCREEN VID.mp4)',
+            isFilenamePrompt: true,
+            session:       s,
+            timestamp:     new Date().toISOString(),
           }])
-          handleEdlAction('edl:build:' + s.id + ':none:0:' + clipA + ':CAMERA.mp4:8', '')
           return
         }
         setMessages(prev => [...prev, {
@@ -1203,6 +1202,29 @@ export default function ChatPanel() {
           {messages.map((msg, i) => (
             <div key={i} className={`kb-msg ${msg.role}`}>
               <div style={{ position:'relative', display:'inline-block', maxWidth:'82%' }} className="kb-msg-wrapper">
+
+
+                {/* Filename prompt for EDL */}
+                {msg.isFilenamePrompt && (() => {
+                  const [clipName, setClipName] = React.useState(msg.session?.title + '.mp4')
+                  return (
+                    <div style={{ padding:'12px', borderRadius:10, border:'1px solid rgba(74,222,128,0.15)', background:'rgba(74,222,128,0.03)', maxWidth:320 }}>
+                      <p style={{ fontSize:11, color:'rgba(74,222,128,0.7)', fontFamily:"'Figtree',sans-serif", marginBottom:8, fontWeight:600 }}>{msg.content}</p>
+                      <input
+                        value={clipName}
+                        onChange={e => setClipName(e.target.value)}
+                        style={{ width:'100%', padding:'7px 10px', borderRadius:8, border:'1px solid rgba(74,222,128,0.25)', background:'rgba(255,255,255,0.04)', color:'rgba(255,255,255,0.8)', fontSize:11, fontFamily:"'Figtree',sans-serif", boxSizing:'border-box', marginBottom:8, outline:'none' }}
+                        placeholder="filename.mp4"
+                      />
+                      <button onClick={() => {
+                        const clip = encodeURIComponent(clipName.trim() || (msg.session.title + '.mp4'))
+                        handleEdlAction('edl:build:' + msg.session.id + ':none:0:' + clip + ':CAMERA.mp4:8', '')
+                      }} style={{ width:'100%', padding:'9px 0', borderRadius:8, border:'none', background:'rgba(74,222,128,1)', color:'#080808', cursor:'pointer', fontSize:12, fontWeight:700, fontFamily:"'Figtree',sans-serif" }}>
+                        Build EDL →
+                      </button>
+                    </div>
+                  )
+                })()}
 
                 {/* Moments cards */}
                 {msg.isMomentsCards && (() => {
