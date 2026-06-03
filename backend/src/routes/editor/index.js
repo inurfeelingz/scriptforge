@@ -755,6 +755,13 @@ router.get('/edl-job/:jobId', (req, res) => {
   if (!job) return res.status(404).json({ error: 'Job not found or expired' })
   if (job.userId !== req.user.id) return res.status(403).json({ error: 'Forbidden' })
   if (job.status === 'processing') return res.json({ status: 'processing' })
+  if (job.status === 'narrative_review') {
+    return res.json({
+      status: 'narrative_review',
+      narrativePlan: job.narrativePlan,
+      voiceLines: job.voiceLines,
+    })
+  }
   if (job.status === 'review') {
     return res.json({
       status: 'review',
@@ -982,8 +989,31 @@ ${
       narrativePlan = await narrativeArchitect.buildNarrativeArc(req.user.id, categoryId, sessionIdA, { targetMinutes })
       voiceLines    = await voiceEngineService.generateCreatorVoiceLines(narrativePlan, cat?.voice_profile || {}, cat?.name)
       console.log('[build-session-edl] narrative arc built:', narrativePlan?.episodeTitle)
+
+      // Store for user review — pause here and wait for approval
+      const job = edlJobs.get(jobId)
+      if (job) {
+        job.status        = 'narrative_review'
+        job.narrativePlan = narrativePlan
+        job.voiceLines    = voiceLines
+        job.sessionIdA    = sessionIdA
+        job.sessionIdB    = sessionIdB
+        job.categoryId    = categoryId
+        job.clipNameA     = clipNameA
+        job.clipNameB     = clipNameB
+        job.targetMinutes = targetMinutes
+        job.cat           = cat
+        job.allLines      = allLines
+        job.transcriptSummary = transcriptSummary
+        job.episodeContext = episodeContext
+        job.assetContext   = assetContext
+        job.audiencePain   = audiencePain
+        job.title          = title
+      }
+      console.log('[build-session-edl] job=' + jobId + ' waiting for narrative approval')
+      return  // Exit setImmediate — wait for user to approve narrative
     } catch (err) {
-      console.warn('[build-session-edl] narrative pass failed, falling back:', err.message)
+      console.warn('[build-session-edl] narrative pass failed, continuing without narrative:', err.message)
     }
 
     const narrativeContext = narrativePlan ? [
@@ -1459,6 +1489,138 @@ router.post('/build-shorts-edl', async (req, res) => {
   })
 })
 
+
+
+// POST /api/editor/edl-job/:jobId/approve-narrative
+// User approves (or edits) the narrative plan — triggers Pass 2+3
+router.post('/edl-job/:jobId/approve-narrative', async (req, res) => {
+  const job = edlJobs.get(req.params.jobId)
+  if (!job) return res.status(404).json({ error: 'Job not found or expired' })
+  if (job.userId !== req.user.id) return res.status(403).json({ error: 'Forbidden' })
+  if (job.status !== 'narrative_review') return res.status(400).json({ error: 'Job not in narrative review state' })
+
+  const { approvedPlan, approvedVoiceLines } = req.body
+  // Use user-approved plan if provided, otherwise use original
+  const narrativePlan = approvedPlan || job.narrativePlan
+  const voiceLines    = approvedVoiceLines || job.voiceLines
+
+  job.status = 'processing'
+  job.narrativePlan = narrativePlan
+  job.voiceLines    = voiceLines
+
+  res.json({ status: 'processing', message: 'Narrative approved — building cuts now' })
+
+  // Continue with Pass 2+3 using the (possibly edited) narrative plan
+  setImmediate(async () => {
+    try {
+      const { allLines, transcriptSummary, episodeContext, assetContext, audiencePain, title,
+              clipNameA, clipNameB, targetMinutes, cat, categoryId, sessionIdA } = job
+
+      const narrativeContext = narrativePlan ? [
+        'NARRATIVE ARC — every cut must serve its section:',
+        Object.entries(narrativePlan.narrativeArc).map(([section, data]) =>
+          section.toUpperCase() + ' (' + data.durationSec + 's): ' + data.purpose + ' | Emotional target: ' + data.emotionalTarget
+        ).join('\n'),
+        '',
+        'EPISODE TITLE: ' + narrativePlan.episodeTitle,
+        'CENTRAL QUESTION: ' + narrativePlan.centralQuestion,
+        '',
+        'HOOK: ' + JSON.stringify(narrativePlan.hookStrategy),
+        'CAMERA: ' + JSON.stringify(narrativePlan.cameraStrategy),
+        '',
+        'VO LINES (written in creator voice — use exactly):',
+        (voiceLines?.voLines || []).map(v => v.section + ': "' + v.line + '"').join('\n'),
+      ].join('\n') : (episodeContext || 'Cut for maximum retention.')
+
+      const cutRes = await aiClient.messages.create({
+        model:      process.env.CLAUDE_MODEL || 'claude-sonnet-4-5',
+        max_tokens: 4000,
+        system: `You are a documentary video editor cutting against a pre-built narrative plan. Every cut serves a section of the story arc.
+Output ONLY valid JSON object — no preamble, no markdown.
+Format:
+{
+  "cuts": [{"startMs":number,"endMs":number,"source":"screen"|"camera","narrativeSection":"coldOpen|setup|incitingIncident|struggle|breakthrough|resolution|outro","reason":"why this moment serves the narrative","emotionalPurpose":"string"}],
+  "voiceover": [{"recMs":number,"label":"VO_01","line":"the actual VO line to record","durationMs":number,"narrativeSection":"string"}],
+  "broll": [{"recMs":number,"filename":"exact_filename.mp4","durationMs":number,"reason":"why"}],
+  "sfx": [{"recMs":number,"filename":"exact_filename.mp3","reason":"what this punctuates"}],
+  "titles": [{"recMs":number,"text":"title card text","style":"lower_third"|"full_screen"|"caption","durationMs":number}],
+  "chapters": [{"recMs":number,"label":"chapter name"}]
+}
+
+CUTTING RULES:
+- Target exactly ${targetMinutes} minutes total (${targetMinutes * 60000}ms)
+- Each cut is exactly 8 seconds. endMs = startMs + 8000.
+- Every cut must serve its narrativeSection — label each cut with which section it belongs to
+- Cuts must set each other up — Cut 3 should make Cut 7 land harder
+- CAMERA SELECTION based on content: screen=DAW/beat/scrolling/software/process, camera=reactions/emotions/declarations/talking to viewer
+- Be brutal: 8% of footage maximum`,
+        messages: [{
+          role: 'user',
+          content: `Creator: "${cat?.name}". Niche: ${cat?.niche}.${audiencePain ? ` Audience: ${audiencePain}.` : ''}
+Target: exactly ${targetMinutes} minutes.
+
+${narrativeContext}
+
+${assetContext || 'No assets — leave broll and sfx arrays empty.'}
+
+TRANSCRIPT MOMENTS:
+${transcriptSummary}
+
+Cut against the narrative arc. Every clip serves a section. Return complete JSON.`,
+        }],
+      })
+
+      let result = { cuts: [], voiceover: [], broll: [], sfx: [], titles: [], chapters: [] }
+      try {
+        result = JSON.parse((cutRes.content[0]?.text || '{}').replace(/```json|```/g, '').trim())
+      } catch {
+        try { result.cuts = JSON.parse((cutRes.content[0]?.text || '[]').replace(/```json|```/g, '').trim()) } catch {}
+      }
+
+      // Pass 3: Story Verifier
+      let verification = null
+      try {
+        verification = await storyVerifier.verifyAndPolish(req.user.id, categoryId, narrativePlan, { cuts: result.cuts || [] }, voiceLines)
+        if (verification?.autoImplementable?.length) {
+          for (const fix of verification.autoImplementable) {
+            if (fix.type === 'trim' && fix.cutIndex < (result.cuts || []).length) {
+              const cut = result.cuts[fix.cutIndex]
+              if (fix.action === 'trim_end') cut.endMs = Math.max(cut.startMs + 2000, cut.endMs - parseInt(fix.value || 2000))
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('[approve-narrative] Pass 3 skipped:', err.message)
+      }
+
+      const cuts      = result.cuts      || []
+      const voiceover = (voiceLines?.voLines || []).map((v, i) => ({
+        recMs: 3600000 + Math.round((targetMinutes * 60000) * i / Math.max(1, (voiceLines?.voLines?.length || 1))),
+        label: 'VO_' + String(i+1).padStart(2,'0'),
+        line:  v.line,
+        durationMs: Math.round((v.line.split(' ').length / 130) * 60000),
+        narrativeSection: v.section,
+      })).concat(result.voiceover || [])
+
+      job.status      = 'review'
+      job.cuts        = cuts
+      job.voiceover   = voiceover
+      job.broll       = result.broll   || []
+      job.sfx         = result.sfx     || []
+      job.titles      = result.titles  || []
+      job.chapters    = result.chapters|| []
+      job.verification = verification
+      job.summaryObj  = { cutCount: cuts.length, totalMinutes: targetMinutes, filename: title.replace(/[^\w\s-]/g, '').replace(/\s+/g, '_').slice(0, 50) + '_edit.edl' }
+      job.filename    = job.summaryObj.filename
+
+      console.log('[approve-narrative] job=' + job + ' ready for cut review — ' + cuts.length + ' cuts')
+    } catch (err) {
+      console.error('[approve-narrative]', err.message)
+      const j = edlJobs.get(req.params.jobId)
+      if (j) { j.status = 'error'; j.error = err.message }
+    }
+  })
+})
 
 // POST /api/editor/edl-job/:jobId/build
 // User submits their clip selections — backend assembles final EDL
