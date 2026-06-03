@@ -744,6 +744,24 @@ router.post('/sync-audio', async (req, res) => {
 const Anthropic = require('@anthropic-ai/sdk')
 const aiClient  = new Anthropic.Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
+// ─── EDL JOB STORE ──────────────────────────────────────────────────────────
+const edlJobs = new Map()
+
+// GET /api/editor/edl-job/:jobId — poll for EDL build status
+router.get('/edl-job/:jobId', (req, res) => {
+  const job = edlJobs.get(req.params.jobId)
+  if (!job) return res.status(404).json({ error: 'Job not found or expired' })
+  if (job.userId !== req.user.id) return res.status(403).json({ error: 'Forbidden' })
+  if (job.status === 'processing') return res.json({ status: 'processing' })
+  if (job.status === 'done') {
+    res.setHeader('X-EDL-Summary', job.summary)
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8')
+    res.setHeader('Content-Disposition', 'attachment; filename="' + job.filename + '"')
+    return res.send(job.edl)
+  }
+  return res.json({ status: 'error', error: job.error })
+})
+
 router.post('/build-session-edl', async (req, res) => {
   const {
     categoryId,
@@ -758,6 +776,13 @@ router.post('/build-session-edl', async (req, res) => {
 
   if (!categoryId || !sessionIdA) return res.status(400).json({ error: 'categoryId and sessionIdA required' })
 
+  // Return jobId immediately — EDL builds in background
+  const jobId = Date.now().toString(36) + Math.random().toString(36).slice(2, 6)
+  edlJobs.set(jobId, { userId: req.user.id, status: 'processing' })
+  res.status(202).json({ jobId, status: 'processing' })
+  setTimeout(() => edlJobs.delete(jobId), 60 * 60 * 1000)
+
+  setImmediate(async () => {
   try {
     const [{ data: sA }, sessionBResult, { data: cat }, chatHistory, plannedEpisode, assetsResult] = await Promise.all([
       supabase.from('session_journals').select('title, transcript').eq('id', sessionIdA).eq('user_id', req.user.id).single(),
@@ -1125,9 +1150,7 @@ Return the complete JSON object with all arrays: cuts, voiceover, broll, sfx, ti
       })
     } catch {} // non-fatal — EDL is returned regardless
 
-    res.setHeader('Content-Type', 'text/plain; charset=utf-8')
-    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`)
-    res.setHeader('X-EDL-Summary', JSON.stringify({
+    const summaryObj = {
       cutCount:        cuts.length,
       voiceoverCount:  voiceover.length,
       brollCount:      broll.length,
@@ -1147,13 +1170,22 @@ Return the complete JSON object with all arrays: cuts, voiceover, broll, sfx, ti
         const ss     = String(secs).padStart(2, '0')
         return { time: hh + ':' + mm + ':' + ss, label: c.label }
       }),
-    }))
-    res.send(edl)
+    }
+    const job = edlJobs.get(jobId)
+    if (job) {
+      job.status   = 'done'
+      job.edl      = edl
+      job.filename = filename
+      job.summary  = JSON.stringify(summaryObj)
+    }
+    console.log('[build-session-edl] job=' + jobId + ' done — ' + cuts.length + ' cuts')
 
   } catch (err) {
     console.error('[editor/build-session-edl]', err.message)
-    res.status(500).json({ error: err.message })
+    const job = edlJobs.get(jobId)
+    if (job) { job.status = 'error'; job.error = err.message }
   }
+  }) // end setImmediate
 })
 
 // ─── SESSION JOURNALS FOR EDL PICKER ─────────────────────────────────────────
