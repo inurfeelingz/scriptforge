@@ -1034,6 +1034,7 @@ Return the complete JSON object with all arrays: cuts, voiceover, broll, sfx, ti
 
     // Use fps from request or default to 24 (most modern cameras/phones)
     const fps = req.body.fps || 24
+    const SRC_OFFSET_MS = 3600000  // clips start at 01:00:00:00
     const msToTC = (ms) => {
       const totalFrames = Math.round(ms * fps / 1000)
       const ff = totalFrames % fps
@@ -1042,6 +1043,7 @@ Return the complete JSON object with all arrays: cuts, voiceover, broll, sfx, ti
       const hh = Math.floor(totalFrames / fps / 3600)
       return [hh, mm, ss, ff].map(n => String(n).padStart(2, '0')).join(':')
     }
+    const srcTC = (ms) => msToTC(ms + SRC_OFFSET_MS)  // source timecode with 1hr offset
 
     function sanitiseReel(filename) {
       return (filename || 'AX').replace(/\.[^.]+$/, '').replace(/[^a-zA-Z0-9_\-]/g, '_').slice(0, 32).padEnd(32)
@@ -1057,7 +1059,8 @@ Return the complete JSON object with all arrays: cuts, voiceover, broll, sfx, ti
       const clipName = cut.source === 'camera' ? clipNameB : clipNameA
       const reel     = sanitiseReel(clipName)
       const durMs    = cut.endMs - cut.startMs
-      edl += `${n}  ${reel} V   C        ${msToTC(cut.startMs)} ${msToTC(cut.endMs)} ${msToTC(recMs)} ${msToTC(recMs + durMs)}\n`
+      edl += `${n}  ${reel} V   C        ${srcTC(cut.startMs)} ${srcTC(cut.endMs)} ${msToTC(recMs)} ${msToTC(recMs + durMs)}\n`
+      edl += `${n}  ${reel} AA  C        ${srcTC(cut.startMs)} ${srcTC(cut.endMs)} ${msToTC(recMs)} ${msToTC(recMs + durMs)}\n`
       edl += `* FROM CLIP NAME: ${clipName}\n`
       if (cut.reason) edl += `* LOC: ${msToTC(recMs)} WHITE  ${cut.reason}\n`
       edl += '\n'
