@@ -536,7 +536,7 @@ router.post('/commit-episode', async (req, res) => {
       return res.status(422).json({ error: 'Could not extract episode plan from conversation — try being more specific about the episode name, mood, and themes' })
     }
 
-    const epNumber = episodeNumber || plan.episode_number
+    const epNumber = (episodeNumber && parseInt(episodeNumber)) || (plan.episode_number && parseInt(plan.episode_number)) || null
 
     const { data: planned, error: pe } = await supabase
       .from('kb_planned_episodes')
