@@ -837,23 +837,55 @@ router.post('/build-session-edl', async (req, res) => {
       ...linesB.map(l => ({ ...l, source: 'camera', clip: clipNameB })),
     ].sort((a, b) => a.ms - b.ms)
 
-    // Send EVERY line — Claude needs full detail to make tight 15-45 second cuts
-    // Group into minute blocks so Claude can reason about what's happening when
-    const minuteBlocks = {}
-    for (const line of allLines) {
-      const min = Math.floor(line.ms / 60000)
-      if (!minuteBlocks[min]) minuteBlocks[min] = []
-      minuteBlocks[min].push(line)
-    }
+    // Use key_moments if available — much more efficient than full transcript
+    // Fall back to evenly-spaced samples across the full transcript
+    const { data: sessionMeta } = await supabase
+      .from('session_journals')
+      .select('key_moments')
+      .eq('id', sessionIdA)
+      .single()
+      .catch(() => ({ data: null }))
 
-    // Build transcript as minute-by-minute blocks — much easier for Claude to cut precisely
-    const transcriptSummary = Object.entries(minuteBlocks).map(([min, lines]) => {
-      const blockText = lines.map(l => {
-        const s = Math.floor((l.ms % 60000) / 1000)
-        return `  [${min}:${String(s).padStart(2,'0')}][${l.source}] ${l.text}`
+    let transcriptSummary = ''
+
+    if (sessionMeta?.key_moments?.length) {
+      // Use mapped moments as anchors, then pull 30s windows around each
+      const momentTimecodes = sessionMeta.key_moments.map(k => {
+        const m = k.match(/(\d+):(\d+)/)
+        return m ? parseInt(m[1]) * 60000 + parseInt(m[2]) * 1000 : null
+      }).filter(Boolean)
+
+      const windows = []
+      for (const tcMs of momentTimecodes) {
+        const windowLines = allLines.filter(l => Math.abs(l.ms - tcMs) <= 30000)
+        if (windowLines.length) {
+          const min = Math.floor(tcMs / 60000)
+          const sec = Math.floor((tcMs % 60000) / 1000)
+          windows.push('--- MOMENT [' + min + ':' + String(sec).padStart(2,'0') + '] ---\n' +
+            windowLines.map(l => {
+              const s = Math.floor((l.ms % 60000) / 1000)
+              return '  [' + Math.floor(l.ms/60000) + ':' + String(s).padStart(2,'0') + '][' + l.source + '] ' + l.text
+            }).join('\n'))
+        }
+      }
+      transcriptSummary = windows.join('\n\n')
+    } else {
+      // No moments mapped — sample every 5 minutes
+      const minuteBlocks = {}
+      for (const line of allLines) {
+        const min = Math.floor(line.ms / 60000)
+        if (min % 5 !== 0) continue  // only every 5th minute
+        if (!minuteBlocks[min]) minuteBlocks[min] = []
+        minuteBlocks[min].push(line)
+      }
+      transcriptSummary = Object.entries(minuteBlocks).map(([min, lines]) => {
+        const blockText = lines.slice(0, 8).map(l => {
+          const s = Math.floor((l.ms % 60000) / 1000)
+          return '  [' + min + ':' + String(s).padStart(2,'0') + '][' + l.source + '] ' + l.text
+        }).join('\n')
+        return '\n--- MINUTE ' + min + ' ---\n' + blockText
       }).join('\n')
-      return `\n--- MINUTE ${min} ---\n${blockText}`
-    }).join('\n')
+    }
 
     const audiencePain = cat?.audience_model?.geminiInsights?.psychographics?.corePainPoint || ''
 
