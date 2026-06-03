@@ -266,6 +266,7 @@ export default function ChatPanel() {
   // not sendMessage directly, so they always call the current version with
   // current streaming/activeCategoryId state — no stale closure.
   const sendMessageRef = useRef(null)
+  const mapMomentsActiveRef = useRef(false)
 
   const { listening, speaking, audioLevel: voiceLevel, supported: voiceSupported,
           startListening, stopListening, speak, stopSpeaking } = useKBVoice({
@@ -621,6 +622,12 @@ export default function ChatPanel() {
             if (action === 'generate_episode') setTimeout(() => generateEpisodeFromChat(), 400)
             if (action?.startsWith?.('edl:'))   handleEdlAction(action, response)
             if (action?.startsWith?.('map_moments:')) handleMapMomentsAction(action)
+            if (action?.startsWith?.('fill_episode:')) {
+              try {
+                const data = JSON.parse(action.slice('fill_episode:'.length))
+                window.dispatchEvent(new CustomEvent('kb:fill_episode', { detail: data }))
+              } catch {}
+            }
           },
           error: ({ message: e }) => {
             setMessages(prev => [...prev, { role: 'assistant', content: `Error: ${e}`, isError: true, timestamp: new Date().toISOString() }])
@@ -730,6 +737,8 @@ export default function ChatPanel() {
 
   // ── Map Moments — polls backend job and displays results ──────────────────
   async function handleMapMomentsAction(action) {
+    if (mapMomentsActiveRef.current) return
+    mapMomentsActiveRef.current = true
     const sessionId = action.replace('map_moments:', '')
     const { data: { session: sess } } = await (await import('../../lib/supabase')).supabase.auth.getSession()
     const BASE = import.meta.env.VITE_API_URL || '/api'
@@ -766,6 +775,7 @@ export default function ChatPanel() {
         }
 
         clearInterval(poll)
+        mapMomentsActiveRef.current = false
 
         if (data.status === 'done' && data.moments?.length) {
           setMessages(prev => {
@@ -788,6 +798,7 @@ export default function ChatPanel() {
         }
       } catch (err) {
         clearInterval(poll)
+        mapMomentsActiveRef.current = false
         console.error('[map-moments poll]', err)
       }
     }, 5000)
@@ -990,6 +1001,23 @@ export default function ChatPanel() {
       }])
     }
   }
+
+
+  // Restore moments cards from localStorage on mount
+  useEffect(() => {
+    if (!activeCategoryId) return
+    try {
+      const saved = localStorage.getItem('kb_moments_' + activeCategoryId)
+      if (saved) {
+        const msg = JSON.parse(saved)
+        setMessages(prev => {
+          // Only restore if not already in messages
+          if (prev.some(m => m.isMomentsCards)) return prev
+          return [...prev, msg]
+        })
+      }
+    } catch {}
+  }, [activeCategoryId])
 
   // ── HISTORY VIEW ──────────────────────────────────────────────────────────
   if (view === 'history') {

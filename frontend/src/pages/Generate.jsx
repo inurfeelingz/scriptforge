@@ -337,6 +337,25 @@ export default function Generate() {
     }
   }, [saveDraft])
 
+
+  // ── KB fill episode fields ────────────────────────────────────────────────
+  useEffect(() => {
+    const handler = (e) => {
+      const d = e.detail || {}
+      setForm(f => ({
+        ...f,
+        ...(d.trackName        ? { trackName:             d.trackName        } : {}),
+        ...(d.mood             ? { mood:                  d.mood             } : {}),
+        ...(d.genre            ? { genre:                 d.genre            } : {}),
+        ...(d.bpm              ? { bpm:                   d.bpm              } : {}),
+        ...(d.voiceMemoText    ? { voiceMemoText:         d.voiceMemoText    } : {}),
+        ...(d.thumbnailConcept ? { thumbnailConcept:      d.thumbnailConcept } : {}),
+      }))
+    }
+    window.addEventListener('kb:fill_episode', handler)
+    return () => window.removeEventListener('kb:fill_episode', handler)
+  }, [])
+
   // ── URL params (duplicate flow + companion session flow) ──────────────────
   const [searchParams] = useSearchParams()
   useEffect(() => {
