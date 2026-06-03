@@ -247,6 +247,8 @@ export default function ChatPanel() {
   const [sessionSearch, setSessionSearch] = useState('')
   const [input,         setInput]         = useState('')
   const [streaming,     setStreaming]     = useState(false)
+  const [stallSeconds,  setStallSeconds]  = useState(0)
+  const stallTimerRef = useRef(null)
   const [streamText,    setStreamText]    = useState('')
   const [committing,    setCommitting]    = useState(false)
   const [committed,     setCommitted]     = useState(null)
@@ -610,6 +612,8 @@ export default function ChatPanel() {
     setMessages(prev => [...prev, { role: 'user', content: text, timestamp: new Date().toISOString() }])
     setInput('')
     setStreaming(true)
+    setStallSeconds(0)
+    stallTimerRef.current = setInterval(() => setStallSeconds(s => s + 1), 1000)
     setStreamText('')
 
     abortRef.current?.abort()
@@ -620,10 +624,14 @@ export default function ChatPanel() {
       await chatApi.send(
         { categoryId: activeCategoryId, mode, message: text, messages: [], activeEpisodeId: activeEpisodeId || null },
         {
-          chunk: ({ text: t }) => setStreamText(prev => prev + t),
+          chunk: ({ text: t }) => {
+            if (stallTimerRef.current) { clearInterval(stallTimerRef.current); stallTimerRef.current = null; setStallSeconds(0) }
+            setStreamText(prev => prev + t)
+          },
           done:  ({ response, action }) => {
             setMessages(prev => [...prev, { role: 'assistant', content: response, timestamp: new Date().toISOString() }])
             setStreamText('')
+            if (stallTimerRef.current) { clearInterval(stallTimerRef.current); stallTimerRef.current = null; setStallSeconds(0) }
             setStreaming(false)
             if (voiceUsedRef.current) {
               voiceUsedRef.current = false
@@ -641,6 +649,7 @@ export default function ChatPanel() {
             }
           },
           error: ({ message: e }) => {
+            if (stallTimerRef.current) { clearInterval(stallTimerRef.current); stallTimerRef.current = null; setStallSeconds(0) }
             setMessages(prev => [...prev, { role: 'assistant', content: `Error: ${e}`, isError: true, timestamp: new Date().toISOString() }])
             setStreamText('')
             setStreaming(false)
@@ -1275,6 +1284,11 @@ export default function ChatPanel() {
                 {[0,1,2].map(i => (
                   <div key={i} className="kb-dot" style={{ background: meta.color, animationDelay: `${i*150}ms` }}/>
                 ))}
+                {stallSeconds >= 15 && (
+                  <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.3)', fontFamily: "'Figtree',sans-serif", marginLeft: 8 }}>
+                    {stallSeconds >= 45 ? 'Taking longer than usual — still processing…' : stallSeconds >= 15 ? 'Still thinking…' : ''}
+                  </span>
+                )}
               </div>
             )
           )}
