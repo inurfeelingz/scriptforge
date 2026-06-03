@@ -1138,7 +1138,11 @@ Return the complete JSON object with all arrays: cuts, voiceover, broll, sfx, ti
       edl += '\n'
     }
 
-    const filename = `${title.replace(/[^\w\s-]/g, '').replace(/\s+/g, '_').slice(0, 50)}_edit.edl`
+    const episodeName = plannedEpisode?.track_name || null
+    const edlName    = episodeName
+      ? episodeName.replace(/[^\w\s-]/g, '').replace(/\s+/g, '_').slice(0, 50)
+      : title.replace(/[^\w\s-]/g, '').replace(/\s+/g, '_').slice(0, 50)
+    const filename = edlName + '_edit.edl'
 
     try {
       await supabase.from('edl_exports').insert({
