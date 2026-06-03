@@ -1251,6 +1251,29 @@ export default function ChatPanel() {
           </button>
         </div>
 
+
+        {/* Quick Actions */}
+        <div style={{ display:'flex', gap:4, padding:'0 12px 6px', overflowX:'auto' }}>
+          {[
+            { label:'⚡ Map Moments',       msg:'map this session' },
+            { label:'✂️ Build EDL',          msg:'build the edl' },
+            { label:'📋 Review Transcript',  msg:'review the transcript' },
+            { label:'🎬 Generate Episode',   msg:'generate the episode' },
+          ].map(({ label, msg }) => (
+            <button
+              key={label}
+              onClick={() => { setInput(msg); setTimeout(() => sendMessageRef.current?.(), 50) }}
+              style={{
+                fontSize: 9, padding: '3px 8px', borderRadius: 12, whiteSpace: 'nowrap',
+                border: '1px solid rgba(74,222,128,0.25)', background: 'rgba(74,222,128,0.06)',
+                color: 'rgba(74,222,128,0.7)', cursor: 'pointer', fontFamily: "'Figtree',sans-serif",
+              }}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
         {/* Input */}
         <div className="kb-input-area">
           <div className="kb-input-wrap">
