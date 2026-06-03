@@ -66,7 +66,7 @@ const audioIndexUpload = multer({
   limits: { fileSize: 500 * 1024 * 1024 },  // 500MB
 })
 
-router.post('/index-audio', express.json(), async (req, res) => {
+router.post('/index-audio', async (req, res) => {
   const { audioUrl, storagePath, categoryId, title = 'Indexed Audio', fileSizeMb } = req.body
   if (!audioUrl)   return res.status(400).json({ error: 'audioUrl required' })
   if (!categoryId) return res.status(400).json({ error: 'categoryId required' })
