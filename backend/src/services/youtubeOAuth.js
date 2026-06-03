@@ -419,7 +419,7 @@ async function pullCommentSentiment(accessToken, maxVideos = 10) {
     if (!process.env.GEMINI_API_KEY) return { raw: allComments.slice(0, 50) }
 
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY)
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' })
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-lite' })
 
     const prompt = `Analyse these YouTube comments from a music content creator's channel and extract audience sentiment.
 

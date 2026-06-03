@@ -16,6 +16,7 @@ const upload  = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 
 router.get('/youtube/status', async (req, res) => {
   const { categoryId } = req.query
   if (!categoryId) return res.status(400).json({ error: 'categoryId required' })
+  if (!req.user?.id) return res.status(401).json({ error: 'Unauthorized' })
   try {
     const status = await ytOAuth.getConnectionStatus(req.user.id, categoryId)
     res.json(status)
