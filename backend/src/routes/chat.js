@@ -274,6 +274,41 @@ router.post('/message', async (req, res) => {
         return res.end()
       }
     }
+
+    // ── Shorts EDL trigger ───────────────────────────────────────────────────
+    const shortsEdlTriggers = [
+      'shorts edl', 'build a shorts', 'short form edl', 'tiktok cut',
+      'reels cut', 'shorts cut', 'build shorts', '60 second', '90 second',
+      'vertical cut', 'short clip',
+    ]
+    if (shortsEdlTriggers.some(t => msgLower.includes(t))) {
+      const { data: sessions } = await supabase
+        .from('session_journals')
+        .select('id, title, duration_ms')
+        .eq('user_id', req.user.id)
+        .eq('category_id', categoryId)
+        .eq('status', 'ready')
+        .order('created_at', { ascending: false })
+        .limit(1)
+
+      if (!sessions?.length) {
+        send('chunk', { text: 'No indexed sessions found. Upload your audio first.' })
+        send('done',  { response: 'No indexed sessions found. Upload your audio first.' })
+        clearInterval(keepalive)
+        return res.end()
+      }
+
+      const session   = sessions[0]
+      const platform  = msgLower.includes('tiktok') ? 'tiktok' : msgLower.includes('reel') ? 'instagram' : 'youtube'
+      const targetSec = msgLower.includes('90') ? 90 : 60
+      const clipA     = encodeURIComponent(session.title + '.mp4')
+      const msg       = 'Finding the best ' + targetSec + 's moment from "' + session.title + '" for ' + platform + '.'
+      send('chunk', { text: msg })
+      send('done',  { response: msg, action: 'edl:shorts:' + session.id + ':' + clipA + ':' + targetSec + ':' + platform })
+      clearInterval(keepalive)
+      return res.end()
+    }
+
     // ── Map moments — fires async job, polls in frontend ─────────────────────
     const mapMomentsTriggers = [
       'map this session', 'map the session', 'find interesting moments',
