@@ -852,6 +852,7 @@ router.post('/build-session-edl', async (req, res) => {
     const assets = assetsResult || []
     if (!sA?.transcript) return res.status(404).json({ error: 'Primary transcript not found' })
 
+
     // Extract episode structure from chat history
     const episodePlanMessages = (chatHistory || [])
       .filter(m => m.role === 'assistant' && (
@@ -1509,16 +1510,20 @@ router.post('/edl-job/:jobId/approve-narrative', async (req, res) => {
   if (job.userId !== req.user.id) return res.status(403).json({ error: 'Forbidden' })
   if (job.status !== 'narrative_review') return res.status(400).json({ error: 'Job not in narrative review state' })
 
-  const { approvedPlan, approvedVoiceLines } = req.body
-  // Use user-approved plan if provided, otherwise use original
-  const narrativePlan = approvedPlan || job.narrativePlan
-  const voiceLines    = approvedVoiceLines || job.voiceLines
+  try {
+    const { approvedPlan, approvedVoiceLines } = req.body
+    const narrativePlan = approvedPlan || job.narrativePlan
+    const voiceLines    = approvedVoiceLines || job.voiceLines
 
-  job.status = 'processing'
-  job.narrativePlan = narrativePlan
-  job.voiceLines    = voiceLines
+    job.status        = 'processing'
+    job.narrativePlan = narrativePlan
+    job.voiceLines    = voiceLines
 
-  res.json({ status: 'processing', message: 'Narrative approved — building cuts now' })
+    res.json({ status: 'processing', message: 'Narrative approved — building cuts now' })
+  } catch (e) {
+    if (!res.headersSent) return res.status(500).json({ error: e.message })
+    return
+  }
 
   // Continue with Pass 2+3 using the (possibly edited) narrative plan
   setImmediate(async () => {
