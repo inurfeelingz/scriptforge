@@ -1282,45 +1282,64 @@ export default function ChatPanel() {
                 })()}
 
                 {/* Session picker — tap to assign screen/camera */}
-                {msg.isSessionPicker && (
-                  <div style={{ padding:'14px', borderRadius:10, border:'1px solid rgba(74,222,128,0.15)', background:'rgba(74,222,128,0.03)' }}>
-                    <p style={{ fontSize:12, color:'rgba(74,222,128,0.8)', fontFamily:"'Figtree',sans-serif", marginBottom:10, fontWeight:600 }}>{msg.content}</p>
-                    {(msg.sessions || []).map(s => {
-                      const assigned = edlAssign[s.id]
-                      return (
-                        <div key={s.id} style={{ marginBottom:8, padding:'10px 12px', borderRadius:8, background:'rgba(255,255,255,0.03)', border:`1px solid ${assigned ? 'rgba(74,222,128,0.3)' : 'rgba(255,255,255,0.07)'}` }}>
-                          <p style={{ fontSize:12, color:'rgba(255,255,255,0.8)', fontFamily:"'Figtree',sans-serif", marginBottom:6 }}>
-                            {s.title} — {Math.round((s.duration_ms || 0) / 60000)}min
-                          </p>
-                          <div style={{ display:'flex', gap:6 }}>
-                            {['screen', 'camera'].map(role => (
-                              <button key={role} onClick={() => setEdlAssign(prev => ({ ...prev, [s.id]: role }))}
-                                style={{ padding:'5px 12px', borderRadius:6, border:'none', cursor:'pointer', fontSize:11, fontFamily:"'Figtree',sans-serif", fontWeight:600, textTransform:'uppercase', letterSpacing:0.5, background: assigned === role ? 'rgba(74,222,128,1)' : 'rgba(255,255,255,0.07)', color: assigned === role ? '#080808' : 'rgba(255,255,255,0.5)' }}>
-                                {role}
-                              </button>
-                            ))}
+                {msg.isSessionPicker && (() => {
+                  const allAssigned = (msg.sessions || []).every(s => edlAssign[s.id]?.role)
+                  const hasScreen   = (msg.sessions || []).some(s => edlAssign[s.id]?.role === 'screen')
+                  return (
+                    <div style={{ padding:'14px', borderRadius:10, border:'1px solid rgba(74,222,128,0.15)', background:'rgba(74,222,128,0.03)', maxWidth:340 }}>
+                      <p style={{ fontSize:11, color:'rgba(74,222,128,0.7)', fontFamily:"'Figtree',sans-serif", marginBottom:12, fontWeight:600 }}>
+                        Which clip is which?
+                      </p>
+                      {(msg.sessions || []).map(s => {
+                        const state    = edlAssign[s.id] || {}
+                        const assigned = state.role
+                        const filename = state.filename !== undefined ? state.filename : (s.title + '.mp4')
+                        return (
+                          <div key={s.id} style={{ marginBottom:10, padding:'10px 12px', borderRadius:8, background:'rgba(255,255,255,0.03)', border:`1px solid ${assigned ? 'rgba(74,222,128,0.3)' : 'rgba(255,255,255,0.07)'}`, transition:'all 0.15s' }}>
+                            <p style={{ fontSize:12, color:'rgba(255,255,255,0.75)', fontFamily:"'Figtree',sans-serif", marginBottom:8, fontWeight:600 }}>
+                              {s.title} <span style={{ color:'rgba(255,255,255,0.3)', fontWeight:400 }}>— {Math.round((s.duration_ms || 0) / 60000)}min</span>
+                            </p>
+                            {/* Role selector */}
+                            <div style={{ display:'flex', gap:6, marginBottom:8 }}>
+                              {[{role:'screen', label:'📺 Screen Capture'}, {role:'camera', label:'🎥 Face Cam'}].map(opt => (
+                                <button key={opt.role}
+                                  onClick={() => setEdlAssign(prev => ({ ...prev, [s.id]: { ...prev[s.id], role: opt.role, filename: prev[s.id]?.filename !== undefined ? prev[s.id].filename : (s.title + '.mp4') } }))}
+                                  style={{ flex:1, padding:'7px 8px', borderRadius:7, border:'none', cursor:'pointer', fontSize:10, fontFamily:"'Figtree',sans-serif", fontWeight:600, transition:'all 0.15s',
+                                    background: assigned === opt.role ? 'rgba(74,222,128,1)' : 'rgba(255,255,255,0.06)',
+                                    color:      assigned === opt.role ? '#080808' : 'rgba(255,255,255,0.4)' }}>
+                                  {opt.label}
+                                </button>
+                              ))}
+                            </div>
+                            {/* Filename input */}
+                            {assigned && (
+                              <input
+                                value={filename}
+                                onChange={e => setEdlAssign(prev => ({ ...prev, [s.id]: { ...prev[s.id], filename: e.target.value } }))}
+                                placeholder="video-filename.mp4"
+                                style={{ width:'100%', padding:'6px 9px', borderRadius:6, border:'1px solid rgba(74,222,128,0.2)', background:'rgba(255,255,255,0.04)', color:'rgba(255,255,255,0.7)', fontSize:10, fontFamily:"'Figtree',sans-serif", boxSizing:'border-box', outline:'none' }}
+                              />
+                            )}
                           </div>
-                        </div>
-                      )
-                    })}
-                    {/* Build button — shows when all sessions assigned */}
-                    {Object.keys(edlAssign).length >= (msg.sessions || []).length && Object.keys(edlAssign).length > 0 && (() => {
-                      const screenSession = (msg.sessions || []).find(s => edlAssign[s.id] === 'screen')
-                      const cameraSession = (msg.sessions || []).find(s => edlAssign[s.id] === 'camera')
-                      if (!screenSession) return null
-                      const sidA  = screenSession.id
-                      const sidB  = cameraSession?.id || 'none'
-                      const clipA = encodeURIComponent(screenSession.title + '.mp4')
-                      const clipB = encodeURIComponent((cameraSession?.title || 'camera') + '.mp4')
-                      return (
-                        <button onClick={() => handleEdlAction(`edl:sync_then_build:${sidA}:${sidB}:${clipA}:${clipB}:8`, '')}
-                          style={{ marginTop:10, width:'100%', padding:'10px 0', borderRadius:8, border:'none', background:'rgba(74,222,128,1)', color:'#080808', cursor:'pointer', fontSize:13, fontWeight:700, fontFamily:"'Figtree',sans-serif" }}>
-                          Build EDL →
-                        </button>
-                      )
-                    })()}
-                  </div>
-                )}
+                        )
+                      })}
+                      {allAssigned && hasScreen && (() => {
+                        const screenSession = (msg.sessions || []).find(s => edlAssign[s.id]?.role === 'screen')
+                        const cameraSession = (msg.sessions || []).find(s => edlAssign[s.id]?.role === 'camera')
+                        const sidA  = screenSession.id
+                        const sidB  = cameraSession?.id || 'none'
+                        const clipA = encodeURIComponent(edlAssign[sidA]?.filename || (screenSession.title + '.mp4'))
+                        const clipB = encodeURIComponent(cameraSession ? (edlAssign[cameraSession.id]?.filename || (cameraSession.title + '.mp4')) : 'CAMERA.mp4')
+                        return (
+                          <button onClick={() => handleEdlAction(`edl:sync_then_build:${sidA}:${sidB}:${clipA}:${clipB}:8`, '')}
+                            style={{ marginTop:4, width:'100%', padding:'10px 0', borderRadius:8, border:'none', background:'rgba(74,222,128,1)', color:'#080808', cursor:'pointer', fontSize:12, fontWeight:700, fontFamily:"'Figtree',sans-serif" }}>
+                            Build EDL →
+                          </button>
+                        )
+                      })()}
+                    </div>
+                  )
+                })()}
 
                 {/* EDL ready — download button */}
                 {msg.isEdlReady && (
