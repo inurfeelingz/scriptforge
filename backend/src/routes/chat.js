@@ -10,13 +10,15 @@ const router = express.Router();
 const client = new Anthropic.Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 // ── Context cache (90s per user+category+mode) ────────────────────────────────
+// L1: in-memory (instant, lost on restart)
 const ctxCache = new Map()
-const CTX_TTL  = 90 * 1000
+const CTX_TTL_MS = 10 * 60 * 1000   // 10 min in-memory
+const CTX_TTL_DB = 30 * 60          // 30 min in Supabase (seconds)
 
 function getCachedCtx(key) {
   const entry = ctxCache.get(key)
   if (!entry) return null
-  if (Date.now() - entry.ts > CTX_TTL) { ctxCache.delete(key); return null }
+  if (Date.now() - entry.ts > CTX_TTL_MS) { ctxCache.delete(key); return null }
   return entry.value
 }
 function setCachedCtx(key, value) {
@@ -25,6 +27,37 @@ function setCachedCtx(key, value) {
     const oldest = [...ctxCache.entries()].sort((a, b) => a[1].ts - b[1].ts)[0]
     ctxCache.delete(oldest[0])
   }
+}
+
+// L2: Supabase (survives Railway restarts, shared across instances)
+async function getDbCtx(userId, categoryId, mode) {
+  try {
+    const { data } = await supabase
+      .from('kb_context_cache')
+      .select('context, updated_at')
+      .eq('user_id', userId)
+      .eq('category_id', categoryId)
+      .eq('mode', mode)
+      .single()
+    if (!data) return null
+    const ageSeconds = (Date.now() - new Date(data.updated_at).getTime()) / 1000
+    if (ageSeconds > CTX_TTL_DB) return null
+    return data.context
+  } catch { return null }
+}
+
+async function setDbCtx(userId, categoryId, mode, context) {
+  try {
+    await supabase
+      .from('kb_context_cache')
+      .upsert({
+        user_id:     userId,
+        category_id: categoryId,
+        mode,
+        context,
+        updated_at:  new Date().toISOString(),
+      }, { onConflict: 'user_id,category_id,mode' })
+  } catch {}
 }
 
 // ── Load + save history helpers ───────────────────────────────────────────────
@@ -64,6 +97,7 @@ router.post('/message', async (req, res) => {
   res.setHeader('Connection', 'keep-alive')
   res.setHeader('X-Accel-Buffering', 'no')
   res.flushHeaders()
+  res.write(': ping\n\n')  // immediate ping so client knows connection is alive
 
   const send = (event, data) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
 
@@ -92,9 +126,31 @@ router.post('/message', async (req, res) => {
 
     const ctxKey = (episodeCtx || activeEpisodeId) ? null : `${req.user.id}:${categoryId}:${mode}`
     let systemContext = ctxKey ? getCachedCtx(ctxKey) : null
+
+    // L2: check Supabase if not in memory
+    if (!systemContext && ctxKey) {
+      systemContext = await getDbCtx(req.user.id, categoryId, mode)
+      if (systemContext) setCachedCtx(ctxKey, systemContext)  // warm L1
+    }
+
+    // L3: assemble fresh if nothing cached
     if (!systemContext) {
       systemContext = await assembleContext(req.user.id, categoryId, { mode, episodeCtx, activeEpisodeId })
-      if (ctxKey) setCachedCtx(ctxKey, systemContext)
+      if (ctxKey) {
+        setCachedCtx(ctxKey, systemContext)
+        setDbCtx(req.user.id, categoryId, mode, systemContext)  // save to Supabase
+      }
+    }
+
+    // Background refresh: rebuild context after responding so next message is instant
+    if (ctxKey) {
+      setTimeout(async () => {
+        try {
+          const fresh = await assembleContext(req.user.id, categoryId, { mode, episodeCtx, activeEpisodeId })
+          setCachedCtx(ctxKey, fresh)
+          setDbCtx(req.user.id, categoryId, mode, fresh)
+        } catch {}
+      }, 500)
     }
 
     const { data: planned } = await supabase
