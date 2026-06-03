@@ -188,7 +188,7 @@ export default function CapturePanel({ onClose }) {
       // Update with transcript so KB can read it immediately
       await sb.from('session_journals').update({
         transcript,
-        voice_memo_text: transcript.slice(0, 8000),
+        voice_memo_text: transcript,
         status: 'ready',
         duration_ms: elapsedMs,
       }).eq('id', newSession.id)

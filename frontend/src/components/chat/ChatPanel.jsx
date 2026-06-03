@@ -826,6 +826,29 @@ export default function ChatPanel() {
 
 
   // Poll EDL build job until done, then show download
+
+  async function pollShortsJob(jobId, auth, BASE) {
+    return new Promise((resolve, reject) => {
+      const poll = setInterval(async () => {
+        try {
+          const r = await fetch(BASE + '/editor/shorts-job/' + jobId, { headers: auth })
+          if (r.status === 404) { clearInterval(poll); reject(new Error('Job expired')); return }
+          if (r.headers.get('Content-Type')?.includes('text/plain')) {
+            clearInterval(poll)
+            let summary = {}
+            try { summary = JSON.parse(r.headers.get('X-EDL-Summary') || '{}') } catch {}
+            const blob = await r.blob()
+            const url  = URL.createObjectURL(blob)
+            resolve({ url, summary })
+            return
+          }
+          const data = await r.json()
+          if (data.status === 'error') { clearInterval(poll); reject(new Error(data.error)); return }
+        } catch (err) { clearInterval(poll); reject(err) }
+      }, 4000)
+    })
+  }
+
   async function pollEdlJob(jobId, auth, BASE) {
     return new Promise((resolve, reject) => {
       const poll = setInterval(async () => {
@@ -988,6 +1011,47 @@ export default function ChatPanel() {
           cutCount:     summary.cutCount,
           totalMinutes: summary.totalMinutes,
           origMinutes:  summary.originalMinutes,
+          timestamp:    new Date().toISOString(),
+        }])
+        return
+      }
+
+      if (parts[1] === 'shorts') {
+        const [,, sessionIdA, clipNameA, targetSecs, platform] = parts
+        setEdlState('building')
+        setMessages(prev => [...prev, { role: 'assistant', content: 'Building Shorts EDL — finding the best ' + (targetSecs || 60) + 's clip…', isWorking: true, timestamp: new Date().toISOString() }])
+
+        const startRes = await fetch(`${BASE}/editor/build-shorts-edl`, {
+          method: 'POST', headers: { ...auth, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            categoryId:    activeCategoryId,
+            sessionIdA,
+            clipNameA:     decodeURIComponent(clipNameA || 'SCREEN_CAPTURE.mp4'),
+            targetSeconds: parseInt(targetSecs) || 60,
+            platform:      platform || 'tiktok',
+          }),
+        })
+        if (!startRes.ok) { const e = await startRes.json(); throw new Error(e.error) }
+        const { jobId: shortsJobId } = await startRes.json()
+
+        setMessages(prev => prev.filter(m => !m.isWorking))
+        setMessages(prev => [...prev, { role: 'assistant', content: 'Finding the best clip — give me 20 seconds…', isWorking: true, timestamp: new Date().toISOString() }])
+
+        const { url, summary } = await pollShortsJob(shortsJobId, auth, BASE)
+        const exportId = `edl-${Date.now()}`
+        window.__edlDownloads = window.__edlDownloads || {}
+        window.__edlDownloads[exportId] = { url, filename: summary.filename || 'shorts.edl' }
+
+        setEdlState(null)
+        setMessages(prev => prev.filter(m => !m.isWorking))
+        setMessages(prev => [...prev, {
+          role: 'assistant',
+          content: `Shorts EDL ready. Best ${Math.round((summary.totalMinutes || 0) * 60)}s clip — "${summary.hook || ''}". Caption: "${summary.caption || ''}"`,
+          isEdlReady:   true,
+          exportId,
+          filename:     summary.filename || 'shorts.edl',
+          cutCount:     1,
+          totalMinutes: summary.totalMinutes,
           timestamp:    new Date().toISOString(),
         }])
         return
@@ -1378,6 +1442,7 @@ export default function ChatPanel() {
             { label:'📋 Review Transcript',  msg:'review the transcript' },
             { label:'🎬 Generate Episode',   msg:'generate the episode' },
             { label:'📐 Build Episode',        msg:'build the episode structure' },
+            { label:'📱 Shorts EDL',            msg:'build a shorts edl' },
           ].map(({ label, msg }) => (
             <button
               key={label}

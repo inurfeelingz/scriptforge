@@ -23,14 +23,19 @@ import NewCategoryModal from './NewCategoryModal'
 
 // ── PILL MENU ITEMS ──────────────────────────────────────────────────────────
 
-const PILL_ITEMS = [
-  { to: '/pipeline',  icon: Zap,       label: 'Pipeline'  },
-  { to: '/vault',     icon: BookMarked,label: 'Vault'     },
-  { to: '/analytics', icon: BarChart2, label: 'Insights'  },
-  { to: '/sound',     icon: Music2,    label: 'Sound'     },
-  { to: '/schedule',  icon: Calendar,  label: 'Schedule'  },
-  { to: '/edl-builder', icon: Scissors, label: 'EDL'       },
-  { to: 'https://whispaedits-production.up.railway.app', icon: Zap, label: 'Edits', external: true },
+const IDEATE_ITEMS = [
+  { to: '/vault',     icon: BookMarked, label: 'Vault'       },
+  { to: '/analytics', icon: BarChart2,  label: 'Insights'    },
+  { to: '/schedule',  icon: Calendar,   label: 'Schedule'    },
+  { to: '/pipeline',  icon: Zap,        label: 'Pipeline'    },
+]
+
+const EDIT_ITEMS = [
+  { to: '/edl-builder',                                        icon: Scissors, label: 'EDL'      },
+  { to: '/edl-builder?mode=shorts',                            icon: Scissors, label: 'Shorts'   },
+  { to: 'https://whispaedits-production.up.railway.app',       icon: Zap,      label: 'Edits', external: true },
+  { to: '/sound',                                              icon: Music2,   label: 'Sound'    },
+  { to: '/storyboard',                                         icon: Zap,      label: 'Storyboard'},
 ]
 
 const GREEN     = 'rgba(74,222,128,1)'
@@ -48,6 +53,8 @@ export default function AppLayout() {
   const [isOnline,     setIsOnline]     = useState(navigator.onLine)
   const [gearOpen,     setGearOpen]     = useState(false)
   const [pillExpanded, setPillExpanded] = useState(false)
+  const [ideateOpen,   setIdeateOpen]   = useState(false)
+  const [editOpen,     setEditOpen]     = useState(false)
   const [isMobile,     setIsMobile]     = useState(false)
   const [showNewCat,   setShowNewCat]   = useState(false)
   const [catLoading,   setCatLoading]   = useState(false)
@@ -156,10 +163,14 @@ export default function AppLayout() {
 
   // Close pill on outside click
   useEffect(() => {
-    if (!pillExpanded) return
     const handler = (e) => {
-      if (pillRef.current && !pillRef.current.contains(e.target)) setPillExpanded(false)
+      if (pillRef.current && !pillRef.current.contains(e.target)) {
+        setPillExpanded(false)
+        setIdeateOpen(false)
+        setEditOpen(false)
+      }
     }
+    if (!pillExpanded && !ideateOpen && !editOpen) return
     document.addEventListener('mousedown', handler)
     return () => document.removeEventListener('mousedown', handler)
   }, [pillExpanded])
@@ -351,7 +362,12 @@ export default function AppLayout() {
             width:          'calc(100vw - 48px)',
             maxWidth:       320,
           }}>
-            {PILL_ITEMS.map(item => (
+            <div style={{ gridColumn: '1/-1', padding: '4px 8px 2px', fontSize: 9, color: 'rgba(74,222,128,0.5)', fontFamily: "'Figtree',sans-serif", letterSpacing: 1, textTransform: 'uppercase' }}>Ideate</div>
+            {IDEATE_ITEMS.map(item => (
+              <PillButton key={item.to} {...item}/>
+            ))}
+            <div style={{ gridColumn: '1/-1', padding: '4px 8px 2px', fontSize: 9, color: 'rgba(74,222,128,0.5)', fontFamily: "'Figtree',sans-serif", letterSpacing: 1, textTransform: 'uppercase' }}>Edit</div>
+            {EDIT_ITEMS.map(item => (
               <PillButton key={item.to} {...item}/>
             ))}
           </div>
@@ -430,10 +446,38 @@ export default function AppLayout() {
 
           <div style={{ width: 1, height: 20, background: 'rgba(255,255,255,0.06)', margin: '0 2px' }}/>
 
-          {/* Pipeline items — desktop only */}
-          {!isMobile && PILL_ITEMS.map(item => (
-            <PillButton key={item.to} {...item}/>
-          ))}
+          {/* Two-mode buttons — desktop */}
+          {!isMobile && (<>
+            <div style={{ position: 'relative' }}>
+              <button
+                onClick={() => { setIdeateOpen(o => !o); setEditOpen(false) }}
+                style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3, padding: '6px 14px', background: ideateOpen ? GREEN_LOW : 'none', border: ideateOpen ? `1px solid ${GREEN_MID}` : 'none', borderRadius: 10, color: ideateOpen ? GREEN : 'rgba(255,255,255,0.35)', cursor: 'pointer', transition: 'all 0.15s' }}
+              >
+                <Sparkles size={13}/>
+                <span style={{ fontSize: 8, letterSpacing: '0.06em', textTransform: 'uppercase', fontFamily: "'Figtree', sans-serif", lineHeight: 1 }}>Ideate</span>
+              </button>
+              {ideateOpen && (
+                <div style={{ position: 'absolute', bottom: '100%', left: '50%', transform: 'translateX(-50%)', marginBottom: 8, background: 'rgba(8,10,16,0.97)', border: '1px solid rgba(74,222,128,0.12)', borderRadius: 12, padding: 4, display: 'flex', flexDirection: 'column', gap: 2, minWidth: 120, boxShadow: '0 -8px 32px rgba(0,0,0,0.6)' }}>
+                  {IDEATE_ITEMS.map(item => <PillButton key={item.to} {...item} onClick={() => { setIdeateOpen(false); if (!item.external) navigate(item.to) }}/>)}
+                </div>
+              )}
+            </div>
+            <div style={{ width: 1, height: 20, background: 'rgba(255,255,255,0.06)', margin: '0 2px' }}/>
+            <div style={{ position: 'relative' }}>
+              <button
+                onClick={() => { setEditOpen(o => !o); setIdeateOpen(false) }}
+                style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3, padding: '6px 14px', background: editOpen ? GREEN_LOW : 'none', border: editOpen ? `1px solid ${GREEN_MID}` : 'none', borderRadius: 10, color: editOpen ? GREEN : 'rgba(255,255,255,0.35)', cursor: 'pointer', transition: 'all 0.15s' }}
+              >
+                <Scissors size={13}/>
+                <span style={{ fontSize: 8, letterSpacing: '0.06em', textTransform: 'uppercase', fontFamily: "'Figtree', sans-serif", lineHeight: 1 }}>Edit</span>
+              </button>
+              {editOpen && (
+                <div style={{ position: 'absolute', bottom: '100%', left: '50%', transform: 'translateX(-50%)', marginBottom: 8, background: 'rgba(8,10,16,0.97)', border: '1px solid rgba(74,222,128,0.12)', borderRadius: 12, padding: 4, display: 'flex', flexDirection: 'column', gap: 2, minWidth: 120, boxShadow: '0 -8px 32px rgba(0,0,0,0.6)' }}>
+                  {EDIT_ITEMS.map(item => <PillButton key={item.to} {...item} onClick={() => { setEditOpen(false); if (!item.external) navigate(item.to) }}/>)}
+                </div>
+              )}
+            </div>
+          </>)}
 
           {!isMobile && <div style={{ width: 1, height: 20, background: 'rgba(255,255,255,0.06)', margin: '0 2px' }}/>}
 
