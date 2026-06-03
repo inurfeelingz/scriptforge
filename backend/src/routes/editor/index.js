@@ -690,7 +690,9 @@ router.post('/sync-audio', async (req, res) => {
     const linesB = parseLines(sB.transcript)
 
     if (linesA.length < 5 || linesB.length < 5) {
-      return res.status(400).json({ error: 'Transcripts too short to sync — need at least 5 lines each' })
+      // Not enough transcript to sync — return 0 offset and let user proceed
+      console.log('[sync-audio] transcript too short, returning 0 offset')
+      return res.json({ offsetMs: 0, confidence: 0, summary: 'Could not sync — using 0 offset. If clips were recorded simultaneously this is correct.' })
     }
 
     const wordsA = [], wordsB = []
