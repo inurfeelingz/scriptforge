@@ -382,7 +382,7 @@ ${recentVoiceMemos.map(m => {
   let content = ''
   if (!raw) {
     content = '(no transcript)'
-  } else if (raw.length <= 12000) {
+  } else if (raw.length <= 4000) {
     // Short enough — send the whole thing
     content = raw
   } else {
@@ -390,8 +390,8 @@ ${recentVoiceMemos.map(m => {
     // so KB gets beginning, middle AND end, not just the first few minutes
     const lines      = raw.split('\n').filter(Boolean)
     const totalLines = lines.length
-    const windows    = 8
-    const windowSize = 15  // lines per window
+    const windows    = 6
+    const windowSize = 8   // lines per window
     const step       = Math.floor(totalLines / windows)
     const excerpts   = []
 
