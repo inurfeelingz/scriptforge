@@ -353,7 +353,6 @@ export default function ChatPanel() {
         if (!uploadRes.ok) throw new Error(uploadData.error)
 
         const { jobId } = uploadData
-        const fileMB    = Math.round(file.size / 1024 / 1024)
         setIndexProgress(`Transcribing ${fileMB}MB — checking progress…`)
 
         const result = await pollIndexAudioJob(
