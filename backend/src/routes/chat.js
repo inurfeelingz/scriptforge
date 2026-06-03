@@ -69,7 +69,7 @@ router.post('/message', async (req, res) => {
 
   const keepalive = setInterval(() => {
     res.write(': ping\n\n')
-  }, 15000)
+  }, 8000)
 
   try {
     const { messages: dbHistory } = await loadHistory(req.user.id, categoryId, mode)
@@ -188,6 +188,42 @@ router.post('/message', async (req, res) => {
     // The action string carries all params needed by ChatPanel's handleEdlAction.
 
     const msgLower = message.toLowerCase()
+
+
+    // ── Map moments — fires async job, polls in frontend ─────────────────────
+    const mapMomentsTriggers = [
+      'map this session', 'map the session', 'find interesting moments',
+      'map all moments', 'interesting moments', 'find the moments',
+      'what are the best moments', 'highlight the moments', 'find highlights',
+      'map highlights', 'find the peaks', 'scan the transcript',
+      'go through the whole session', 'map the whole session',
+      'find all moments', 'analyze the session',
+    ]
+    if (mapMomentsTriggers.some(t => msgLower.includes(t))) {
+      const { data: sessions } = await supabase
+        .from('session_journals')
+        .select('id, title, duration_ms')
+        .eq('user_id', req.user.id)
+        .eq('category_id', categoryId)
+        .eq('status', 'ready')
+        .order('created_at', { ascending: false })
+        .limit(1)
+
+      if (!sessions?.length) {
+        send('chunk', { text: "No indexed sessions found. Upload your audio first using the Upload button." })
+        send('done',  { response: "No indexed sessions found. Upload your audio first using the Upload button." })
+        clearInterval(keepalive)
+        return res.end()
+      }
+
+      const session  = sessions[0]
+      const mins     = Math.round((session.duration_ms || 0) / 60000)
+      const msg      = 'Scanning the full ' + mins + '-minute session for interesting moments. This will take a minute — I'll work through it chunk by chunk and bring back everything worth keeping.'
+      send('chunk', { text: msg })
+      send('done',  { response: msg, action: 'map_moments:' + session.id })
+      clearInterval(keepalive)
+      return res.end()
+    }
 
     // ── Transcript review mode ───────────────────────────────────────────────
     // KB presents the transcript minute by minute so the creator can say
