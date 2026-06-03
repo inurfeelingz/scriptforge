@@ -33,7 +33,6 @@ const IDEATE_ITEMS = [
 const EDIT_ITEMS = [
   { to: '/edl-builder',                                        icon: Scissors, label: 'EDL'      },
   { to: '/edl-builder?mode=shorts',                            icon: Scissors, label: 'Shorts'   },
-  { to: 'https://whispaedits-production.up.railway.app',       icon: Zap,      label: 'Edits', external: true },
   { to: '/sound',                                              icon: Music2,   label: 'Sound'    },
   { to: '/storyboard',                                         icon: Zap,      label: 'Storyboard'},
 ]
@@ -442,6 +441,22 @@ export default function AppLayout() {
           >
             <Mic size={14}/>
             <span style={{ fontSize: 7, letterSpacing: '0.06em', textTransform: 'uppercase', fontFamily: "'Figtree', sans-serif", lineHeight: 1 }}>Live</span>
+          </button>
+
+          <div style={{ width: 1, height: 20, background: 'rgba(255,255,255,0.06)', margin: '0 2px' }}/>
+
+          {/* WhispaEdits — always visible */}
+          <button
+            onClick={() => window.open('https://whispaedits-production.up.railway.app', '_blank')}
+            style={{
+              display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3,
+              padding: isMobile ? '8px 12px' : '6px 14px',
+              background: 'none', border: 'none',
+              color: 'rgba(255,255,255,0.35)', cursor: 'pointer', flexShrink: 0, transition: 'all 0.15s',
+            }}
+          >
+            <Zap size={15}/>
+            <span style={{ fontSize: 8, letterSpacing: '0.06em', textTransform: 'uppercase', fontFamily: "'Figtree', sans-serif", lineHeight: 1 }}>Edits</span>
           </button>
 
           <div style={{ width: 1, height: 20, background: 'rgba(255,255,255,0.06)', margin: '0 2px' }}/>
