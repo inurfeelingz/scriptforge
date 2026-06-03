@@ -839,12 +839,12 @@ router.post('/build-session-edl', async (req, res) => {
 
     // Use key_moments if available — much more efficient than full transcript
     // Fall back to evenly-spaced samples across the full transcript
-    const { data: sessionMeta } = await supabase
+    const sessionMetaResult = await supabase
       .from('session_journals')
       .select('key_moments')
       .eq('id', sessionIdA)
       .single()
-      .catch(() => ({ data: null }))
+    const sessionMeta = sessionMetaResult.data || null
 
     let transcriptSummary = ''
 
