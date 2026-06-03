@@ -8,6 +8,14 @@ const clipIndexer  = require('../../services/vision/clipIndexer')
 const visionMatcher = require('../../services/vision/visionMatcher')
 const timelineBuilder = require('../../services/vision/timelineBuilder')
 
+// Narrative services — loaded lazily to avoid crash if files missing
+let narrativeArchitect = null
+let voiceEngineService = null
+let storyVerifier      = null
+try { narrativeArchitect = require('../../services/narrative/narrativeArchitect') } catch (e) { console.warn('[editor] narrativeArchitect not found:', e.message) }
+try { voiceEngineService = require('../../services/narrative/voiceEngine') }       catch (e) { console.warn('[editor] voiceEngine not found:', e.message) }
+try { storyVerifier      = require('../../services/narrative/storyVerifier') }     catch (e) { console.warn('[editor] storyVerifier not found:', e.message) }
+
 const router = express.Router()
 
 // ─── CLIP INDEXING ────────────────────────────────────────────────────────────
@@ -986,6 +994,7 @@ ${
     let narrativePlan = null
     let voiceLines    = null
     try {
+      if (!narrativeArchitect || !voiceEngineService) throw new Error('Narrative services not available')
       narrativePlan = await narrativeArchitect.buildNarrativeArc(req.user.id, categoryId, sessionIdA, { targetMinutes })
       voiceLines    = await voiceEngineService.generateCreatorVoiceLines(narrativePlan, cat?.voice_profile || {}, cat?.name)
       console.log('[build-session-edl] narrative arc built:', narrativePlan?.episodeTitle)
@@ -1124,6 +1133,7 @@ Return the complete JSON object with all arrays: cuts, voiceover, broll, sfx, ti
     // ── PASS 3: Story Verifier ─────────────────────────────────────────────
     let verification = null
     try {
+      if (!storyVerifier) throw new Error('Story verifier not available')
       verification = await storyVerifier.verifyAndPolish(
         req.user.id, categoryId, narrativePlan,
         { cuts: result.cuts || [] },
@@ -1580,7 +1590,7 @@ Cut against the narrative arc. Every clip serves a section. Return complete JSON
       // Pass 3: Story Verifier
       let verification = null
       try {
-        verification = await storyVerifier.verifyAndPolish(req.user.id, categoryId, narrativePlan, { cuts: result.cuts || [] }, voiceLines)
+        if (storyVerifier) verification = await storyVerifier.verifyAndPolish(req.user.id, categoryId, narrativePlan, { cuts: result.cuts || [] }, voiceLines)
         if (verification?.autoImplementable?.length) {
           for (const fix of verification.autoImplementable) {
             if (fix.type === 'trim' && fix.cutIndex < (result.cuts || []).length) {
