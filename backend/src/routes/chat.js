@@ -218,7 +218,7 @@ router.post('/message', async (req, res) => {
 
       const session  = sessions[0]
       const mins     = Math.round((session.duration_ms || 0) / 60000)
-      const msg      = 'Scanning the full ' + mins + '-minute session for interesting moments. This will take a minute — I'll work through it chunk by chunk and bring back everything worth keeping.'
+      const msg      = 'Scanning the full ' + mins + '-minute session for interesting moments. This will take a minute. I will work through it chunk by chunk and bring back everything worth keeping.'
       send('chunk', { text: msg })
       send('done',  { response: msg, action: 'map_moments:' + session.id })
       clearInterval(keepalive)
