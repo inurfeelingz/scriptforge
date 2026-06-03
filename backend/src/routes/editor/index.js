@@ -964,10 +964,39 @@ ${
           }` : null,
     ].filter(Boolean).join('\n\n') : ''
 
+    // ── PASS 1: Build narrative arc ───────────────────────────────────────────
+    let narrativePlan = null
+    let voiceLines    = null
+    try {
+      narrativePlan = await narrativeArchitect.buildNarrativeArc(req.user.id, categoryId, sessionIdA, { targetMinutes })
+      voiceLines    = await voiceEngineService.generateCreatorVoiceLines(narrativePlan, cat?.voice_profile || {}, cat?.name)
+      console.log('[build-session-edl] narrative arc built:', narrativePlan?.episodeTitle)
+    } catch (err) {
+      console.warn('[build-session-edl] narrative pass failed, falling back:', err.message)
+    }
+
+    const narrativeContext = narrativePlan ? [
+      'NARRATIVE ARC — every cut must serve its section:',
+      Object.entries(narrativePlan.narrativeArc).map(([section, data]) =>
+        section.toUpperCase() + ' (' + data.durationSec + 's): ' + data.purpose + ' | Emotional target: ' + data.emotionalTarget
+      ).join('\n'),
+      '',
+      'EPISODE TITLE: ' + narrativePlan.episodeTitle,
+      'CENTRAL QUESTION: ' + narrativePlan.centralQuestion,
+      '',
+      'HOOK: ' + JSON.stringify(narrativePlan.hookStrategy),
+      'CAMERA: ' + JSON.stringify(narrativePlan.cameraStrategy),
+      '',
+      'VO LINES (written in creator voice — use exactly):',
+      (voiceLines?.voLines || []).map(v => v.section + ': "' + v.line + '"').join('\n'),
+    ].join('\n') : (episodeContext || 'No episode plan — cut for maximum retention.')
+
+    // ── PASS 2: Cut against the narrative ─────────────────────────────────────
+
     const cutRes = await aiClient.messages.create({
       model:      process.env.CLAUDE_MODEL || 'claude-sonnet-4-5',
       max_tokens: 4000,
-      system: `You are a YouTube video editor making a documentary-style creator video.
+      system: `You are a documentary video editor cutting against a pre-built narrative plan. Every cut serves a section of the story arc.
 Output ONLY valid JSON object — no preamble, no markdown.
 Format:
 {
@@ -981,7 +1010,10 @@ Format:
 
 CUTTING RULES:
 - Target exactly ${targetMinutes} minutes total (${targetMinutes * 60000}ms)
-- Each cut is exactly 8 seconds (192 frames at 24fps). endMs = startMs + 8000. No exceptions.
+- Each cut is exactly 8 seconds. endMs = startMs + 8000.
+- Every cut must serve its narrativeSection — label each cut with which section it belongs to
+- Cuts must set each other up — Cut 3 should make Cut 7 land harder
+- Screen capture = process/work moments. Face cam = reactions and talking head moments
 - Cut INTO the action — start 1-2 seconds before the peak moment, not at the beginning of a sentence.
 - Cut OUT on the peak — reaction, punchline, decision moment. Never cut mid-ramble.
 - You are DISCARDING most of the footage — keep roughly 8%, throw away 92%.
@@ -1022,7 +1054,7 @@ CHAPTER MARKER RULES:
         content: `Creator: "${cat?.name}". Niche: ${cat?.niche}.${audiencePain ? ` Audience: ${audiencePain}.` : ''}
 Target: exactly ${targetMinutes} minutes.
 
-${episodeContext || 'No episode plan — cut for maximum retention, discard everything slow.'}
+${narrativeContext}
 
 ${assetContext || 'No assets uploaded yet — skip broll, sfx, leave those arrays empty.'}
 
@@ -1042,6 +1074,34 @@ Return the complete JSON object with all arrays: cuts, voiceover, broll, sfx, ti
       } catch {
         return res.status(500).json({ error: 'Failed to parse cut list — try again' })
       }
+    }
+
+    // ── PASS 3: Story Verifier ─────────────────────────────────────────────
+    let verification = null
+    try {
+      verification = await storyVerifier.verifyAndPolish(
+        req.user.id, categoryId, narrativePlan,
+        { cuts: result.cuts || [] },
+        voiceLines
+      )
+      console.log('[build-session-edl] story verification done — stickiness:', verification?.overallScore?.stickiness)
+
+      // Auto-implement small fixes from Pass 3
+      if (verification?.autoImplementable?.length) {
+        for (const fix of verification.autoImplementable) {
+          if (fix.type === 'trim' && fix.cutIndex < (result.cuts || []).length) {
+            const cut = result.cuts[fix.cutIndex]
+            if (fix.action === 'trim_end') cut.endMs = Math.max(cut.startMs + 2000, cut.endMs - parseInt(fix.value || 2000))
+            if (fix.action === 'trim_start') cut.startMs = Math.min(cut.endMs - 2000, cut.startMs + parseInt(fix.value || 2000))
+          }
+          if (fix.type === 'addTitle' && fix.action) {
+            result.titles = result.titles || []
+            result.titles.push({ recMs: 3600000, text: fix.action, style: 'lower_third', durationMs: 3000 })
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('[build-session-edl] Pass 3 skipped:', err.message)
     }
 
     const cuts      = result.cuts      || []
@@ -1071,7 +1131,13 @@ Return the complete JSON object with all arrays: cuts, voiceover, broll, sfx, ti
     }
 
     const title = sA.title || 'WhispaCuts Session Edit'
-    let edl = `TITLE: ${title.replace(/[^\x20-\x7E]/g, '_').slice(0, 64)}\nFCM: NON-DROP FRAME\n\n`
+    const verifyNotes = verification ? [
+      '* STORY SCORE: Stickiness ' + (verification.overallScore?.stickiness || '?') + '/10 | Virality ' + (verification.overallScore?.virality || '?') + '/10 | Polish ' + (verification.overallScore?.polish || '?') + '/10',
+      '* PREDICTED RETENTION: ' + (verification.overallScore?.predictedAvgRetention || '?') + '%',
+      verification.priorityFixes?.[0] ? '* TOP FIX: [' + verification.priorityFixes[0].timecode + '] ' + verification.priorityFixes[0].fix : null,
+      verification.viralityAnalysis?.shareableMoments?.[0] ? '* BEST SHAREABLE MOMENT: ' + verification.viralityAnalysis.shareableMoments[0].timecode + ' — ' + verification.viralityAnalysis.shareableMoments[0].moment : null,
+    ].filter(Boolean).join('\n') : ''
+    let edl = `TITLE: ${title.replace(/[^\x20-\x7E]/g, '_').slice(0, 64)}\nFCM: NON-DROP FRAME\n\n` + (verifyNotes ? verifyNotes + '\n\n' : '')
     let recMs = 3600000
 
     // Video cuts
