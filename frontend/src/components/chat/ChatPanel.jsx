@@ -768,31 +768,19 @@ export default function ChatPanel() {
         clearInterval(poll)
 
         if (data.status === 'done' && data.moments?.length) {
-          const grouped = {}
-          for (const m of data.moments) {
-            if (!grouped[m.type]) grouped[m.type] = []
-            grouped[m.type].push(m)
-          }
-
-          const lines = ['Found ' + data.total + ' interesting moments across your session:\n']
-          const typeLabels = { breakthrough: '💡 Breakthroughs', frustration: '😤 Frustrations', revelation: '✨ Revelations', energy: '⚡ Energy spikes', funny: '😄 Funny moments', vulnerable: '🫀 Vulnerable moments', opinion: '🎯 Strong opinions', decision: '🔑 Decisions' }
-
-          for (const [type, moments] of Object.entries(grouped)) {
-            lines.push((typeLabels[type] || type.toUpperCase()) + ':')
-            for (const m of moments) {
-              lines.push(m.timecode + ' — ' + m.summary)
-              if (m.quote) lines.push('  "' + m.quote + '"')
-            }
-            lines.push('')
-          }
-          lines.push('Tell me which moments to build the episode around and I will put together the edit plan.')
-
-          const content = lines.join('\n')
           setMessages(prev => {
             const msgs = [...prev]
             const last = msgs[msgs.length - 1]
-            if (last?.isMomentsProgress) msgs[msgs.length - 1] = { role: 'assistant', content, timestamp: new Date().toISOString() }
-            else msgs.push({ role: 'assistant', content, timestamp: new Date().toISOString() })
+            const newMsg = {
+              role: 'assistant',
+              content: 'Found ' + data.total + ' moments. Accept the ones you want to keep:',
+              isMomentsCards: true,
+              moments: data.moments,
+              accepted: {},
+              timestamp: new Date().toISOString(),
+            }
+            if (last?.isMomentsProgress) msgs[msgs.length - 1] = newMsg
+            else msgs.push(newMsg)
             return msgs
           })
         } else if (data.status === 'error') {
@@ -1082,6 +1070,62 @@ export default function ChatPanel() {
           {messages.map((msg, i) => (
             <div key={i} className={`kb-msg ${msg.role}`}>
               <div style={{ position:'relative', display:'inline-block', maxWidth:'82%' }} className="kb-msg-wrapper">
+
+                {/* Moments cards */}
+                {msg.isMomentsCards && (() => {
+                  const typeLabels = { breakthrough: '💡', frustration: '😤', revelation: '✨', energy: '⚡', funny: '😄', vulnerable: '🫀', opinion: '🎯', decision: '🔑' }
+                  const accepted = msg.accepted || {}
+                  const acceptedCount = Object.values(accepted).filter(Boolean).length
+                  return (
+                    <div style={{ padding:'12px', borderRadius:10, border:'1px solid rgba(74,222,128,0.15)', background:'rgba(74,222,128,0.03)', maxWidth: 340 }}>
+                      <p style={{ fontSize:11, color:'rgba(74,222,128,0.7)', fontFamily:"'Figtree',sans-serif", marginBottom:10, fontWeight:600 }}>
+                        {msg.content} ({acceptedCount} selected)
+                      </p>
+                      <div style={{ display:'flex', flexDirection:'column', gap:6, maxHeight:400, overflowY:'auto' }}>
+                        {(msg.moments || []).map((m, mi) => {
+                          const isAccepted = accepted[mi]
+                          return (
+                            <div key={mi} onClick={() => {
+                              setMessages(prev => prev.map((pm, pi) => {
+                                if (pi !== i) return pm
+                                const newAccepted = { ...pm.accepted, [mi]: !pm.accepted?.[mi] }
+                                return { ...pm, accepted: newAccepted }
+                              }))
+                            }} style={{
+                              padding: '8px 10px', borderRadius: 8, cursor: 'pointer',
+                              border: `1px solid ${isAccepted ? 'rgba(74,222,128,0.5)' : 'rgba(255,255,255,0.06)'}`,
+                              background: isAccepted ? 'rgba(74,222,128,0.08)' : 'rgba(255,255,255,0.02)',
+                              transition: 'all 0.15s',
+                            }}>
+                              <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:3 }}>
+                                <span style={{ fontSize:11 }}>{typeLabels[m.type] || '•'}</span>
+                                <span style={{ fontSize:10, color:'rgba(74,222,128,0.6)', fontFamily:"'Figtree',sans-serif" }}>{m.timecode}</span>
+                                <span style={{ fontSize:9, color:'rgba(255,255,255,0.2)', fontFamily:"'Figtree',sans-serif", marginLeft:'auto' }}>{isAccepted ? '✓' : '+'}</span>
+                              </div>
+                              <p style={{ fontSize:11, color:'rgba(255,255,255,0.75)', fontFamily:"'Figtree',sans-serif", margin:0, lineHeight:1.4 }}>{m.summary}</p>
+                              {m.quote && <p style={{ fontSize:10, color:'rgba(255,255,255,0.35)', fontFamily:"'Figtree',sans-serif", margin:'4px 0 0', fontStyle:'italic' }}>"{m.quote}"</p>}
+                            </div>
+                          )
+                        })}
+                      </div>
+                      {acceptedCount > 0 && (
+                        <button onClick={() => {
+                          const selectedMoments = (msg.moments || []).filter((_, mi) => accepted[mi])
+                          const brief = selectedMoments.map(m => m.timecode + ' [' + m.type + '] ' + m.summary).join('\n')
+                          setInput('Build the episode structure using these moments:\n' + brief)
+                          setTimeout(() => sendMessageRef.current?.(), 50)
+                        }} style={{
+                          marginTop: 10, width: '100%', padding: '9px 0', borderRadius: 8,
+                          border: 'none', background: 'rgba(74,222,128,1)', color: '#080808',
+                          cursor: 'pointer', fontSize: 12, fontWeight: 700, fontFamily: "'Figtree',sans-serif"
+                        }}>
+                          Build Episode with {acceptedCount} moment{acceptedCount !== 1 ? 's' : ''} →
+                        </button>
+                      )}
+                    </div>
+                  )
+                })()}
+
                 {/* Session picker — tap to assign screen/camera */}
                 {msg.isSessionPicker && (
                   <div style={{ padding:'14px', borderRadius:10, border:'1px solid rgba(74,222,128,0.15)', background:'rgba(74,222,128,0.03)' }}>
@@ -1259,6 +1303,7 @@ export default function ChatPanel() {
             { label:'✂️ Build EDL',          msg:'build the edl' },
             { label:'📋 Review Transcript',  msg:'review the transcript' },
             { label:'🎬 Generate Episode',   msg:'generate the episode' },
+            { label:'📐 Build Episode',        msg:'build the episode structure' },
           ].map(({ label, msg }) => (
             <button
               key={label}
