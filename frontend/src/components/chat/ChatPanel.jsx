@@ -1435,7 +1435,7 @@ export default function ChatPanel() {
 
 
         {/* Quick Actions */}
-        <div style={{ display:'flex', gap:4, padding:'0 12px 6px', overflowX:'auto' }}>
+        <div style={{ display:'flex', gap:4, padding:'0 12px 6px', overflowX:'auto', justifyContent:'center', flexWrap:'wrap' }}>
           {[
             { label:'⚡ Map Moments',       msg:'map this session' },
             { label:'✂️ Build EDL',          msg:'build the edl' },
