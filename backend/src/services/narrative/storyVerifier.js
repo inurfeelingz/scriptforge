@@ -4,7 +4,7 @@
 
 const Anthropic = require('@anthropic-ai/sdk')
 const ai        = new Anthropic.Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
-const { supabase } = require('../utils/supabase')
+const { supabase } = require('../../utils/supabase')
 
 async function verifyAndPolish(userId, categoryId, narrativePlan, cutList, voiceLines) {
   // Try to load benchmark data — works without it

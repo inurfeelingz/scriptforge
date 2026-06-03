@@ -1,7 +1,7 @@
 // backend/src/services/narrative/narrativeArchitect.js
 // Pass 1: Build the story skeleton before making any cuts.
 
-const { supabase } = require('../utils/supabase')
+const { supabase } = require('../../utils/supabase')
 const Anthropic    = require('@anthropic-ai/sdk')
 const ai           = new Anthropic.Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
