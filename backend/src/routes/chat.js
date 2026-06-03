@@ -71,7 +71,7 @@ async function saveHistory(userId, categoryId, mode, messages) {
       mode,
       messages,
       updated_at:  new Date().toISOString(),
-    }, { onConflict: 'user_id,mode,category_id' })
+    }, { onConflict: 'user_id,category_id,mode' })
 }
 
 async function loadHistory(userId, categoryId, mode) {
