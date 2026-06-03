@@ -269,6 +269,7 @@ export default function ChatPanel() {
   // current streaming/activeCategoryId state — no stale closure.
   const sendMessageRef = useRef(null)
   const mapMomentsActiveRef = useRef(false)
+  const [cutSelections, setCutSelections] = useState({})
 
   const { listening, speaking, audioLevel: voiceLevel, supported: voiceSupported,
           startListening, stopListening, speak, stopSpeaking } = useKBVoice({
@@ -856,7 +857,6 @@ export default function ChatPanel() {
           const r = await fetch(BASE + '/editor/edl-job/' + jobId, { headers: auth })
           if (r.status === 404) { clearInterval(poll); reject(new Error('Job expired')); return }
           if (r.headers.get('Content-Type')?.includes('text/plain')) {
-            // Done — EDL content returned
             clearInterval(poll)
             let summary = {}
             try { summary = JSON.parse(r.headers.get('X-EDL-Summary') || '{}') } catch {}
@@ -867,6 +867,11 @@ export default function ChatPanel() {
           }
           const data = await r.json()
           if (data.status === 'error') { clearInterval(poll); reject(new Error(data.error)); return }
+          if (data.status === 'review') {
+            clearInterval(poll)
+            resolve({ review: true, data })
+            return
+          }
           // still processing — keep polling
         } catch (err) { clearInterval(poll); reject(err) }
       }, 4000)
@@ -994,24 +999,25 @@ export default function ChatPanel() {
         setMessages(prev => prev.filter(m => !m.isWorking))
         setMessages(prev => [...prev, { role: 'assistant', content: 'Cutting for retention — this takes about 30 seconds…', isWorking: true, timestamp: new Date().toISOString() }])
 
-        const { url, summary } = await pollEdlJob(buildJobId, auth, BASE)
-        const exportId = `edl-${Date.now()}`
-        window.__edlDownloads = window.__edlDownloads || {}
-        window.__edlDownloads[exportId] = { url, filename: summary.filename || 'edit.edl' }
-
+        const result1 = await pollEdlJob(buildJobId, auth, BASE)
         setEdlState(null)
         setMessages(prev => prev.filter(m => !m.isWorking))
-        setMessages(prev => [...prev, {
-          role: 'assistant',
-          content: `EDL ready. Cut ${summary.cutCount || '?'} segments — ${summary.originalMinutes || '?'}min down to ${summary.totalMinutes || '?'}min.`,
-          isEdlReady:   true,
-          exportId,
-          filename:     summary.filename || 'edit.edl',
-          cutCount:     summary.cutCount,
-          totalMinutes: summary.totalMinutes,
-          origMinutes:  summary.originalMinutes,
-          timestamp:    new Date().toISOString(),
-        }])
+        if (result1.review) {
+          setCutSelections({})
+          setMessages(prev => [...prev, {
+            role: 'assistant', content: 'Ready to review. Pick screen or face cam for each cut:',
+            isCutReview: true, jobId: buildJobId, cuts: result1.data.cuts,
+            clipNameA: result1.data.clipNameA, clipNameB: result1.data.clipNameB,
+            verification: result1.data.verification, auth, BASE,
+            timestamp: new Date().toISOString(),
+          }])
+        } else {
+          const { url, summary } = result1
+          const exportId = `edl-${Date.now()}`
+          window.__edlDownloads = window.__edlDownloads || {}
+          window.__edlDownloads[exportId] = { url, filename: summary.filename || 'edit.edl' }
+          setMessages(prev => [...prev, { role: 'assistant', content: `EDL ready. ${summary.cutCount || '?'} cuts — ${summary.totalMinutes || '?'}min.`, isEdlReady: true, exportId, filename: summary.filename || 'edit.edl', cutCount: summary.cutCount, totalMinutes: summary.totalMinutes, timestamp: new Date().toISOString() }])
+        }
         return
       }
 
@@ -1089,24 +1095,25 @@ export default function ChatPanel() {
         setMessages(prev => prev.filter(m => !m.isWorking))
         setMessages(prev => [...prev, { role: 'assistant', content: 'Cutting for retention — this takes about 30 seconds…', isWorking: true, timestamp: new Date().toISOString() }])
 
-        const { url, summary } = await pollEdlJob(edlJobId, auth, BASE)
-        const exportId = `edl-${Date.now()}`
-        window.__edlDownloads = window.__edlDownloads || {}
-        window.__edlDownloads[exportId] = { url, filename: summary.filename || 'edit.edl' }
-
+        const result2 = await pollEdlJob(edlJobId, auth, BASE)
         setEdlState(null)
         setMessages(prev => prev.filter(m => !m.isWorking))
-        setMessages(prev => [...prev, {
-          role:         'assistant',
-          content:      `EDL ready. Cut ${summary.cutCount || '?'} segments — ${summary.originalMinutes || '?'}min down to ${summary.totalMinutes || '?'}min.`,
-          isEdlReady:   true,
-          exportId,
-          filename:     summary.filename || 'edit.edl',
-          cutCount:     summary.cutCount,
-          totalMinutes: summary.totalMinutes,
-          origMinutes:  summary.originalMinutes,
-          timestamp:    new Date().toISOString(),
-        }])
+        if (result2.review) {
+          setCutSelections({})
+          setMessages(prev => [...prev, {
+            role: 'assistant', content: 'Ready to review. Pick screen or face cam for each cut:',
+            isCutReview: true, jobId: edlJobId, cuts: result2.data.cuts,
+            clipNameA: result2.data.clipNameA, clipNameB: result2.data.clipNameB,
+            verification: result2.data.verification, auth, BASE,
+            timestamp: new Date().toISOString(),
+          }])
+        } else {
+          const { url, summary } = result2
+          const exportId = `edl-${Date.now()}`
+          window.__edlDownloads = window.__edlDownloads || {}
+          window.__edlDownloads[exportId] = { url, filename: summary.filename || 'edit.edl' }
+          setMessages(prev => [...prev, { role: 'assistant', content: `EDL ready. ${summary.cutCount || '?'} cuts — ${summary.totalMinutes || '?'}min.`, isEdlReady: true, exportId, filename: summary.filename || 'edit.edl', cutCount: summary.cutCount, totalMinutes: summary.totalMinutes, timestamp: new Date().toISOString() }])
+        }
         return
       }
 
@@ -1203,6 +1210,113 @@ export default function ChatPanel() {
             <div key={i} className={`kb-msg ${msg.role}`}>
               <div style={{ position:'relative', display:'inline-block', maxWidth:'82%' }} className="kb-msg-wrapper">
 
+
+
+                {/* Cut review cards */}
+                {msg.isCutReview && (() => {
+                  const totalCuts   = (msg.cuts || []).length
+                  const reviewed    = Object.keys(cutSelections).length
+                  const allReviewed = reviewed >= totalCuts
+
+                  return (
+                    <div style={{ padding:'12px', borderRadius:10, border:'1px solid rgba(74,222,128,0.15)', background:'rgba(74,222,128,0.03)', maxWidth:360 }}>
+                      {/* Verification score if available */}
+                      {msg.verification?.overallScore && (
+                        <div style={{ display:'flex', gap:12, marginBottom:10, padding:'8px 10px', borderRadius:8, background:'rgba(255,255,255,0.03)' }}>
+                          {[['Stick', msg.verification.overallScore.stickiness], ['Viral', msg.verification.overallScore.virality], ['Polish', msg.verification.overallScore.polish]].map(([label, score]) => (
+                            <div key={label} style={{ textAlign:'center' }}>
+                              <div style={{ fontSize:14, fontWeight:700, color: score >= 7 ? 'rgba(74,222,128,0.9)' : score >= 5 ? 'rgba(255,200,0,0.9)' : 'rgba(255,80,80,0.9)', fontFamily:"'Figtree',sans-serif" }}>{score}/10</div>
+                              <div style={{ fontSize:8, color:'rgba(255,255,255,0.3)', fontFamily:"'Figtree',sans-serif", textTransform:'uppercase', letterSpacing:0.5 }}>{label}</div>
+                            </div>
+                          ))}
+                          <div style={{ textAlign:'center', marginLeft:'auto' }}>
+                            <div style={{ fontSize:14, fontWeight:700, color:'rgba(74,222,128,0.9)', fontFamily:"'Figtree',sans-serif" }}>{msg.verification.overallScore.predictedAvgRetention}%</div>
+                            <div style={{ fontSize:8, color:'rgba(255,255,255,0.3)', fontFamily:"'Figtree',sans-serif", textTransform:'uppercase', letterSpacing:0.5 }}>Retention</div>
+                          </div>
+                        </div>
+                      )}
+
+                      <p style={{ fontSize:11, color:'rgba(74,222,128,0.7)', fontFamily:"'Figtree',sans-serif", marginBottom:10, fontWeight:600 }}>
+                        {msg.content} ({reviewed}/{totalCuts} reviewed)
+                      </p>
+
+                      <div style={{ display:'flex', flexDirection:'column', gap:6, maxHeight:500, overflowY:'auto' }}>
+                        {(msg.cuts || []).map((cut, ci) => {
+                          const selected  = cutSelections[ci]
+                          const startSec  = Math.round((cut.startMs || 0) / 1000)
+                          const min       = Math.floor(startSec / 60)
+                          const sec       = startSec % 60
+                          const tc        = min + ':' + String(sec).padStart(2,'0')
+                          const aiPick    = cut.source
+
+                          return (
+                            <div key={ci} style={{ padding:'9px 10px', borderRadius:8, background:'rgba(255,255,255,0.02)', border:`1px solid ${selected ? 'rgba(74,222,128,0.3)' : 'rgba(255,255,255,0.06)'}`, transition:'all 0.12s' }}>
+                              <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:5 }}>
+                                <span style={{ fontSize:10, color:'rgba(74,222,128,0.5)', fontFamily:"'Figtree',sans-serif", fontWeight:600 }}>{ci + 1}</span>
+                                <span style={{ fontSize:10, color:'rgba(255,255,255,0.4)', fontFamily:"'Figtree',sans-serif" }}>[{tc}]</span>
+                                {cut.narrativeSection && <span style={{ fontSize:8, padding:'1px 5px', borderRadius:4, background:'rgba(74,222,128,0.08)', color:'rgba(74,222,128,0.5)', fontFamily:"'Figtree',sans-serif", textTransform:'uppercase', letterSpacing:0.5 }}>{cut.narrativeSection}</span>}
+                                <span style={{ fontSize:8, color:'rgba(255,255,255,0.2)', fontFamily:"'Figtree',sans-serif", marginLeft:'auto' }}>AI: {aiPick}</span>
+                              </div>
+                              <p style={{ fontSize:10, color:'rgba(255,255,255,0.6)', fontFamily:"'Figtree',sans-serif", margin:'0 0 7px', lineHeight:1.4 }}>
+                                {cut.reason || cut.emotionalPurpose || 'No description'}
+                              </p>
+                              <div style={{ display:'flex', gap:5 }}>
+                                {[{src:'screen', label:'📺 Screen'}, {src:'camera', label:'🎥 Face Cam'}].map(opt => (
+                                  <button key={opt.src}
+                                    onClick={() => setCutSelections(prev => ({ ...prev, [ci]: opt.src }))}
+                                    style={{ flex:1, padding:'5px 6px', borderRadius:6, border:'none', cursor:'pointer', fontSize:9, fontFamily:"'Figtree',sans-serif", fontWeight:600, transition:'all 0.12s',
+                                      background: selected === opt.src ? 'rgba(74,222,128,1)' : aiPick === opt.src ? 'rgba(74,222,128,0.12)' : 'rgba(255,255,255,0.05)',
+                                      color:      selected === opt.src ? '#080808' : aiPick === opt.src ? 'rgba(74,222,128,0.7)' : 'rgba(255,255,255,0.35)',
+                                      outline:    aiPick === opt.src && !selected ? '1px solid rgba(74,222,128,0.2)' : 'none'
+                                    }}>
+                                    {opt.label}{aiPick === opt.src ? ' ✦' : ''}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>
+
+                      {/* Accept all AI suggestions shortcut */}
+                      <button onClick={() => {
+                        const allSels = {}
+                        ;(msg.cuts || []).forEach((cut, ci) => { allSels[ci] = cut.source })
+                        setCutSelections(allSels)
+                      }} style={{ marginTop:8, width:'100%', padding:'7px 0', borderRadius:7, border:'1px solid rgba(74,222,128,0.2)', background:'transparent', color:'rgba(74,222,128,0.6)', cursor:'pointer', fontSize:10, fontFamily:"'Figtree',sans-serif" }}>
+                        Accept all AI suggestions
+                      </button>
+
+                      {allReviewed && (
+                        <button onClick={async () => {
+                          const selections = Object.entries(cutSelections).map(([ci, source]) => ({ cutIndex: parseInt(ci), source }))
+                          setMessages(prev => [...prev, { role:'assistant', content:'Building EDL with your clip selections…', isWorking:true, timestamp:new Date().toISOString() }])
+                          try {
+                            const r = await fetch(msg.BASE + '/editor/edl-job/' + msg.jobId + '/build', {
+                              method:'POST', headers:{ ...msg.auth, 'Content-Type':'application/json' },
+                              body: JSON.stringify({ selections }),
+                            })
+                            if (!r.ok) { const e = await r.json(); throw new Error(e.error) }
+                            let summary = {}
+                            try { summary = JSON.parse(r.headers.get('X-EDL-Summary') || '{}') } catch {}
+                            const blob = await r.blob()
+                            const url  = URL.createObjectURL(blob)
+                            const exportId = 'edl-' + Date.now()
+                            window.__edlDownloads = window.__edlDownloads || {}
+                            window.__edlDownloads[exportId] = { url, filename: summary.filename || 'edit.edl' }
+                            setMessages(prev => prev.filter(m => !m.isWorking))
+                            setMessages(prev => [...prev, { role:'assistant', content:'EDL ready. ' + (summary.cutCount || '?') + ' cuts — ' + (summary.totalMinutes || '?') + 'min.', isEdlReady:true, exportId, filename:summary.filename||'edit.edl', cutCount:summary.cutCount, totalMinutes:summary.totalMinutes, timestamp:new Date().toISOString() }])
+                          } catch (err) {
+                            setMessages(prev => prev.filter(m => !m.isWorking))
+                            setMessages(prev => [...prev, { role:'assistant', content:'EDL build failed: ' + err.message, isError:true, timestamp:new Date().toISOString() }])
+                          }
+                        }} style={{ marginTop:5, width:'100%', padding:'10px 0', borderRadius:8, border:'none', background:'rgba(74,222,128,1)', color:'#080808', cursor:'pointer', fontSize:12, fontWeight:700, fontFamily:"'Figtree',sans-serif" }}>
+                          Build EDL with my selections →
+                        </button>
+                      )}
+                    </div>
+                  )
+                })()}
 
                 {/* Filename prompt for EDL */}
                 {msg.isFilenamePrompt && (() => {
