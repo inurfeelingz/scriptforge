@@ -620,6 +620,7 @@ export default function ChatPanel() {
             if (action === 'show_history')    setTimeout(() => setView('history'), 400)
             if (action === 'generate_episode') setTimeout(() => generateEpisodeFromChat(), 400)
             if (action?.startsWith?.('edl:'))   handleEdlAction(action, response)
+            if (action?.startsWith?.('map_moments:')) handleMapMomentsAction(action)
           },
           error: ({ message: e }) => {
             setMessages(prev => [...prev, { role: 'assistant', content: `Error: ${e}`, isError: true, timestamp: new Date().toISOString() }])
@@ -631,8 +632,19 @@ export default function ChatPanel() {
       )
     } catch (err) {
       if (err.name === 'AbortError') { setStreamText(''); setStreaming(false); return }
-      setMessages(prev => [...prev, { role: 'assistant', content: `Error: ${err.message}`, isError: true, timestamp: new Date().toISOString() }])
-      setStreamText('')
+      // If KB had already started responding, save what we got instead of showing an error
+      setStreamText(prev => {
+        if (prev && prev.length > 20) {
+          setMessages(msgs => [...msgs, {
+            role: 'assistant',
+            content: prev + '\n\n_(Response was cut short — network issue. Ask KB to continue.)_',
+            timestamp: new Date().toISOString(),
+          }])
+          return ''
+        }
+        setMessages(msgs => [...msgs, { role: 'assistant', content: 'Connection dropped. Please try again.', isError: true, timestamp: new Date().toISOString() }])
+        return ''
+      })
       setStreaming(false)
     }
   }, [input, streaming, activeCategoryId, mode, speak])
@@ -715,6 +727,84 @@ export default function ChatPanel() {
 
 
   // ── EDL CONVERSATION HANDLER ──────────────────────────────────────────────
+
+  // ── Map Moments — polls backend job and displays results ──────────────────
+  async function handleMapMomentsAction(action) {
+    const sessionId = action.replace('map_moments:', '')
+    const { data: { session: sess } } = await (await import('../../lib/supabase')).supabase.auth.getSession()
+    const BASE = import.meta.env.VITE_API_URL || '/api'
+
+    // Start the job
+    const startRes = await fetch(BASE + '/session/' + sessionId + '/map-moments', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer ' + sess?.access_token },
+    })
+    const { jobId } = await startRes.json()
+    if (!jobId) return
+
+    // Poll every 5s
+    const poll = setInterval(async () => {
+      try {
+        const r    = await fetch(BASE + '/session/' + sessionId + '/map-moments/' + jobId, {
+          headers: { Authorization: 'Bearer ' + sess?.access_token },
+        })
+        const data = await r.json()
+
+        if (data.status === 'processing') {
+          const pct = data.total > 0 ? Math.round((data.progress / data.total) * 100) : 0
+          setMessages(prev => {
+            const msgs = [...prev]
+            const last = msgs[msgs.length - 1]
+            if (last?.role === 'assistant' && last?.isMomentsProgress) {
+              msgs[msgs.length - 1] = { ...last, content: 'Scanning... ' + data.progress + '/' + data.total + ' chunks (' + pct + '%)' }
+            } else {
+              msgs.push({ role: 'assistant', content: 'Scanning... ' + data.progress + '/' + data.total + ' chunks (' + pct + '%)', isMomentsProgress: true, timestamp: new Date().toISOString() })
+            }
+            return msgs
+          })
+          return
+        }
+
+        clearInterval(poll)
+
+        if (data.status === 'done' && data.moments?.length) {
+          const grouped = {}
+          for (const m of data.moments) {
+            if (!grouped[m.type]) grouped[m.type] = []
+            grouped[m.type].push(m)
+          }
+
+          const lines = ['Found ' + data.total + ' interesting moments across your session:\n']
+          const typeLabels = { breakthrough: '💡 Breakthroughs', frustration: '😤 Frustrations', revelation: '✨ Revelations', energy: '⚡ Energy spikes', funny: '😄 Funny moments', vulnerable: '🫀 Vulnerable moments', opinion: '🎯 Strong opinions', decision: '🔑 Decisions' }
+
+          for (const [type, moments] of Object.entries(grouped)) {
+            lines.push((typeLabels[type] || type.toUpperCase()) + ':')
+            for (const m of moments) {
+              lines.push(m.timecode + ' — ' + m.summary)
+              if (m.quote) lines.push('  "' + m.quote + '"')
+            }
+            lines.push('')
+          }
+          lines.push('Tell me which moments to build the episode around and I will put together the edit plan.')
+
+          const content = lines.join('\n')
+          setMessages(prev => {
+            const msgs = [...prev]
+            const last = msgs[msgs.length - 1]
+            if (last?.isMomentsProgress) msgs[msgs.length - 1] = { role: 'assistant', content, timestamp: new Date().toISOString() }
+            else msgs.push({ role: 'assistant', content, timestamp: new Date().toISOString() })
+            return msgs
+          })
+        } else if (data.status === 'error') {
+          setMessages(prev => [...prev, { role: 'assistant', content: 'Moment mapping failed: ' + data.error, isError: true, timestamp: new Date().toISOString() }])
+        }
+      } catch (err) {
+        clearInterval(poll)
+        console.error('[map-moments poll]', err)
+      }
+    }, 5000)
+  }
+
   // KB sends action: 'edl:sync' or 'edl:build:sessionIdA:sessionIdB:offsetMs:clipA:clipB'
   // This function executes the actual API call and shows the result as a chat bubble.
 
