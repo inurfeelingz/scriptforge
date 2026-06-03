@@ -393,23 +393,6 @@ router.get('/:id/map-moments/:jobId', (req, res) => {
   return res.json({ status: 'error', error: job.error })
 })
 
-
-// ─── MAP MOMENTS — ASYNC JOB ─────────────────────────────────────────────────
-// POST /api/session/:id/map-moments
-// Chunks the full transcript and runs Claude over each chunk to find
-// interesting moments. Returns a jobId immediately, poll for results.
-// GET  /api/session/:id/map-moments/:jobId
-})
-
-router.get('/:id/map-moments/:jobId', (req, res) => {
-  const job = momentJobs.get(req.params.jobId)
-  if (!job) return res.status(404).json({ error: 'Job not found or expired' })
-  if (job.userId !== req.user.id) return res.status(403).json({ error: 'Forbidden' })
-  if (job.status === 'processing') return res.json({ status: 'processing', progress: job.progress, total: job.total })
-  if (job.status === 'done') return res.json({ status: 'done', moments: job.moments, total: job.moments.length })
-  return res.json({ status: 'error', error: job.error })
-})
-
 // ─── STANDALONE TRANSCRIBE (Teleprompter VO alignment) ───────────────────────
 
 const standaloneUpload = multer({
