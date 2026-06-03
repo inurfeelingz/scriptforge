@@ -270,6 +270,7 @@ export default function ChatPanel() {
   const sendMessageRef = useRef(null)
   const mapMomentsActiveRef = useRef(false)
   const [cutSelections, setCutSelections] = useState({})
+  const [narrativeEdits, setNarrativeEdits] = useState({})
 
   const { listening, speaking, audioLevel: voiceLevel, supported: voiceSupported,
           startListening, stopListening, speak, stopSpeaking } = useKBVoice({
@@ -872,6 +873,11 @@ export default function ChatPanel() {
             resolve({ review: true, data })
             return
           }
+          if (data.status === 'narrative_review') {
+            clearInterval(poll)
+            resolve({ narrativeReview: true, data })
+            return
+          }
           // still processing — keep polling
         } catch (err) { clearInterval(poll); reject(err) }
       }, 4000)
@@ -1002,6 +1008,17 @@ export default function ChatPanel() {
         const result1 = await pollEdlJob(buildJobId, auth, BASE)
         setEdlState(null)
         setMessages(prev => prev.filter(m => !m.isWorking))
+        if (result1.narrativeReview) {
+          setNarrativeEdits({})
+          setMessages(prev => [...prev, {
+            role: 'assistant', content: 'Here is the story structure I built. Review each section — edit the purpose or VO line, reorder if needed, then approve to start cutting.',
+            isNarrativeReview: true, jobId: buildJobId,
+            narrativePlan: result1.data.narrativePlan,
+            voiceLines: result1.data.voiceLines,
+            auth, BASE, timestamp: new Date().toISOString(),
+          }])
+          return
+        }
         if (result1.review) {
           setCutSelections({})
           setMessages(prev => [...prev, {
@@ -1098,6 +1115,17 @@ export default function ChatPanel() {
         const result2 = await pollEdlJob(edlJobId, auth, BASE)
         setEdlState(null)
         setMessages(prev => prev.filter(m => !m.isWorking))
+        if (result2.narrativeReview) {
+          setNarrativeEdits({})
+          setMessages(prev => [...prev, {
+            role: 'assistant', content: 'Here is the story structure I built. Review each section — edit the purpose or VO line, reorder if needed, then approve to start cutting.',
+            isNarrativeReview: true, jobId: edlJobId,
+            narrativePlan: result2.data.narrativePlan,
+            voiceLines: result2.data.voiceLines,
+            auth, BASE, timestamp: new Date().toISOString(),
+          }])
+          return
+        }
         if (result2.review) {
           setCutSelections({})
           setMessages(prev => [...prev, {
@@ -1211,6 +1239,138 @@ export default function ChatPanel() {
               <div style={{ position:'relative', display:'inline-block', maxWidth:'82%' }} className="kb-msg-wrapper">
 
 
+
+
+                {/* Narrative arc review */}
+                {msg.isNarrativeReview && (() => {
+                  const arc      = msg.narrativePlan?.narrativeArc || {}
+                  const voLines  = msg.voiceLines?.voLines || []
+                  const sections = Object.entries(arc)
+                  const LABELS   = { coldOpen:{label:'Cold Open',emoji:'⚡',color:'rgba(255,120,50,0.9)'}, setup:{label:'Setup',emoji:'🎯',color:'rgba(74,222,128,0.8)'}, incitingIncident:{label:'Inciting Incident',emoji:'💥',color:'rgba(255,200,0,0.9)'}, struggle:{label:'Struggle',emoji:'😤',color:'rgba(200,100,255,0.9)'}, breakthrough:{label:'Breakthrough',emoji:'✨',color:'rgba(74,222,255,0.9)'}, resolution:{label:'Resolution',emoji:'🎬',color:'rgba(74,222,128,0.9)'}, outro:{label:'Outro',emoji:'👋',color:'rgba(150,150,150,0.7)'} }
+
+                  return (
+                    <div style={{ padding:'12px', borderRadius:10, border:'1px solid rgba(74,222,128,0.15)', background:'rgba(74,222,128,0.03)', maxWidth:360 }}>
+                      {/* Episode title and question */}
+                      <div style={{ marginBottom:12, padding:'8px 10px', borderRadius:8, background:'rgba(255,255,255,0.03)' }}>
+                        <div style={{ fontSize:13, color:'rgba(255,255,255,0.85)', fontFamily:"'Figtree',sans-serif", fontWeight:700, marginBottom:4 }}>
+                          {narrativeEdits.episodeTitle !== undefined ? narrativeEdits.episodeTitle : (msg.narrativePlan?.episodeTitle || 'Untitled')}
+                        </div>
+                        <input
+                          value={narrativeEdits.episodeTitle !== undefined ? narrativeEdits.episodeTitle : (msg.narrativePlan?.episodeTitle || '')}
+                          onChange={e => setNarrativeEdits(prev => ({ ...prev, episodeTitle: e.target.value }))}
+                          style={{ width:'100%', padding:'5px 8px', borderRadius:6, border:'1px solid rgba(255,255,255,0.08)', background:'rgba(255,255,255,0.03)', color:'rgba(255,255,255,0.6)', fontSize:10, fontFamily:"'Figtree',sans-serif", boxSizing:'border-box', outline:'none', marginBottom:4 }}
+                          placeholder="Episode title..."
+                        />
+                        <div style={{ fontSize:9, color:'rgba(255,255,255,0.3)', fontFamily:"'Figtree',sans-serif" }}>
+                          Central Q: {msg.narrativePlan?.centralQuestion}
+                        </div>
+                      </div>
+
+                      <p style={{ fontSize:11, color:'rgba(74,222,128,0.7)', fontFamily:"'Figtree',sans-serif", marginBottom:10, fontWeight:600 }}>
+                        {msg.content}
+                      </p>
+
+                      <div style={{ display:'flex', flexDirection:'column', gap:8, maxHeight:520, overflowY:'auto' }}>
+                        {sections.map(([section, data]) => {
+                          const meta   = LABELS[section] || { label: section, emoji: '•', color: 'rgba(255,255,255,0.5)' }
+                          const voLine = voLines.find(v => v.section === section)
+                          const editedPurpose = narrativeEdits[section + '_purpose']
+                          const editedVO      = narrativeEdits[section + '_vo']
+
+                          return (
+                            <div key={section} style={{ padding:'10px', borderRadius:8, border:'1px solid rgba(255,255,255,0.07)', background:'rgba(255,255,255,0.02)' }}>
+                              <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:6 }}>
+                                <span style={{ fontSize:13 }}>{meta.emoji}</span>
+                                <span style={{ fontSize:11, color:meta.color, fontFamily:"'Figtree',sans-serif", fontWeight:700 }}>{meta.label}</span>
+                                <span style={{ fontSize:9, color:'rgba(255,255,255,0.25)', fontFamily:"'Figtree',sans-serif", marginLeft:'auto' }}>{data.durationSec}s · {data.emotionalTarget}</span>
+                              </div>
+
+                              {/* Purpose — editable */}
+                              <textarea
+                                value={editedPurpose !== undefined ? editedPurpose : (data.purpose || '')}
+                                onChange={e => setNarrativeEdits(prev => ({ ...prev, [section + '_purpose']: e.target.value }))}
+                                rows={2}
+                                style={{ width:'100%', padding:'6px 8px', borderRadius:6, border:'1px solid rgba(255,255,255,0.07)', background:'rgba(255,255,255,0.03)', color:'rgba(255,255,255,0.65)', fontSize:10, fontFamily:"'Figtree',sans-serif", boxSizing:'border-box', outline:'none', resize:'none', marginBottom:6, lineHeight:1.5 }}
+                                placeholder="What this section does..."
+                              />
+
+                              {/* VO Line — editable */}
+                              <div style={{ display:'flex', gap:4, alignItems:'flex-start' }}>
+                                <span style={{ fontSize:8, color:'rgba(255,200,0,0.6)', fontFamily:"'Figtree',sans-serif", paddingTop:7, flexShrink:0, fontWeight:700 }}>VO</span>
+                                <textarea
+                                  value={editedVO !== undefined ? editedVO : (voLine?.line || data.voLine || '')}
+                                  onChange={e => setNarrativeEdits(prev => ({ ...prev, [section + '_vo']: e.target.value }))}
+                                  rows={2}
+                                  style={{ flex:1, padding:'6px 8px', borderRadius:6, border:'1px solid rgba(255,200,0,0.15)', background:'rgba(255,200,0,0.04)', color:'rgba(255,200,0,0.8)', fontSize:10, fontFamily:"'Figtree',sans-serif", boxSizing:'border-box', outline:'none', resize:'none', lineHeight:1.5, fontStyle:'italic' }}
+                                  placeholder="Your VO line for this section..."
+                                />
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>
+
+                      <button onClick={async () => {
+                        // Build approved plan with edits applied
+                        const approvedArc = {}
+                        sections.forEach(([section, data]) => {
+                          approvedArc[section] = {
+                            ...data,
+                            purpose: narrativeEdits[section + '_purpose'] !== undefined ? narrativeEdits[section + '_purpose'] : data.purpose,
+                            voLine:  narrativeEdits[section + '_vo']      !== undefined ? narrativeEdits[section + '_vo']      : data.voLine,
+                          }
+                        })
+                        const approvedPlan = {
+                          ...msg.narrativePlan,
+                          episodeTitle: narrativeEdits.episodeTitle !== undefined ? narrativeEdits.episodeTitle : msg.narrativePlan?.episodeTitle,
+                          narrativeArc: approvedArc,
+                        }
+                        const approvedVoiceLines = {
+                          voLines: (msg.voiceLines?.voLines || []).map(v => ({
+                            ...v,
+                            line: narrativeEdits[v.section + '_vo'] !== undefined ? narrativeEdits[v.section + '_vo'] : v.line,
+                          }))
+                        }
+
+                        setMessages(prev => [...prev, { role:'assistant', content:'Story approved — cutting against your structure now…', isWorking:true, timestamp:new Date().toISOString() }])
+                        try {
+                          await fetch(msg.BASE + '/editor/edl-job/' + msg.jobId + '/approve-narrative', {
+                            method:'POST', headers:{ ...msg.auth, 'Content-Type':'application/json' },
+                            body: JSON.stringify({ approvedPlan, approvedVoiceLines }),
+                          })
+                          // Poll for cut review
+                          const pollInterval = setInterval(async () => {
+                            try {
+                              const r = await fetch(msg.BASE + '/editor/edl-job/' + msg.jobId, { headers: msg.auth })
+                              const data = await r.json()
+                              if (data.status === 'review') {
+                                clearInterval(pollInterval)
+                                setMessages(prev => prev.filter(m => !m.isWorking))
+                                setCutSelections({})
+                                setMessages(prev => [...prev, {
+                                  role:'assistant', content:'Ready to review. Pick screen or face cam for each cut:',
+                                  isCutReview:true, jobId:msg.jobId, cuts:data.cuts,
+                                  clipNameA:data.clipNameA, clipNameB:data.clipNameB,
+                                  verification:data.verification, auth:msg.auth, BASE:msg.BASE,
+                                  timestamp:new Date().toISOString(),
+                                }])
+                              } else if (data.status === 'error') {
+                                clearInterval(pollInterval)
+                                setMessages(prev => prev.filter(m => !m.isWorking))
+                                setMessages(prev => [...prev, { role:'assistant', content:'Cut generation failed: ' + data.error, isError:true, timestamp:new Date().toISOString() }])
+                              }
+                            } catch { clearInterval(pollInterval) }
+                          }, 4000)
+                        } catch (err) {
+                          setMessages(prev => prev.filter(m => !m.isWorking))
+                          setMessages(prev => [...prev, { role:'assistant', content:'Approval failed: ' + err.message, isError:true, timestamp:new Date().toISOString() }])
+                        }
+                      }} style={{ marginTop:10, width:'100%', padding:'10px 0', borderRadius:8, border:'none', background:'rgba(74,222,128,1)', color:'#080808', cursor:'pointer', fontSize:12, fontWeight:700, fontFamily:"'Figtree',sans-serif" }}>
+                        Approve story — start cutting →
+                      </button>
+                    </div>
+                  )
+                })()}
 
                 {/* Cut review cards */}
                 {msg.isCutReview && (() => {
