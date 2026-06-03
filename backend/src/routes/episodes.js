@@ -7,6 +7,7 @@ const { assembleContext }  = require('../services/contextAssembler');
 const tierGate             = require('../middleware/tier');
 const creditGate           = require('../middleware/credits');
 const { deduct, refund }   = require('../utils/creditManager');
+const gemini               = require('../services/geminiService');
 
 const router = express.Router();
 const client = new Anthropic.Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
