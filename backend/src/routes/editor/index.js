@@ -1358,7 +1358,7 @@ router.post('/edl-job/:jobId/approve-narrative', async (req, res) => {
 
       const cutRes = await aiClient.messages.create({
         model: process.env.CLAUDE_MODEL || 'claude-sonnet-4-5',
-        max_tokens: 4000,
+        max_tokens: 8000,
         system: `You are a documentary video editor cutting against a narrative plan. Your job is to select REAL moments from the transcript below — use the EXACT timestamps provided.
 
 RULES:
