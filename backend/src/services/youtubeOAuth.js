@@ -137,31 +137,34 @@ async function pullAnalyticsData(accessToken, startDate, endDate) {
   const channelId = channelRes.data.items?.[0]?.id
   if (!channelId) throw new Error('No YouTube channel found for this account')
 
-  // Step 2: Get video list (last 50 videos)
-  const videosRes = await axios.get('https://www.googleapis.com/youtube/v3/search', {
-    params: {
-      part:       'snippet',
-      channelId,
-      type:       'video',
-      order:      'date',
-      maxResults: 50,
-    },
-    headers: { Authorization: `Bearer ${accessToken}` },
-  })
+  // Step 2: Get ALL video IDs by paginating the search endpoint (max 50 per page)
+  const allVideoIds = []
+  let pageToken = undefined
+  do {
+    const params = { part: 'id', channelId, type: 'video', order: 'date', maxResults: 50 }
+    if (pageToken) params.pageToken = pageToken
+    const videosRes = await axios.get('https://www.googleapis.com/youtube/v3/search', {
+      params,
+      headers: { Authorization: `Bearer ${accessToken}` },
+    })
+    const ids = (videosRes.data.items || []).map(v => v.id?.videoId).filter(Boolean)
+    allVideoIds.push(...ids)
+    pageToken = videosRes.data.nextPageToken
+  } while (pageToken && allVideoIds.length < 200) // cap at 200 to avoid quota burn
 
-  const videoIds = (videosRes.data.items || []).map(v => v.id?.videoId).filter(Boolean)
-  if (!videoIds.length) return []
+  if (!allVideoIds.length) return []
 
-  // Step 3: Get retention + view stats from Analytics API
+  // Step 3: Get retention + view stats from Analytics API (sorts by views, returns top performers)
+  // Analytics API returns up to 200 rows sorted by -views — covers all videos
   const analyticsRes = await axios.get('https://youtubeanalytics.googleapis.com/v2/reports', {
     params: {
       ids:        `channel==${channelId}`,
-      startDate:  startDate || new Date(Date.now() - 90 * 86400000).toISOString().split('T')[0],
+      startDate:  startDate || new Date(Date.now() - 365 * 86400000).toISOString().split('T')[0],
       endDate:    endDate   || new Date().toISOString().split('T')[0],
       metrics:    'views,averageViewPercentage,estimatedMinutesWatched,averageViewDuration',
       dimensions: 'video',
       sort:       '-views',
-      maxResults: 50,
+      maxResults: 200,
     },
     headers: { Authorization: `Bearer ${accessToken}` },
   })
@@ -169,18 +172,17 @@ async function pullAnalyticsData(accessToken, startDate, endDate) {
   const rows    = analyticsRes.data.rows || []
   const headers = (analyticsRes.data.columnHeaders || []).map(h => h.name)
 
-  // Step 4: Get video titles for the IDs we got back
+  // Step 4: Get video titles in batches of 50 (Videos API limit)
+  const returnedIds = rows.map(r => r[headers.indexOf('video')]).filter(Boolean)
   const titleMap = {}
-  if (rows.length) {
-    const returnedIds = rows.map(r => r[headers.indexOf('video')]).filter(Boolean).slice(0, 50)
-    if (returnedIds.length) {
-      const detailRes = await axios.get('https://www.googleapis.com/youtube/v3/videos', {
-        params: { part: 'snippet', id: returnedIds.join(',') },
-        headers: { Authorization: `Bearer ${accessToken}` },
-      })
-      for (const item of (detailRes.data.items || [])) {
-        titleMap[item.id] = item.snippet?.title || item.id
-      }
+  for (let i = 0; i < returnedIds.length; i += 50) {
+    const batch = returnedIds.slice(i, i + 50)
+    const detailRes = await axios.get('https://www.googleapis.com/youtube/v3/videos', {
+      params: { part: 'snippet', id: batch.join(',') },
+      headers: { Authorization: `Bearer ${accessToken}` },
+    })
+    for (const item of (detailRes.data.items || [])) {
+      titleMap[item.id] = item.snippet?.title || item.id
     }
   }
 
