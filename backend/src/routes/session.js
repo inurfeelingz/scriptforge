@@ -8,6 +8,8 @@ const express    = require('express')
 const Anthropic  = require('@anthropic-ai/sdk')
 const multer     = require('multer')
 const { supabase } = require('../utils/supabase')
+const { getStore } = require('../services/jobStore')
+const momentJobStore = getStore('moments')
 
 const router = express.Router()
 const client = new Anthropic.Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
@@ -194,7 +196,7 @@ router.post('/index-audio', express.json(), async (req, res) => {
           })
         }
 
-        job.progress = i + 1
+        await momentJobStore.update(jobId, { progress: i + 1 })
         console.log(`[index-audio] job=${jobId} chunk ${i+1}/${numChunks} done — ${segs.length} segs`)
 
         // Clean up chunk immediately to save disk space
@@ -302,7 +304,6 @@ router.get('/index-audio/:jobId', (req, res) => {
 // interesting moments. Returns a jobId immediately, poll for results.
 // GET  /api/session/:id/map-moments/:jobId
 
-const momentJobs = new Map()
 
 router.post('/:id/map-moments', async (req, res) => {
   const { data: session, error } = await supabase
@@ -318,15 +319,15 @@ router.post('/:id/map-moments', async (req, res) => {
   if (!transcript.trim()) return res.status(400).json({ error: 'No transcript available for this session' })
 
   const jobId = makeJobId()
-  momentJobs.set(jobId, {
+  await momentJobStore.set(jobId, {
     id: jobId, userId: req.user.id, sessionId: req.params.id,
-    status: 'processing', progress: 0, total: 0, moments: null, error: null, createdAt: Date.now(),
+    status: 'processing', progress: 0, total: 0, moments: null, error: null,
   })
 
   res.status(202).json({ jobId, status: 'processing' })
 
   setImmediate(async () => {
-    const job = momentJobs.get(jobId)
+    const job = await momentJobStore.get(jobId)
     const CHUNK_LINES = 120
     const allMoments  = []
 
@@ -355,7 +356,7 @@ router.post('/:id/map-moments', async (req, res) => {
         } catch { moments = [] }
 
         allMoments.push(...moments)
-        job.progress = i + 1
+        await momentJobStore.update(jobId, { progress: i + 1 })
         console.log('[map-moments] chunk ' + (i+1) + '/' + chunks.length + ' — ' + moments.length + ' moments')
       }
 
@@ -370,22 +371,20 @@ router.post('/:id/map-moments', async (req, res) => {
         .eq('id', req.params.id)
         .eq('user_id', req.user.id)
 
-      job.status  = 'done'
-      job.moments = allMoments
+      await momentJobStore.set(jobId, { ...job, status: 'done', moments: allMoments })
       console.log('[map-moments] job=' + jobId + ' complete — ' + allMoments.length + ' moments')
-      setTimeout(() => momentJobs.delete(jobId), 30 * 60 * 1000)
+      setTimeout(() => momentJobStore.delete(jobId), 30 * 60 * 1000)
 
     } catch (err) {
       console.error('[map-moments] job=' + jobId + ' failed:', err.message)
-      job.status = 'error'
-      job.error  = err.message
-      setTimeout(() => momentJobs.delete(jobId), 10 * 60 * 1000)
+      await momentJobStore.update(jobId, { status: 'error', error: err.message })
+      setTimeout(() => momentJobStore.delete(jobId), 10 * 60 * 1000)
     }
   })
 })
 
-router.get('/:id/map-moments/:jobId', (req, res) => {
-  const job = momentJobs.get(req.params.jobId)
+router.get('/:id/map-moments/:jobId', async (req, res) => {
+  const job = await momentJobStore.get(req.params.jobId)
   if (!job) return res.status(404).json({ error: 'Job not found or expired' })
   if (job.userId !== req.user.id) return res.status(403).json({ error: 'Forbidden' })
   if (job.status === 'processing') return res.json({ status: 'processing', progress: job.progress, total: job.total })

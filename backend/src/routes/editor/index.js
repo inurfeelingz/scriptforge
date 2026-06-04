@@ -755,11 +755,10 @@ const Anthropic = require('@anthropic-ai/sdk')
 const aiClient  = new Anthropic.Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
 // ─── EDL JOB STORE ──────────────────────────────────────────────────────────
-const edlJobs = new Map()
 
 // GET /api/editor/edl-job/:jobId — poll for EDL build status
-router.get('/edl-job/:jobId', (req, res) => {
-  const job = edlJobs.get(req.params.jobId)
+router.get('/edl-job/:jobId', async (req, res) => {
+  const job = await edlJobStore.get(req.params.jobId)
   if (!job) return res.status(404).json({ error: 'Job not found or expired' })
   if (job.userId !== req.user.id) return res.status(403).json({ error: 'Forbidden' })
   if (job.status === 'processing') return res.json({ status: 'processing' })
@@ -806,9 +805,8 @@ router.post('/build-session-edl', async (req, res) => {
 
   // Return jobId immediately — EDL builds in background
   const jobId = Date.now().toString(36) + Math.random().toString(36).slice(2, 6)
-  edlJobs.set(jobId, { userId: req.user.id, status: 'processing' })
+  await edlJobStore.set(jobId, { userId: req.user.id, status: 'processing' })
   res.status(202).json({ jobId, status: 'processing' })
-  setTimeout(() => edlJobs.delete(jobId), 60 * 60 * 1000)
 
   setImmediate(async () => {
   try {
@@ -1002,25 +1000,15 @@ ${
       console.log('[build-session-edl] narrative arc built:', narrativePlan?.episodeTitle)
 
       // Store for user review — pause here and wait for approval
-      const job = edlJobs.get(jobId)
-      if (job) {
-        job.status        = 'narrative_review'
-        job.narrativePlan = narrativePlan
-        job.voiceLines    = voiceLines
-        job.sessionIdA    = sessionIdA
-        job.sessionIdB    = sessionIdB
-        job.categoryId    = categoryId
-        job.clipNameA     = clipNameA
-        job.clipNameB     = clipNameB
-        job.targetMinutes = targetMinutes
-        job.cat           = cat
-        job.allLines      = allLines
-        job.transcriptSummary = transcriptSummary
-        job.episodeContext = episodeContext
-        job.assetContext   = assetContext
-        job.audiencePain   = audiencePain
-        job.title          = title
-      }
+      await edlJobStore.set(jobId, {
+        userId: req.user.id,
+        status: 'narrative_review',
+        narrativePlan, voiceLines,
+        sessionIdA, sessionIdB, categoryId,
+        clipNameA, clipNameB, targetMinutes,
+        cat, allLines, transcriptSummary,
+        episodeContext, assetContext, audiencePain, title,
+      })
       console.log('[build-session-edl] job=' + jobId + ' waiting for narrative approval')
       return  // Exit setImmediate — wait for user to approve narrative
     } catch (err) {
@@ -1321,29 +1309,19 @@ Return the complete JSON object with all arrays: cuts, voiceover, broll, sfx, ti
         return { time: hh + ':' + mm + ':' + ss, label: c.label }
       }),
     }
-    const job = edlJobs.get(jobId)
-    if (job) {
-      job.status    = 'review'   // Waiting for user clip selections
-      job.cuts      = cuts
-      job.voiceover = voiceover
-      job.broll     = broll
-      job.sfx       = sfx
-      job.titles    = titles
-      job.chapters  = chapters
-      job.clipNameA = clipNameA
-      job.clipNameB = clipNameB
-      job.sessionTitle = title
-      job.filename  = filename
-      job.summaryObj = summaryObj
-      job.verification = verification
-      job.narrativePlan = narrativePlan
-    }
+    await edlJobStore.set(jobId, {
+      userId: req.user.id,
+      status: 'review',
+      cuts, voiceover, broll, sfx, titles, chapters,
+      clipNameA, clipNameB,
+      sessionTitle: title,
+      filename, summaryObj, verification, narrativePlan,
+    })
     console.log('[build-session-edl] job=' + jobId + ' ready for review — ' + cuts.length + ' cuts')
 
   } catch (err) {
     console.error('[editor/build-session-edl]', err.message)
-    const job = edlJobs.get(jobId)
-    if (job) { job.status = 'error'; job.error = err.message }
+    await edlJobStore.update(jobId, { status: 'error', error: err.message })
   }
   }) // end setImmediate
 })
@@ -1354,10 +1332,9 @@ Return the complete JSON object with all arrays: cuts, voiceover, broll, sfx, ti
 // Same as build-session-edl but targets 60s (TikTok) or 90s (YouTube Shorts)
 // Async job pattern — returns jobId immediately
 
-const shortsJobs = new Map()
 
-router.get('/shorts-job/:jobId', (req, res) => {
-  const job = shortsJobs.get(req.params.jobId)
+router.get('/shorts-job/:jobId', async (req, res) => {
+  const job = await shortsJobStore.get(req.params.jobId)
   if (!job) return res.status(404).json({ error: 'Job not found or expired' })
   if (job.userId !== req.user.id) return res.status(403).json({ error: 'Forbidden' })
   if (job.status === 'processing') return res.json({ status: 'processing' })
@@ -1382,9 +1359,8 @@ router.post('/build-shorts-edl', async (req, res) => {
   if (!categoryId || !sessionIdA) return res.status(400).json({ error: 'categoryId and sessionIdA required' })
 
   const jobId = Date.now().toString(36) + Math.random().toString(36).slice(2, 6)
-  shortsJobs.set(jobId, { userId: req.user.id, status: 'processing' })
+  await shortsJobStore.set(jobId, { userId: req.user.id, status: 'processing' })
   res.status(202).json({ jobId, status: 'processing' })
-  setTimeout(() => shortsJobs.delete(jobId), 60 * 60 * 1000)
 
   setImmediate(async () => {
     try {
@@ -1483,19 +1459,15 @@ router.post('/build-shorts-edl', async (req, res) => {
 
       const summary = JSON.stringify({ cutCount: 1, totalMinutes: Math.round(durMs / 60000 * 10) / 10, filename, platform, hook: clip.hook, caption: clip.caption })
 
-      const job = shortsJobs.get(jobId)
-      if (job) {
-        job.status   = 'done'
-        job.edl      = edl
-        job.filename = filename
-        job.summary  = summary
-      }
+      await shortsJobStore.set(jobId, {
+        userId: req.user.id,
+        status: 'done', edl, filename, summary,
+      })
       console.log('[build-shorts-edl] job=' + jobId + ' done — ' + Math.round(durMs/1000) + 's clip at ' + Math.floor(clip.startMs/60000) + ':' + String(Math.floor((clip.startMs%60000)/1000)).padStart(2,'0'))
 
     } catch (err) {
       console.error('[build-shorts-edl]', err.message)
-      const job = shortsJobs.get(jobId)
-      if (job) { job.status = 'error'; job.error = err.message }
+      await shortsJobStore.update(jobId, { status: 'error', error: err.message })
     }
   })
 })
@@ -1505,7 +1477,7 @@ router.post('/build-shorts-edl', async (req, res) => {
 // POST /api/editor/edl-job/:jobId/approve-narrative
 // User approves (or edits) the narrative plan — triggers Pass 2+3
 router.post('/edl-job/:jobId/approve-narrative', async (req, res) => {
-  const job = edlJobs.get(req.params.jobId)
+  const job = await edlJobStore.get(req.params.jobId)
   if (!job) return res.status(404).json({ error: 'Job not found or expired' })
   if (job.userId !== req.user.id) return res.status(403).json({ error: 'Forbidden' })
   if (job.status !== 'narrative_review') return res.status(400).json({ error: 'Job not in narrative review state' })
@@ -1617,22 +1589,23 @@ Cut against the narrative arc. Every clip serves a section. Return complete JSON
         narrativeSection: v.section,
       })).concat(result.voiceover || [])
 
-      job.status      = 'review'
-      job.cuts        = cuts
-      job.voiceover   = voiceover
-      job.broll       = result.broll   || []
-      job.sfx         = result.sfx     || []
-      job.titles      = result.titles  || []
-      job.chapters    = result.chapters|| []
-      job.verification = verification
-      job.summaryObj  = { cutCount: cuts.length, totalMinutes: targetMinutes, filename: title.replace(/[^\w\s-]/g, '').replace(/\s+/g, '_').slice(0, 50) + '_edit.edl' }
-      job.filename    = job.summaryObj.filename
-
-      console.log('[approve-narrative] job=' + job + ' ready for cut review — ' + cuts.length + ' cuts')
+      const summaryObjApproved = { cutCount: cuts.length, totalMinutes: targetMinutes, filename: title.replace(/[^\w\s-]/g, '').replace(/\s+/g, '_').slice(0, 50) + '_edit.edl' }
+      await edlJobStore.set(req.params.jobId, {
+        ...job,
+        status: 'review',
+        cuts, voiceover,
+        broll:    result.broll    || [],
+        sfx:      result.sfx      || [],
+        titles:   result.titles   || [],
+        chapters: result.chapters || [],
+        verification,
+        summaryObj: summaryObjApproved,
+        filename: summaryObjApproved.filename,
+      })
+      console.log('[approve-narrative] ready for cut review — ' + cuts.length + ' cuts')
     } catch (err) {
       console.error('[approve-narrative]', err.message)
-      const j = edlJobs.get(req.params.jobId)
-      if (j) { j.status = 'error'; j.error = err.message }
+      await edlJobStore.update(req.params.jobId, { status: 'error', error: err.message })
     }
   })
 })
@@ -1640,7 +1613,7 @@ Cut against the narrative arc. Every clip serves a section. Return complete JSON
 // POST /api/editor/edl-job/:jobId/build
 // User submits their clip selections — backend assembles final EDL
 router.post('/edl-job/:jobId/build', async (req, res) => {
-  const job = edlJobs.get(req.params.jobId)
+  const job = await edlJobStore.get(req.params.jobId)
   if (!job) return res.status(404).json({ error: 'Job not found or expired' })
   if (job.userId !== req.user.id) return res.status(403).json({ error: 'Forbidden' })
   if (job.status !== 'review') return res.status(400).json({ error: 'Job not in review state' })
@@ -1719,9 +1692,12 @@ router.post('/edl-job/:jobId/build', async (req, res) => {
   const totalMs = recMs - 3600000
   const finalFilename = filename || 'edit.edl'
 
-  job.status  = 'done'
-  job.edl     = edl
-  job.summary = JSON.stringify({ ...summaryObj, cutCount: cuts.length, totalMinutes: Math.round(totalMs / 60000 * 10) / 10, filename: finalFilename })
+  await edlJobStore.set(req.params.jobId, {
+    ...job,
+    status:  'done',
+    edl,
+    summary: JSON.stringify({ ...summaryObj, cutCount: cuts.length, totalMinutes: Math.round(totalMs / 60000 * 10) / 10, filename: finalFilename }),
+  })
 
   res.setHeader('X-EDL-Summary', job.summary)
   res.setHeader('Content-Type', 'text/plain; charset=utf-8')
