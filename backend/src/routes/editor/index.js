@@ -908,6 +908,11 @@ router.post('/build-session-edl', async (req, res) => {
 
   if (!categoryId || !sessionIdA) return res.status(400).json({ error: 'categoryId and sessionIdA required' })
 
+  const jobId = Date.now().toString(36) + Math.random().toString(36).slice(2, 6)
+  await edlJobStore.set(jobId, { userId: req.user.id, status: 'processing' })
+  res.status(202).json({ jobId, status: 'processing' })
+
+  setImmediate(async () => {
   try {
     const [{ data: sA }, sessionBResult, { data: cat }, chatHistory, plannedEpisode, assetsResult] = await Promise.all([
       supabase.from('session_journals').select('title, transcript').eq('id', sessionIdA).eq('user_id', req.user.id).single(),
@@ -1318,8 +1323,9 @@ Return the complete JSON object with all arrays: cuts, voiceover, broll, sfx, ti
 
   } catch (err) {
     console.error('[editor/build-session-edl]', err.message)
-    res.status(500).json({ error: err.message })
+    await edlJobStore.update(jobId, { status: 'error', error: err.message })
   }
+  }) // end setImmediate
 })
 
 
