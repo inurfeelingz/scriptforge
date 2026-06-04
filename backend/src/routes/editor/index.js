@@ -756,6 +756,143 @@ router.post('/sync-audio', async (req, res) => {
 const Anthropic = require('@anthropic-ai/sdk')
 const aiClient  = new Anthropic.Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
+// GET /api/editor/edl-job/:jobId — poll EDL build status
+router.get('/edl-job/:jobId', async (req, res) => {
+  const job = await edlJobStore.get(req.params.jobId)
+  if (!job) return res.status(404).json({ error: 'Job not found or expired' })
+  if (job.userId !== req.user.id) return res.status(403).json({ error: 'Forbidden' })
+  if (job.status === 'processing') return res.json({ status: 'processing' })
+  if (job.status === 'narrative_review') {
+    return res.json({
+      status: 'narrative_review',
+      narrativePlan: job.narrativePlan,
+      voiceLines: job.voiceLines,
+    })
+  }
+  if (job.status === 'review') {
+    return res.json({
+      status: 'review',
+      cuts: job.cuts,
+      voiceover: job.voiceover,
+      clipNameA: job.clipNameA,
+      clipNameB: job.clipNameB,
+      verification: job.verification,
+      narrativePlan: job.narrativePlan,
+    })
+  }
+  if (job.status === 'done') {
+    res.setHeader('X-EDL-Summary', job.summary || '{}')
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8')
+    res.setHeader('Content-Disposition', 'attachment; filename="' + (job.filename || 'edit.edl') + '"')
+    return res.send(job.edl)
+  }
+  return res.json({ status: 'error', error: job.error || 'Unknown error' })
+})
+
+// GET /api/editor/shorts-job/:jobId — poll Shorts EDL build status
+router.get('/shorts-job/:jobId', async (req, res) => {
+  const job = await shortsJobStore.get(req.params.jobId)
+  if (!job) return res.status(404).json({ error: 'Job not found or expired' })
+  if (job.userId !== req.user.id) return res.status(403).json({ error: 'Forbidden' })
+  if (job.status === 'processing') return res.json({ status: 'processing' })
+  if (job.status === 'done') {
+    res.setHeader('X-EDL-Summary', job.summary || '{}')
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8')
+    res.setHeader('Content-Disposition', 'attachment; filename="' + (job.filename || 'short.edl') + '"')
+    return res.send(job.edl)
+  }
+  return res.json({ status: 'error', error: job.error || 'Unknown error' })
+})
+
+// POST /api/editor/build-shorts-edl — async Shorts EDL job
+router.post('/build-shorts-edl', async (req, res) => {
+  const { categoryId, sessionIdA, clipNameA = 'SCREEN_CAPTURE.mp4', targetSeconds = 60, platform = 'tiktok' } = req.body
+  if (!categoryId || !sessionIdA) return res.status(400).json({ error: 'categoryId and sessionIdA required' })
+
+  const jobId = Date.now().toString(36) + Math.random().toString(36).slice(2, 6)
+  await shortsJobStore.set(jobId, { userId: req.user.id, status: 'processing' })
+  res.status(202).json({ jobId, status: 'processing' })
+
+  setImmediate(async () => {
+    try {
+      const [sAResult, catResult, sessionMetaResult] = await Promise.all([
+        supabase.from('session_journals').select('title, transcript').eq('id', sessionIdA).eq('user_id', req.user.id).single(),
+        supabase.from('categories').select('name, niche').eq('id', categoryId).single(),
+        supabase.from('session_journals').select('key_moments').eq('id', sessionIdA).single(),
+      ])
+      const sA = sAResult.data
+      const cat = catResult.data
+      const sessionMeta = sessionMetaResult.data
+      if (!sA?.transcript) throw new Error('Transcript not found')
+
+      function parseLines(transcript) {
+        return transcript.split('\n').map(line => {
+          const m = line.match(/^\[(\d+):(\d+)\]\s*(.*)/)
+          if (!m) return null
+          return { ms: (parseInt(m[1]) * 60 + parseInt(m[2])) * 1000, text: m[3].trim() }
+        }).filter(Boolean)
+      }
+      const allLines = parseLines(sA.transcript)
+
+      let transcriptSummary = ''
+      if (sessionMeta?.key_moments?.length) {
+        const momentTimecodes = sessionMeta.key_moments.map(k => {
+          const m = k.match(/(\d+):(\d+)/)
+          return m ? parseInt(m[1]) * 60000 + parseInt(m[2]) * 1000 : null
+        }).filter(Boolean)
+        const windows = []
+        for (const tcMs of momentTimecodes) {
+          const lines = allLines.filter(l => Math.abs(l.ms - tcMs) <= 15000)
+          if (lines.length) {
+            const min = Math.floor(tcMs / 60000), sec = Math.floor((tcMs % 60000) / 1000)
+            windows.push('--- MOMENT [' + min + ':' + String(sec).padStart(2,'0') + '] ---\n' +
+              lines.map(l => '  [' + Math.floor(l.ms/60000) + ':' + String(Math.floor((l.ms%60000)/1000)).padStart(2,'0') + '] ' + l.text).join('\n'))
+          }
+        }
+        transcriptSummary = windows.join('\n\n')
+      } else {
+        const step = Math.max(1, Math.floor(allLines.length / 10))
+        transcriptSummary = allLines.filter((_,i) => i % step === 0).slice(0, 10)
+          .map(l => '[' + Math.floor(l.ms/60000) + ':' + String(Math.floor((l.ms%60000)/1000)).padStart(2,'0') + '] ' + l.text).join('\n')
+      }
+
+      const fps = 24
+      const msToTC = (ms) => {
+        const f = Math.round(ms*fps/1000), ff=f%fps, ss=Math.floor(f/fps)%60, mm=Math.floor(f/fps/60)%60, hh=Math.floor(f/fps/3600)
+        return [hh,mm,ss,ff].map(n=>String(n).padStart(2,'0')).join(':')
+      }
+
+      const cutRes = await aiClient.messages.create({
+        model: process.env.CLAUDE_MODEL || 'claude-sonnet-4-5',
+        max_tokens: 800,
+        system: 'Find the best ' + targetSeconds + 's clip for ' + platform + '. Return ONLY valid JSON: {"startMs":number,"endMs":number,"reason":"string","hook":"string","caption":"string"}. hook=first 3 words. caption=5 word text overlay.',
+        messages: [{ role: 'user', content: 'Creator: "' + (cat?.name||'') + '". Niche: ' + (cat?.niche||'') + '.\nTarget: ' + targetSeconds + 's for ' + platform + '.\n\nMOMENTS:\n' + transcriptSummary + '\n\nFind the best clip.' }],
+      })
+
+      let clip = { startMs: 0, endMs: targetSeconds * 1000, reason: 'Best moment', hook: 'Watch this', caption: 'You need to see this' }
+      try { clip = JSON.parse((cutRes.content[0]?.text||'{}').replace(/```[a-z]*/g,'').replace(/```/g,'').trim()) } catch {}
+
+      const durMs = clip.endMs - clip.startMs
+      const title = sA.title || 'Short'
+      const filename = title.replace(/[^\w\s-]/g,'').replace(/\s+/g,'_').slice(0,40) + '_' + platform + '.edl'
+      const sanitiseReel = fn => (fn||'AX').replace(/\.[^.]+$/,'').replace(/[^a-zA-Z0-9_-]/g,'_').slice(0,32).padEnd(32)
+
+      let edl = 'TITLE: ' + title.slice(0,64) + '\nFCM: NON-DROP FRAME\n\n'
+      edl += '001  ' + sanitiseReel(clipNameA) + ' V   C        ' + msToTC(clip.startMs) + ' ' + msToTC(clip.endMs) + ' ' + msToTC(3600000) + ' ' + msToTC(3600000+durMs) + '\n'
+      edl += '* FROM CLIP NAME: ' + clipNameA + '\n'
+      edl += '* LOC: 01:00:00:00 WHITE  ' + (clip.reason||'Best moment') + '\n\n'
+      edl += '* Platform: ' + platform + '\n* Duration: ' + Math.round(durMs/1000) + 's\n* Hook: ' + clip.hook + '\n* Caption: ' + clip.caption + '\n'
+
+      const summary = JSON.stringify({ cutCount:1, totalMinutes: Math.round(durMs/60000*10)/10, filename, platform, hook: clip.hook, caption: clip.caption })
+      await shortsJobStore.set(jobId, { userId: req.user.id, status: 'done', edl, filename, summary })
+      console.log('[build-shorts-edl] done — ' + Math.round(durMs/1000) + 's at ' + Math.floor(clip.startMs/60000) + ':' + String(Math.floor((clip.startMs%60000)/1000)).padStart(2,'0'))
+    } catch (err) {
+      console.error('[build-shorts-edl]', err.message)
+      await shortsJobStore.update(jobId, { status: 'error', error: err.message })
+    }
+  })
+})
+
 router.post('/build-session-edl', async (req, res) => {
   const {
     categoryId,
