@@ -1198,13 +1198,19 @@ Return the complete JSON object with all arrays: cuts, voiceover, broll, sfx, ti
     let recMs = 3600000
 
     // Video cuts
+    // Audio always from camera clip (mic) — screen cuts get camera audio to keep dialogue continuous
+    const audioClipName = clipNameB || clipNameA
+    const audioReel     = sanitiseReel(audioClipName)
+
     cuts.forEach((cut, i) => {
-      const n        = String(i + 1).padStart(3, '0')
-      const clipName = cut.source === 'camera' ? clipNameB : clipNameA
-      const reel     = sanitiseReel(clipName)
-      const durMs    = cut.endMs - cut.startMs
-      edl += `${n}  ${reel} V   C        ${msToTC(cut.startMs)} ${msToTC(cut.endMs)} ${msToTC(recMs)} ${msToTC(recMs + durMs)}\n`
-      edl += `* FROM CLIP NAME: ${clipName}\n`
+      const n         = String(i + 1).padStart(3, '0')
+      const videoClip = cut.source === 'camera' ? clipNameB : clipNameA
+      const videoReel = sanitiseReel(videoClip)
+      const durMs     = cut.endMs - cut.startMs
+      edl += `${n}  ${videoReel} V   C        ${msToTC(cut.startMs)} ${msToTC(cut.endMs)} ${msToTC(recMs)} ${msToTC(recMs + durMs)}\n`
+      edl += `${n}  ${audioReel} AA  C        ${msToTC(cut.startMs)} ${msToTC(cut.endMs)} ${msToTC(recMs)} ${msToTC(recMs + durMs)}\n`
+      edl += `* FROM CLIP NAME: ${videoClip}\n`
+      if (cut.source === 'screen') edl += `* AUDIO FROM: ${audioClipName}\n`
       if (cut.reason) edl += `* LOC: ${msToTC(recMs)} WHITE  ${cut.reason}\n`
       edl += '\n'
       recMs += durMs
@@ -1348,9 +1354,82 @@ router.post('/edl-job/:jobId/approve-narrative', async (req, res) => {
   setImmediate(async () => {
     try {
       const updatedJob = await edlJobStore.get(req.params.jobId)
-      const { allLines, transcriptSummary, episodeContext, assetContext, audiencePain, title,
+      const { allLines, episodeContext, assetContext, audiencePain, title,
               clipNameA, clipNameB, targetMinutes, cat, categoryId, narrativePlan, voiceLines } = updatedJob
 
+      // Rebuild transcript for Pass 2 using ONLY the key moments the creator mapped.
+      // The full minute-block summary is too large — Claude runs out of context and
+      // starts inventing 1-minute-increment timestamps. Anchoring to mapped moments
+      // forces it to cut at real, meaningful points.
+      const keyMomentLines = (allLines || []).filter(line => {
+        // Keep lines within ±20s of any mapped narrative moment
+        const arcMoments = Object.values(narrativePlan?.narrativeArc || {})
+          .map(s => s.momentIndex)
+          .filter(i => typeof i === 'number')
+        // Also keep lines near the timestamps Claude will want: coldOpen, breakthroughs, energy peaks
+        const importantMs = [
+          ...(narrativePlan?.narrativeArc ? Object.values(narrativePlan.narrativeArc).map(s => {
+            // Convert momentIndex back to ms if possible
+            return null
+          }) : []),
+        ].filter(Boolean)
+        return true // pass all lines — we'll trim by density below
+      })
+
+      // Build a focused transcript: show every line but group tightly, max 3000 tokens
+      // Strategy: show full detail for minutes that contain key moments, sparse for others
+      const keyMinutes = new Set()
+      if (narrativePlan?.narrativeArc) {
+        // The narrative arc references moment indices — extract which minutes matter
+        Object.values(narrativePlan.narrativeArc).forEach(section => {
+          if (section.momentIndex !== undefined) {
+            // Add a range of minutes around each key moment
+            const momentMs = allLines?.[section.momentIndex]?.ms
+            if (momentMs) {
+              const m = Math.floor(momentMs / 60000)
+              for (let i = Math.max(0, m-1); i <= m+1; i++) keyMinutes.add(i)
+            }
+          }
+          if (section.momentIndices) {
+            section.momentIndices.forEach(idx => {
+              const momentMs = allLines?.[idx]?.ms
+              if (momentMs) {
+                const m = Math.floor(momentMs / 60000)
+                for (let i = Math.max(0, m-1); i <= m+1; i++) keyMinutes.add(i)
+              }
+            })
+          }
+        })
+      }
+
+      // Always include minute 0 and last 2 minutes
+      const totalMins = Math.floor((allLines?.[allLines.length-1]?.ms || 0) / 60000)
+      for (let i = 0; i <= Math.min(2, totalMins); i++) keyMinutes.add(i)
+      for (let i = Math.max(0, totalMins-2); i <= totalMins; i++) keyMinutes.add(i)
+
+      // Build minute blocks
+      const minuteBlocks = {}
+      for (const line of (allLines || [])) {
+        const min = Math.floor(line.ms / 60000)
+        if (!minuteBlocks[min]) minuteBlocks[min] = []
+        minuteBlocks[min].push(line)
+      }
+
+      // For key minutes: show all lines. For others: show only first line as summary
+      const transcriptSummary = Object.entries(minuteBlocks).map(([min, lines]) => {
+        const isKey = keyMinutes.has(parseInt(min))
+        if (isKey) {
+          const blockText = lines.map(l => {
+            const s = Math.floor((l.ms % 60000) / 1000)
+            return '  [' + min + ':' + String(s).padStart(2,'0') + '][' + (l.source||'screen') + '] ' + l.text
+          }).join('\n')
+          return '\n--- MINUTE ' + min + ' [KEY] ---\n' + blockText
+        } else {
+          const s = Math.floor((lines[0].ms % 60000) / 1000)
+          const extra = lines.length > 1 ? ' (+' + (lines.length-1) + ' more lines)' : ''
+          return '\n--- MINUTE ' + min + ' --- [' + min + ':' + String(s).padStart(2,'0') + '] ' + lines[0].text.slice(0, 80) + extra
+        }
+      }).join('\n')
       const narrativeContext = narrativePlan ? [
         'NARRATIVE ARC:', Object.entries(narrativePlan.narrativeArc || {}).map(([s,d]) => s.toUpperCase() + ': ' + d.purpose).join('\n'),
         'VO LINES:', (voiceLines?.voLines || []).map(v => v.section + ': "' + v.line + '"').join('\n'),
@@ -1445,7 +1524,7 @@ router.post('/edl-job/:jobId/build', async (req, res) => {
   const srcTC = (ms) => msToTC(ms + SRC_OFFSET_MS)
   const sanitiseReel = (fn) => (fn||'AX').replace(/\.[^.]+$/,'').replace(/[^a-zA-Z0-9_\-]/g,'_').slice(0,32).padEnd(32)
 
-  const title = job.sessionTitle || 'WhispaCuts Edit'
+  const title = job.narrativePlan?.episodeTitle || job.title || job.sessionTitle || 'WhispaCuts Edit'
   const clipNameA = job.clipNameA
   const clipNameB = job.clipNameB
   const voiceover = job.voiceover || []
@@ -1461,14 +1540,22 @@ router.post('/edl-job/:jobId/build', async (req, res) => {
   if (verifyNotes) edl += verifyNotes + '\n\n'
 
   let recMs = 3600000
+  // Audio always comes from the camera clip (mic source) regardless of video selection.
+  // Screen capture cuts use camera audio — this keeps dialogue continuous across cuts.
+  const audioClip = clipNameB || clipNameA
+  const audioReel = sanitiseReel(audioClip)
+
   cuts.forEach((cut,i) => {
     const n = String(i+1).padStart(3,'0')
-    const clipName = cut.source === 'camera' ? clipNameB : clipNameA
-    const reel = sanitiseReel(clipName)
+    const videoClip = cut.source === 'camera' ? clipNameB : clipNameA
+    const videoReel = sanitiseReel(videoClip)
     const durMs = cut.endMs - cut.startMs
-    edl += n + '  ' + reel + ' V   C        ' + srcTC(cut.startMs) + ' ' + srcTC(cut.endMs) + ' ' + msToTC(recMs) + ' ' + msToTC(recMs+durMs) + '\n'
-    edl += n + '  ' + reel + ' AA  C        ' + srcTC(cut.startMs) + ' ' + srcTC(cut.endMs) + ' ' + msToTC(recMs) + ' ' + msToTC(recMs+durMs) + '\n'
-    edl += '* FROM CLIP NAME: ' + clipName + '\n'
+    // Video track — from whichever source was selected
+    edl += n + '  ' + videoReel + ' V   C        ' + srcTC(cut.startMs) + ' ' + srcTC(cut.endMs) + ' ' + msToTC(recMs) + ' ' + msToTC(recMs+durMs) + '\n'
+    // Audio track — ALWAYS from camera clip to keep mic audio continuous
+    edl += n + '  ' + audioReel + ' AA  C        ' + srcTC(cut.startMs) + ' ' + srcTC(cut.endMs) + ' ' + msToTC(recMs) + ' ' + msToTC(recMs+durMs) + '\n'
+    edl += '* FROM CLIP NAME: ' + videoClip + '\n'
+    if (cut.source === 'screen') edl += '* AUDIO FROM: ' + audioClip + '\n'
     if (cut.reason) edl += '* LOC: ' + msToTC(recMs) + ' WHITE  [' + (cut.narrativeSection||'') + '] ' + cut.reason + '\n'
     edl += '\n'
     recMs += durMs
