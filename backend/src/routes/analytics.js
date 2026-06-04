@@ -104,7 +104,9 @@ router.get('/youtube/callback', async (req, res) => {
   }
 
   try {
+    console.log('[youtube/callback] exchanging code for tokens...')
     const tokens  = await ytOAuth.exchangeCode(code)
+    console.log('[youtube/callback] tokens received:', tokens ? 'yes' : 'no')
     await ytOAuth.storeTokens(userId, categoryId, tokens)
 
     const channel = await ytOAuth.getChannelInfo(tokens.access_token)
