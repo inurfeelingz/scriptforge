@@ -158,7 +158,7 @@ async function pullAnalyticsData(accessToken, startDate, endDate) {
       ids:        `channel==${channelId}`,
       startDate:  startDate || new Date(Date.now() - 90 * 86400000).toISOString().split('T')[0],
       endDate:    endDate   || new Date().toISOString().split('T')[0],
-      metrics:    'views,averageViewPercentage,estimatedMinutesWatched,averageViewDuration,impressionClickThroughRate',
+      metrics:    'views,averageViewPercentage,estimatedMinutesWatched,averageViewDuration',
       dimensions: 'video',
       sort:       '-views',
       maxResults: 50,
@@ -194,7 +194,7 @@ async function pullAnalyticsData(accessToken, startDate, endDate) {
       videoId,
       views:             parseInt(get('views') || '0'),
       avgViewPercentage: parseFloat(get('averageViewPercentage') || '0'),
-      ctr:               parseFloat(get('impressionClickThroughRate') || '0'),
+      ctr:               0, // impressionClickThroughRate not available in Analytics API
       avgViewDuration:   get('averageViewDuration') || '',
     }
   }).filter(v => v.title && v.title !== v.videoId)
