@@ -135,9 +135,14 @@ router.post('/youtube/pull', async (req, res) => {
     const accessToken = await ytOAuth.getValidToken(req.user.id, categoryId)
 
     const [videos, demographics, commentSentiment] = await Promise.all([
-      ytOAuth.pullAnalyticsData(accessToken),
+      ytOAuth.pullAnalyticsData(accessToken).catch(err => {
+        const detail = err.response?.data ? JSON.stringify(err.response.data) : err.message
+        console.error('[youtube/pull] Analytics data fetch failed:', detail)
+        throw err
+      }),
       ytOAuth.pullAudienceDemographics(accessToken).catch(err => {
-        console.warn('[youtube/pull] Demographics fetch failed (non-fatal):', err.message)
+        const detail = err.response?.data ? JSON.stringify(err.response.data) : err.message
+        console.warn('[youtube/pull] Demographics fetch failed (non-fatal):', detail)
         return null
       }),
       ytOAuth.pullCommentSentiment(accessToken).catch(err => {
