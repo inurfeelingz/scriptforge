@@ -8,13 +8,17 @@ const clipIndexer  = require('../../services/vision/clipIndexer')
 const visionMatcher = require('../../services/vision/visionMatcher')
 const timelineBuilder = require('../../services/vision/timelineBuilder')
 
-// Narrative services — loaded lazily to avoid crash if files missing
+// Narrative services — loaded lazily
 let narrativeArchitect = null
 let voiceEngineService = null
 let storyVerifier      = null
 try { narrativeArchitect = require('../../services/narrative/narrativeArchitect') } catch (e) { console.warn('[editor] narrativeArchitect not found:', e.message) }
 try { voiceEngineService = require('../../services/narrative/voiceEngine') }       catch (e) { console.warn('[editor] voiceEngine not found:', e.message) }
 try { storyVerifier      = require('../../services/narrative/storyVerifier') }     catch (e) { console.warn('[editor] storyVerifier not found:', e.message) }
+
+const { getStore }   = require('../../services/jobStore')
+const edlJobStore    = getStore('edl')
+const shortsJobStore = getStore('shorts')
 
 const router = express.Router()
 
@@ -698,9 +702,7 @@ router.post('/sync-audio', async (req, res) => {
     const linesB = parseLines(sB.transcript)
 
     if (linesA.length < 5 || linesB.length < 5) {
-      // Not enough transcript to sync — return 0 offset and let user proceed
-      console.log('[sync-audio] transcript too short, returning 0 offset')
-      return res.json({ offsetMs: 0, confidence: 0, summary: 'Could not sync — using 0 offset. If clips were recorded simultaneously this is correct.' })
+      return res.status(400).json({ error: 'Transcripts too short to sync — need at least 5 lines each' })
     }
 
     const wordsA = [], wordsB = []
@@ -754,41 +756,6 @@ router.post('/sync-audio', async (req, res) => {
 const Anthropic = require('@anthropic-ai/sdk')
 const aiClient  = new Anthropic.Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
-// ─── EDL JOB STORE ──────────────────────────────────────────────────────────
-
-// GET /api/editor/edl-job/:jobId — poll for EDL build status
-router.get('/edl-job/:jobId', async (req, res) => {
-  const job = await edlJobStore.get(req.params.jobId)
-  if (!job) return res.status(404).json({ error: 'Job not found or expired' })
-  if (job.userId !== req.user.id) return res.status(403).json({ error: 'Forbidden' })
-  if (job.status === 'processing') return res.json({ status: 'processing' })
-  if (job.status === 'narrative_review') {
-    return res.json({
-      status: 'narrative_review',
-      narrativePlan: job.narrativePlan,
-      voiceLines: job.voiceLines,
-    })
-  }
-  if (job.status === 'review') {
-    return res.json({
-      status: 'review',
-      cuts: job.cuts,
-      voiceover: job.voiceover,
-      clipNameA: job.clipNameA,
-      clipNameB: job.clipNameB,
-      verification: job.verification,
-      narrativePlan: job.narrativePlan,
-    })
-  }
-  if (job.status === 'done') {
-    res.setHeader('X-EDL-Summary', job.summary)
-    res.setHeader('Content-Type', 'text/plain; charset=utf-8')
-    res.setHeader('Content-Disposition', 'attachment; filename="' + job.filename + '"')
-    return res.send(job.edl)
-  }
-  return res.json({ status: 'error', error: job.error })
-})
-
 router.post('/build-session-edl', async (req, res) => {
   const {
     categoryId,
@@ -803,12 +770,6 @@ router.post('/build-session-edl', async (req, res) => {
 
   if (!categoryId || !sessionIdA) return res.status(400).json({ error: 'categoryId and sessionIdA required' })
 
-  // Return jobId immediately — EDL builds in background
-  const jobId = Date.now().toString(36) + Math.random().toString(36).slice(2, 6)
-  await edlJobStore.set(jobId, { userId: req.user.id, status: 'processing' })
-  res.status(202).json({ jobId, status: 'processing' })
-
-  setImmediate(async () => {
   try {
     const [{ data: sA }, sessionBResult, { data: cat }, chatHistory, plannedEpisode, assetsResult] = await Promise.all([
       supabase.from('session_journals').select('title, transcript').eq('id', sessionIdA).eq('user_id', req.user.id).single(),
@@ -849,8 +810,6 @@ router.post('/build-session-edl', async (req, res) => {
     const sB     = sessionBResult?.data || null
     const assets = assetsResult || []
     if (!sA?.transcript) return res.status(404).json({ error: 'Primary transcript not found' })
-    const title = sA.title || 'WhispaCuts Session Edit'
-
 
     // Extract episode structure from chat history
     const episodePlanMessages = (chatHistory || [])
@@ -890,71 +849,23 @@ router.post('/build-session-edl', async (req, res) => {
       ...linesB.map(l => ({ ...l, source: 'camera', clip: clipNameB })),
     ].sort((a, b) => a.ms - b.ms)
 
-    // Use key_moments if available — much more efficient than full transcript
-    // Fall back to evenly-spaced samples across the full transcript
-    const sessionMetaResult = await supabase
-      .from('session_journals')
-      .select('key_moments')
-      .eq('id', sessionIdA)
-      .single()
-    const sessionMeta = sessionMetaResult.data || null
-
-    let transcriptSummary = ''
-
-    if (sessionMeta?.key_moments?.length) {
-      // Use mapped moments as anchors, then pull 30s windows around each
-      const momentTimecodes = sessionMeta.key_moments.map(k => {
-        const m = k.match(/(\d+):(\d+)/)
-        return m ? parseInt(m[1]) * 60000 + parseInt(m[2]) * 1000 : null
-      }).filter(Boolean)
-
-      const windows = []
-      for (let mi = 0; mi < momentTimecodes.length; mi++) {
-        const tcMs    = momentTimecodes[mi]
-        const rawMoment = sessionMeta.key_moments[mi] || ''
-        const typeMatch = rawMoment.match(/\[(\w+)\]/)
-        const momentType = typeMatch ? typeMatch[1] : 'moment'
-        // Pull tight 8s window around the peak — 4s before, 4s after
-        const windowLines = allLines.filter(l => Math.abs(l.ms - tcMs) <= 4000)
-        // Plus 10s of context before for continuity
-        const contextLines = allLines.filter(l => l.ms >= tcMs - 14000 && l.ms < tcMs - 4000)
-        if (windowLines.length) {
-          const min = Math.floor(tcMs / 60000)
-          const sec = Math.floor((tcMs % 60000) / 1000)
-          const peakTC = min + ':' + String(sec).padStart(2,'0')
-          windows.push(
-            '--- ' + momentType.toUpperCase() + ' PEAK @ [' + peakTC + '] ---\n' +
-            '// CONTEXT (before peak):\n' +
-            contextLines.map(l => {
-              const s = Math.floor((l.ms % 60000) / 1000)
-              return '  [' + Math.floor(l.ms/60000) + ':' + String(s).padStart(2,'0') + '] ' + l.text
-            }).join('\n') +
-            '\n// PEAK WINDOW (cut here):\n' +
-            windowLines.map(l => {
-              const s = Math.floor((l.ms % 60000) / 1000)
-              return '  [' + Math.floor(l.ms/60000) + ':' + String(s).padStart(2,'0') + '] >>> ' + l.text + ' <<<'
-            }).join('\n')
-          )
-        }
-      }
-      transcriptSummary = windows.join('\n\n')
-    } else {
-      // No moments mapped — sample every 5 minutes
-      const minuteBlocks = {}
-      for (const line of allLines) {
-        const min = Math.floor(line.ms / 60000)
-        if (min % 5 !== 0) continue  // only every 5th minute
-        if (!minuteBlocks[min]) minuteBlocks[min] = []
-        minuteBlocks[min].push(line)
-      }
-      transcriptSummary = Object.entries(minuteBlocks).map(([min, lines]) => {
-        const blockText = lines.slice(0, 8).map(l => {
-          const s = Math.floor((l.ms % 60000) / 1000)
-          return '  [' + min + ':' + String(s).padStart(2,'0') + '][' + l.source + '] ' + l.text
-        }).join('\n')
-        return '\n--- MINUTE ' + min + ' ---\n' + blockText
-      }).join('\n')
+    // Send EVERY line — Claude needs full detail to make tight 15-45 second cuts
+    // Group into minute blocks so Claude can reason about what's happening when
+    const minuteBlocks = {}
+    for (const line of allLines) {
+      const min = Math.floor(line.ms / 60000)
+      if (!minuteBlocks[min]) minuteBlocks[min] = []
+      minuteBlocks[min].push(line)
     }
+
+    // Build transcript as minute-by-minute blocks — much easier for Claude to cut precisely
+    const transcriptSummary = Object.entries(minuteBlocks).map(([min, lines]) => {
+      const blockText = lines.map(l => {
+        const s = Math.floor((l.ms % 60000) / 1000)
+        return `  [${min}:${String(s).padStart(2,'0')}][${l.source}] ${l.text}`
+      }).join('\n')
+      return `\n--- MINUTE ${min} ---\n${blockText}`
+    }).join('\n')
 
     const audiencePain = cat?.audience_model?.geminiInsights?.psychographics?.corePainPoint || ''
 
@@ -989,6 +900,7 @@ ${
               .join('\n')
           }` : null,
     ].filter(Boolean).join('\n\n') : ''
+    const title = sA.title || 'WhispaCuts Session Edit'
 
     // ── PASS 1: Build narrative arc ───────────────────────────────────────────
     let narrativePlan = null
@@ -998,11 +910,8 @@ ${
       narrativePlan = await narrativeArchitect.buildNarrativeArc(req.user.id, categoryId, sessionIdA, { targetMinutes })
       voiceLines    = await voiceEngineService.generateCreatorVoiceLines(narrativePlan, cat?.voice_profile || {}, cat?.name)
       console.log('[build-session-edl] narrative arc built:', narrativePlan?.episodeTitle)
-
-      // Store for user review — pause here and wait for approval
       await edlJobStore.set(jobId, {
-        userId: req.user.id,
-        status: 'narrative_review',
+        userId: req.user.id, status: 'narrative_review',
         narrativePlan, voiceLines,
         sessionIdA, sessionIdB, categoryId,
         clipNameA, clipNameB, targetMinutes,
@@ -1010,33 +919,26 @@ ${
         episodeContext, assetContext, audiencePain, title,
       })
       console.log('[build-session-edl] job=' + jobId + ' waiting for narrative approval')
-      return  // Exit setImmediate — wait for user to approve narrative
+      return
     } catch (err) {
       console.warn('[build-session-edl] narrative pass failed, continuing without narrative:', err.message)
     }
 
     const narrativeContext = narrativePlan ? [
-      'NARRATIVE ARC — every cut must serve its section:',
-      Object.entries(narrativePlan.narrativeArc).map(([section, data]) =>
-        section.toUpperCase() + ' (' + data.durationSec + 's): ' + data.purpose + ' | Emotional target: ' + data.emotionalTarget
+      'NARRATIVE ARC:',
+      Object.entries(narrativePlan.narrativeArc || {}).map(([s, d]) =>
+        s.toUpperCase() + ' (' + d.durationSec + 's): ' + d.purpose
       ).join('\n'),
-      '',
       'EPISODE TITLE: ' + narrativePlan.episodeTitle,
-      'CENTRAL QUESTION: ' + narrativePlan.centralQuestion,
-      '',
-      'HOOK: ' + JSON.stringify(narrativePlan.hookStrategy),
-      'CAMERA: ' + JSON.stringify(narrativePlan.cameraStrategy),
-      '',
-      'VO LINES (written in creator voice — use exactly):',
-      (voiceLines?.voLines || []).map(v => v.section + ': "' + v.line + '"').join('\n'),
+      'VO LINES:', (voiceLines?.voLines || []).map(v => v.section + ': "' + v.line + '"').join('\n'),
     ].join('\n') : (episodeContext || 'No episode plan — cut for maximum retention.')
 
-    // ── PASS 2: Cut against the narrative ─────────────────────────────────────
+    // ── PASS 2: Cut against narrative ─────────────────────────────────────────
 
     const cutRes = await aiClient.messages.create({
       model:      process.env.CLAUDE_MODEL || 'claude-sonnet-4-5',
       max_tokens: 4000,
-      system: `You are a documentary video editor cutting against a pre-built narrative plan. Every cut serves a section of the story arc.
+      system: `You are a YouTube video editor making a documentary-style creator video.
 Output ONLY valid JSON object — no preamble, no markdown.
 Format:
 {
@@ -1051,17 +953,11 @@ Format:
 CUTTING RULES:
 - Target exactly ${targetMinutes} minutes total (${targetMinutes * 60000}ms)
 - Each cut is exactly 8 seconds. endMs = startMs + 8000.
-- Every cut must serve its narrativeSection — label each cut with which section it belongs to
-- Cuts must set each other up — Cut 3 should make Cut 7 land harder
-- CAMERA SELECTION RULES (both clips have same audio — choose based on CONTENT not source):
-  - screen: anything about the DAW, beat, scrolling, clicking, software, screen activity, "look at this", "I found", "check this out"
-  - camera: reactions, emotions, declarations, "I feel", "this is crazy", laughter, frustration, breakthroughs, talking directly to viewer
-  - When in doubt about a transition or bridge moment: camera
-  - Never alternate randomly — every source choice must be justified by what is being said or done
-- Cut INTO the action — start 1-2 seconds before the peak moment, not at the beginning of a sentence.
-- Cut OUT on the peak — reaction, punchline, decision moment. Never cut mid-ramble.
-- You are DISCARDING most of the footage — keep roughly 8%, throw away 92%.
-- Be brutal. If a moment is not immediately interesting, cut it.
+- CAMERA SELECTION (same audio on both clips — choose by content):
+  screen: DAW, beat, scrolling, software, "look at this", "I found"
+  camera: reactions, emotions, declarations, "I feel", breakthroughs, talking to viewer
+- Be brutal: keep only 8% of footage
+- You are DISCARDING most of the footage — keep roughly 13%, throw away 87%.
 - Cut mid-sentence if needed. Never include: setup, troubleshooting, waiting, silence, repeated takes, filler.
 - Always include: moments something clicks, energy spikes, key decisions, peak performances, best takes.
 - Cold open: start with the most exciting moment — not minute 0.
@@ -1098,7 +994,7 @@ CHAPTER MARKER RULES:
         content: `Creator: "${cat?.name}". Niche: ${cat?.niche}.${audiencePain ? ` Audience: ${audiencePain}.` : ''}
 Target: exactly ${targetMinutes} minutes.
 
-${narrativeContext}
+${episodeContext || 'No episode plan — cut for maximum retention, discard everything slow.'}
 
 ${assetContext || 'No assets uploaded yet — skip broll, sfx, leave those arrays empty.'}
 
@@ -1123,31 +1019,13 @@ Return the complete JSON object with all arrays: cuts, voiceover, broll, sfx, ti
     // ── PASS 3: Story Verifier ─────────────────────────────────────────────
     let verification = null
     try {
-      if (!storyVerifier) throw new Error('Story verifier not available')
-      verification = await storyVerifier.verifyAndPolish(
-        req.user.id, categoryId, narrativePlan,
-        { cuts: result.cuts || [] },
-        voiceLines
+      if (storyVerifier) verification = await storyVerifier.verifyAndPolish(
+        req.user.id, categoryId, narrativePlan, { cuts: result.cuts || [] }, voiceLines
       )
-      console.log('[build-session-edl] story verification done — stickiness:', verification?.overallScore?.stickiness)
-
-      // Auto-implement small fixes from Pass 3
-      if (verification?.autoImplementable?.length) {
-        for (const fix of verification.autoImplementable) {
-          if (fix.type === 'trim' && fix.cutIndex < (result.cuts || []).length) {
-            const cut = result.cuts[fix.cutIndex]
-            if (fix.action === 'trim_end') cut.endMs = Math.max(cut.startMs + 2000, cut.endMs - parseInt(fix.value || 2000))
-            if (fix.action === 'trim_start') cut.startMs = Math.min(cut.endMs - 2000, cut.startMs + parseInt(fix.value || 2000))
-          }
-          if (fix.type === 'addTitle' && fix.action) {
-            result.titles = result.titles || []
-            result.titles.push({ recMs: 3600000, text: fix.action, style: 'lower_third', durationMs: 3000 })
-          }
-        }
-      }
     } catch (err) {
       console.warn('[build-session-edl] Pass 3 skipped:', err.message)
     }
+
 
     const cuts      = result.cuts      || []
     const voiceover = result.voiceover || []
@@ -1160,7 +1038,6 @@ Return the complete JSON object with all arrays: cuts, voiceover, broll, sfx, ti
 
     // Use fps from request or default to 24 (most modern cameras/phones)
     const fps = req.body.fps || 24
-    const SRC_OFFSET_MS = 3600000  // clips start at 01:00:00:00
     const msToTC = (ms) => {
       const totalFrames = Math.round(ms * fps / 1000)
       const ff = totalFrames % fps
@@ -1169,19 +1046,12 @@ Return the complete JSON object with all arrays: cuts, voiceover, broll, sfx, ti
       const hh = Math.floor(totalFrames / fps / 3600)
       return [hh, mm, ss, ff].map(n => String(n).padStart(2, '0')).join(':')
     }
-    const srcTC = (ms) => msToTC(ms + SRC_OFFSET_MS)  // source timecode with 1hr offset
 
     function sanitiseReel(filename) {
       return (filename || 'AX').replace(/\.[^.]+$/, '').replace(/[^a-zA-Z0-9_\-]/g, '_').slice(0, 32).padEnd(32)
     }
 
-    const verifyNotes = verification ? [
-      '* STORY SCORE: Stickiness ' + (verification.overallScore?.stickiness || '?') + '/10 | Virality ' + (verification.overallScore?.virality || '?') + '/10 | Polish ' + (verification.overallScore?.polish || '?') + '/10',
-      '* PREDICTED RETENTION: ' + (verification.overallScore?.predictedAvgRetention || '?') + '%',
-      verification.priorityFixes?.[0] ? '* TOP FIX: [' + verification.priorityFixes[0].timecode + '] ' + verification.priorityFixes[0].fix : null,
-      verification.viralityAnalysis?.shareableMoments?.[0] ? '* BEST SHAREABLE MOMENT: ' + verification.viralityAnalysis.shareableMoments[0].timecode + ' — ' + verification.viralityAnalysis.shareableMoments[0].moment : null,
-    ].filter(Boolean).join('\n') : ''
-    let edl = `TITLE: ${title.replace(/[^\x20-\x7E]/g, '_').slice(0, 64)}\nFCM: NON-DROP FRAME\n\n` + (verifyNotes ? verifyNotes + '\n\n' : '')
+    let edl = `TITLE: ${title.replace(/[^\x20-\x7E]/g, '_').slice(0, 64)}\nFCM: NON-DROP FRAME\n\n`
     let recMs = 3600000
 
     // Video cuts
@@ -1190,8 +1060,7 @@ Return the complete JSON object with all arrays: cuts, voiceover, broll, sfx, ti
       const clipName = cut.source === 'camera' ? clipNameB : clipNameA
       const reel     = sanitiseReel(clipName)
       const durMs    = cut.endMs - cut.startMs
-      edl += `${n}  ${reel} V   C        ${srcTC(cut.startMs)} ${srcTC(cut.endMs)} ${msToTC(recMs)} ${msToTC(recMs + durMs)}\n`
-      edl += `${n}  ${reel} AA  C        ${srcTC(cut.startMs)} ${srcTC(cut.endMs)} ${msToTC(recMs)} ${msToTC(recMs + durMs)}\n`
+      edl += `${n}  ${reel} V   C        ${msToTC(cut.startMs)} ${msToTC(cut.endMs)} ${msToTC(recMs)} ${msToTC(recMs + durMs)}\n`
       edl += `* FROM CLIP NAME: ${clipName}\n`
       if (cut.reason) edl += `* LOC: ${msToTC(recMs)} WHITE  ${cut.reason}\n`
       edl += '\n'
@@ -1272,11 +1141,7 @@ Return the complete JSON object with all arrays: cuts, voiceover, broll, sfx, ti
       edl += '\n'
     }
 
-    const episodeName = plannedEpisode?.track_name || null
-    const edlName    = episodeName
-      ? episodeName.replace(/[^\w\s-]/g, '').replace(/\s+/g, '_').slice(0, 50)
-      : title.replace(/[^\w\s-]/g, '').replace(/\s+/g, '_').slice(0, 50)
-    const filename = edlName + '_edit.edl'
+    const filename = `${title.replace(/[^\w\s-]/g, '').replace(/\s+/g, '_').slice(0, 50)}_edit.edl`
 
     try {
       await supabase.from('edl_exports').insert({
@@ -1288,7 +1153,9 @@ Return the complete JSON object with all arrays: cuts, voiceover, broll, sfx, ti
       })
     } catch {} // non-fatal — EDL is returned regardless
 
-    const summaryObj = {
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8')
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`)
+    res.setHeader('X-EDL-Summary', JSON.stringify({
       cutCount:        cuts.length,
       voiceoverCount:  voiceover.length,
       brollCount:      broll.length,
@@ -1308,299 +1175,68 @@ Return the complete JSON object with all arrays: cuts, voiceover, broll, sfx, ti
         const ss     = String(secs).padStart(2, '0')
         return { time: hh + ':' + mm + ':' + ss, label: c.label }
       }),
-    }
-    await edlJobStore.set(jobId, {
-      userId: req.user.id,
-      status: 'review',
-      cuts, voiceover, broll, sfx, titles, chapters,
-      clipNameA, clipNameB,
-      sessionTitle: title,
-      filename, summaryObj, verification, narrativePlan,
-    })
-    console.log('[build-session-edl] job=' + jobId + ' ready for review — ' + cuts.length + ' cuts')
+    }))
+    res.send(edl)
 
   } catch (err) {
     console.error('[editor/build-session-edl]', err.message)
-    await edlJobStore.update(jobId, { status: 'error', error: err.message })
+    res.status(500).json({ error: err.message })
   }
-  }) // end setImmediate
 })
-
-
-// ─── SHORTS EDL ──────────────────────────────────────────────────────────────
-// POST /api/editor/build-shorts-edl
-// Same as build-session-edl but targets 60s (TikTok) or 90s (YouTube Shorts)
-// Async job pattern — returns jobId immediately
-
-
-router.get('/shorts-job/:jobId', async (req, res) => {
-  const job = await shortsJobStore.get(req.params.jobId)
-  if (!job) return res.status(404).json({ error: 'Job not found or expired' })
-  if (job.userId !== req.user.id) return res.status(403).json({ error: 'Forbidden' })
-  if (job.status === 'processing') return res.json({ status: 'processing' })
-  if (job.status === 'done') {
-    res.setHeader('X-EDL-Summary', job.summary)
-    res.setHeader('Content-Type', 'text/plain; charset=utf-8')
-    res.setHeader('Content-Disposition', 'attachment; filename="' + job.filename + '"')
-    return res.send(job.edl)
-  }
-  return res.json({ status: 'error', error: job.error })
-})
-
-router.post('/build-shorts-edl', async (req, res) => {
-  const {
-    categoryId,
-    sessionIdA,
-    clipNameA     = 'SCREEN_CAPTURE.mp4',
-    targetSeconds = 60,   // 60 for TikTok, 90 for YouTube Shorts
-    platform      = 'tiktok',
-  } = req.body
-
-  if (!categoryId || !sessionIdA) return res.status(400).json({ error: 'categoryId and sessionIdA required' })
-
-  const jobId = Date.now().toString(36) + Math.random().toString(36).slice(2, 6)
-  await shortsJobStore.set(jobId, { userId: req.user.id, status: 'processing' })
-  res.status(202).json({ jobId, status: 'processing' })
-
-  setImmediate(async () => {
-    try {
-      const [sAResult, catResult, sessionMetaResult] = await Promise.all([
-        supabase.from('session_journals').select('title, transcript').eq('id', sessionIdA).eq('user_id', req.user.id).single(),
-        supabase.from('categories').select('name, niche').eq('id', categoryId).single(),
-        supabase.from('session_journals').select('key_moments').eq('id', sessionIdA).single(),
-      ])
-
-      const sA         = sAResult.data
-      const cat        = catResult.data
-      const sessionMeta = sessionMetaResult.data
-
-      if (!sA?.transcript) throw new Error('Transcript not found')
-
-      function parseLines(transcript) {
-        return transcript.split('\n').map(line => {
-          const m = line.match(/^\[(\d+):(\d+)\]\s*(.*)/)
-          if (!m) return null
-          return { ms: (parseInt(m[1]) * 60 + parseInt(m[2])) * 1000, text: m[3].trim() }
-        }).filter(Boolean)
-      }
-
-      const allLines = parseLines(sA.transcript)
-
-      // Use key moments to find the best 60-90 second window
-      let transcriptSummary = ''
-      if (sessionMeta?.key_moments?.length) {
-        const momentTimecodes = sessionMeta.key_moments.map(k => {
-          const m = k.match(/(\d+):(\d+)/)
-          return m ? parseInt(m[1]) * 60000 + parseInt(m[2]) * 1000 : null
-        }).filter(Boolean)
-
-        const windows = []
-        for (const tcMs of momentTimecodes) {
-          const windowLines = allLines.filter(l => Math.abs(l.ms - tcMs) <= 15000)
-          if (windowLines.length) {
-            const min = Math.floor(tcMs / 60000)
-            const sec = Math.floor((tcMs % 60000) / 1000)
-            windows.push('--- MOMENT [' + min + ':' + String(sec).padStart(2,'0') + '] ---\n' +
-              windowLines.map(l => {
-                const s = Math.floor((l.ms % 60000) / 1000)
-                return '  [' + Math.floor(l.ms/60000) + ':' + String(s).padStart(2,'0') + '] ' + l.text
-              }).join('\n'))
-          }
-        }
-        transcriptSummary = windows.join('\n\n')
-      } else {
-        // Sample 10 evenly spaced moments
-        const step = Math.floor(allLines.length / 10)
-        transcriptSummary = allLines.filter((_, i) => i % step === 0).slice(0, 10).map(l => {
-          const min = Math.floor(l.ms / 60000)
-          const sec = Math.floor((l.ms % 60000) / 1000)
-          return '[' + min + ':' + String(sec).padStart(2,'0') + '] ' + l.text
-        }).join('\n')
-      }
-
-      const fps = 24
-      const msToTC = (ms) => {
-        const totalFrames = Math.round(ms * fps / 1000)
-        const ff = totalFrames % fps
-        const ss = Math.floor(totalFrames / fps) % 60
-        const mm = Math.floor(totalFrames / fps / 60) % 60
-        const hh = Math.floor(totalFrames / fps / 3600)
-        return [hh, mm, ss, ff].map(n => String(n).padStart(2, '0')).join(':')
-      }
-
-      const cutRes = await aiClient.messages.create({
-        model:      process.env.CLAUDE_MODEL || 'claude-sonnet-4-5',
-        max_tokens: 1500,
-        system: 'You are a short-form video editor. Find the single best ' + targetSeconds + '-second clip from this transcript for ' + platform + '. Return ONLY valid JSON: { "startMs": number, "endMs": number, "reason": string, "hook": string, "caption": string }. hook is the first 3 words viewers see. caption is a 5-word on-screen text. Pick the most energetic, emotional or surprising moment.',
-        messages: [{ role: 'user', content: 'Creator: "' + (cat?.name || '') + '". Niche: ' + (cat?.niche || '') + '.\nTarget: ' + targetSeconds + ' seconds for ' + platform + '.\n\nTRANSCRIPT MOMENTS:\n' + transcriptSummary + '\n\nFind the best ' + targetSeconds + 's clip.' }],
-      })
-
-      let clip = { startMs: 0, endMs: targetSeconds * 1000, reason: 'Best moment', hook: 'Watch this', caption: 'You need to see this' }
-      try {
-        clip = JSON.parse((cutRes.content[0]?.text || '{}').replace(/```[a-z]*/g, '').replace(/```/g, '').trim())
-      } catch {}
-
-      const durMs    = clip.endMs - clip.startMs
-      const title    = sA.title || 'Short'
-      const filename = title.replace(/[^\w\s-]/g, '').replace(/\s+/g, '_').slice(0, 40) + '_' + platform + '.edl'
-
-      const sanitiseReel = (fn) => (fn || 'AX').replace(/\.[^.]+$/, '').replace(/[^a-zA-Z0-9_\-]/g, '_').slice(0, 32).padEnd(32)
-      const reel = sanitiseReel(clipNameA)
-
-      let edl = 'TITLE: ' + title.slice(0, 64) + '\nFCM: NON-DROP FRAME\n\n'
-      edl += '001  ' + reel + ' V   C        ' + msToTC(clip.startMs) + ' ' + msToTC(clip.endMs) + ' ' + msToTC(3600000) + ' ' + msToTC(3600000 + durMs) + '\n'
-      edl += '* FROM CLIP NAME: ' + clipNameA + '\n'
-      edl += '* LOC: 01:00:00:00 WHITE  ' + (clip.reason || 'Best moment') + '\n\n'
-      edl += '* ─── SHORTS NOTES ───────────────────────────────────────────\n'
-      edl += '* Platform: ' + platform + '\n'
-      edl += '* Duration: ' + Math.round(durMs / 1000) + 's\n'
-      edl += '* Hook: ' + clip.hook + '\n'
-      edl += '* Caption: ' + clip.caption + '\n'
-
-      const summary = JSON.stringify({ cutCount: 1, totalMinutes: Math.round(durMs / 60000 * 10) / 10, filename, platform, hook: clip.hook, caption: clip.caption })
-
-      await shortsJobStore.set(jobId, {
-        userId: req.user.id,
-        status: 'done', edl, filename, summary,
-      })
-      console.log('[build-shorts-edl] job=' + jobId + ' done — ' + Math.round(durMs/1000) + 's clip at ' + Math.floor(clip.startMs/60000) + ':' + String(Math.floor((clip.startMs%60000)/1000)).padStart(2,'0'))
-
-    } catch (err) {
-      console.error('[build-shorts-edl]', err.message)
-      await shortsJobStore.update(jobId, { status: 'error', error: err.message })
-    }
-  })
-})
-
 
 
 // POST /api/editor/edl-job/:jobId/approve-narrative
-// User approves (or edits) the narrative plan — triggers Pass 2+3
 router.post('/edl-job/:jobId/approve-narrative', async (req, res) => {
   const job = await edlJobStore.get(req.params.jobId)
   if (!job) return res.status(404).json({ error: 'Job not found or expired' })
   if (job.userId !== req.user.id) return res.status(403).json({ error: 'Forbidden' })
   if (job.status !== 'narrative_review') return res.status(400).json({ error: 'Job not in narrative review state' })
-
   try {
     const { approvedPlan, approvedVoiceLines } = req.body
     const narrativePlan = approvedPlan || job.narrativePlan
     const voiceLines    = approvedVoiceLines || job.voiceLines
-
-    job.status        = 'processing'
-    job.narrativePlan = narrativePlan
-    job.voiceLines    = voiceLines
-
+    await edlJobStore.set(req.params.jobId, { ...job, status: 'processing', narrativePlan, voiceLines })
     res.json({ status: 'processing', message: 'Narrative approved — building cuts now' })
   } catch (e) {
     if (!res.headersSent) return res.status(500).json({ error: e.message })
     return
   }
-
-  // Continue with Pass 2+3 using the (possibly edited) narrative plan
   setImmediate(async () => {
     try {
+      const updatedJob = await edlJobStore.get(req.params.jobId)
       const { allLines, transcriptSummary, episodeContext, assetContext, audiencePain, title,
-              clipNameA, clipNameB, targetMinutes, cat, categoryId, sessionIdA } = job
+              clipNameA, clipNameB, targetMinutes, cat, categoryId, narrativePlan, voiceLines } = updatedJob
 
       const narrativeContext = narrativePlan ? [
-        'NARRATIVE ARC — every cut must serve its section:',
-        Object.entries(narrativePlan.narrativeArc).map(([section, data]) =>
-          section.toUpperCase() + ' (' + data.durationSec + 's): ' + data.purpose + ' | Emotional target: ' + data.emotionalTarget
-        ).join('\n'),
-        '',
-        'EPISODE TITLE: ' + narrativePlan.episodeTitle,
-        'CENTRAL QUESTION: ' + narrativePlan.centralQuestion,
-        '',
-        'HOOK: ' + JSON.stringify(narrativePlan.hookStrategy),
-        'CAMERA: ' + JSON.stringify(narrativePlan.cameraStrategy),
-        '',
-        'VO LINES (written in creator voice — use exactly):',
-        (voiceLines?.voLines || []).map(v => v.section + ': "' + v.line + '"').join('\n'),
+        'NARRATIVE ARC:', Object.entries(narrativePlan.narrativeArc || {}).map(([s,d]) => s.toUpperCase() + ': ' + d.purpose).join('\n'),
+        'VO LINES:', (voiceLines?.voLines || []).map(v => v.section + ': "' + v.line + '"').join('\n'),
       ].join('\n') : (episodeContext || 'Cut for maximum retention.')
 
       const cutRes = await aiClient.messages.create({
-        model:      process.env.CLAUDE_MODEL || 'claude-sonnet-4-5',
+        model: process.env.CLAUDE_MODEL || 'claude-sonnet-4-5',
         max_tokens: 4000,
-        system: `You are a documentary video editor cutting against a pre-built narrative plan. Every cut serves a section of the story arc.
-Output ONLY valid JSON object — no preamble, no markdown.
-Format:
-{
-  "cuts": [{"startMs":number,"endMs":number,"source":"screen"|"camera","narrativeSection":"coldOpen|setup|incitingIncident|struggle|breakthrough|resolution|outro","reason":"why this moment serves the narrative","emotionalPurpose":"string"}],
-  "voiceover": [{"recMs":number,"label":"VO_01","line":"the actual VO line to record","durationMs":number,"narrativeSection":"string"}],
-  "broll": [{"recMs":number,"filename":"exact_filename.mp4","durationMs":number,"reason":"why"}],
-  "sfx": [{"recMs":number,"filename":"exact_filename.mp3","reason":"what this punctuates"}],
-  "titles": [{"recMs":number,"text":"title card text","style":"lower_third"|"full_screen"|"caption","durationMs":number}],
-  "chapters": [{"recMs":number,"label":"chapter name"}]
-}
-
-CUTTING RULES:
-- Target exactly ${targetMinutes} minutes total (${targetMinutes * 60000}ms)
-- Each cut is exactly 8 seconds. endMs = startMs + 8000.
-- Every cut must serve its narrativeSection — label each cut with which section it belongs to
-- Cuts must set each other up — Cut 3 should make Cut 7 land harder
-- CAMERA SELECTION based on content: screen=DAW/beat/scrolling/software/process, camera=reactions/emotions/declarations/talking to viewer
-- Be brutal: 8% of footage maximum`,
-        messages: [{
-          role: 'user',
-          content: `Creator: "${cat?.name}". Niche: ${cat?.niche}.${audiencePain ? ` Audience: ${audiencePain}.` : ''}
-Target: exactly ${targetMinutes} minutes.
-
-${narrativeContext}
-
-${assetContext || 'No assets — leave broll and sfx arrays empty.'}
-
-TRANSCRIPT MOMENTS:
-${transcriptSummary}
-
-Cut against the narrative arc. Every clip serves a section. Return complete JSON.`,
-        }],
+        system: 'You are a documentary video editor cutting against a narrative plan. Output ONLY valid JSON: {"cuts":[{"startMs":number,"endMs":number,"source":"screen|camera","narrativeSection":"coldOpen|setup|struggle|breakthrough|resolution","reason":"string"}],"voiceover":[{"recMs":number,"label":"VO_01","line":"string","durationMs":number}],"broll":[],"sfx":[],"titles":[],"chapters":[]}. Each cut exactly 8s. screen=DAW/process, camera=reactions/emotions/talking. Keep 8% of footage.',
+        messages: [{ role: 'user', content: 'Creator: "' + (cat?.name||'') + '". Niche: ' + (cat?.niche||'') + '.\nTarget: ' + targetMinutes + ' minutes.\n\n' + narrativeContext + '\n\n' + (assetContext||'No assets.') + '\n\nTRANSCRIPT:\n' + transcriptSummary + '\n\nReturn complete JSON.' }],
       })
 
       let result = { cuts: [], voiceover: [], broll: [], sfx: [], titles: [], chapters: [] }
-      try {
-        result = JSON.parse((cutRes.content[0]?.text || '{}').replace(/```json|```/g, '').trim())
-      } catch {
-        try { result.cuts = JSON.parse((cutRes.content[0]?.text || '[]').replace(/```json|```/g, '').trim()) } catch {}
-      }
+      try { result = JSON.parse((cutRes.content[0]?.text||'{}').replace(/\`\`\`json|\`\`\`/g,'').trim()) } catch {}
 
-      // Pass 3: Story Verifier
       let verification = null
-      try {
-        if (storyVerifier) verification = await storyVerifier.verifyAndPolish(req.user.id, categoryId, narrativePlan, { cuts: result.cuts || [] }, voiceLines)
-        if (verification?.autoImplementable?.length) {
-          for (const fix of verification.autoImplementable) {
-            if (fix.type === 'trim' && fix.cutIndex < (result.cuts || []).length) {
-              const cut = result.cuts[fix.cutIndex]
-              if (fix.action === 'trim_end') cut.endMs = Math.max(cut.startMs + 2000, cut.endMs - parseInt(fix.value || 2000))
-            }
-          }
-        }
-      } catch (err) {
-        console.warn('[approve-narrative] Pass 3 skipped:', err.message)
-      }
+      try { if (storyVerifier) verification = await storyVerifier.verifyAndPolish(updatedJob.userId, categoryId, narrativePlan, { cuts: result.cuts||[] }, voiceLines) } catch {}
 
-      const cuts      = result.cuts      || []
-      const voiceover = (voiceLines?.voLines || []).map((v, i) => ({
-        recMs: 3600000 + Math.round((targetMinutes * 60000) * i / Math.max(1, (voiceLines?.voLines?.length || 1))),
-        label: 'VO_' + String(i+1).padStart(2,'0'),
-        line:  v.line,
-        durationMs: Math.round((v.line.split(' ').length / 130) * 60000),
-        narrativeSection: v.section,
-      })).concat(result.voiceover || [])
+      const cuts = result.cuts || []
+      const voiceover = (voiceLines?.voLines || []).map((v,i) => ({
+        recMs: 3600000 + Math.round((targetMinutes*60000)*i/Math.max(1,voiceLines.voLines.length)),
+        label: 'VO_' + String(i+1).padStart(2,'0'), line: v.line,
+        durationMs: Math.round((v.line.split(' ').length/130)*60000), narrativeSection: v.section,
+      })).concat(result.voiceover||[])
 
-      const summaryObjApproved = { cutCount: cuts.length, totalMinutes: targetMinutes, filename: title.replace(/[^\w\s-]/g, '').replace(/\s+/g, '_').slice(0, 50) + '_edit.edl' }
+      const filename = title.replace(/[^\w\s-]/g,'').replace(/\s+/g,'_').slice(0,50) + '_edit.edl'
       await edlJobStore.set(req.params.jobId, {
-        ...job,
-        status: 'review',
-        cuts, voiceover,
-        broll:    result.broll    || [],
-        sfx:      result.sfx      || [],
-        titles:   result.titles   || [],
-        chapters: result.chapters || [],
-        verification,
-        summaryObj: summaryObjApproved,
-        filename: summaryObjApproved.filename,
+        ...updatedJob, status: 'review', cuts, voiceover,
+        broll: result.broll||[], sfx: result.sfx||[], titles: result.titles||[], chapters: result.chapters||[],
+        verification, summaryObj: { cutCount: cuts.length, totalMinutes: targetMinutes, filename }, filename,
       })
       console.log('[approve-narrative] ready for cut review — ' + cuts.length + ' cuts')
     } catch (err) {
@@ -1611,95 +1247,77 @@ Cut against the narrative arc. Every clip serves a section. Return complete JSON
 })
 
 // POST /api/editor/edl-job/:jobId/build
-// User submits their clip selections — backend assembles final EDL
 router.post('/edl-job/:jobId/build', async (req, res) => {
   const job = await edlJobStore.get(req.params.jobId)
   if (!job) return res.status(404).json({ error: 'Job not found or expired' })
   if (job.userId !== req.user.id) return res.status(403).json({ error: 'Forbidden' })
   if (job.status !== 'review') return res.status(400).json({ error: 'Job not in review state' })
-
-  const { selections } = req.body  // Array of { cutIndex, source: 'screen'|'camera' }
+  const { selections } = req.body
   if (!selections?.length) return res.status(400).json({ error: 'No selections provided' })
 
-  // Apply user selections to cuts
-  const cuts      = job.cuts.map((cut, i) => {
+  const cuts = (job.cuts||[]).map((cut,i) => {
     const sel = selections.find(s => s.cutIndex === i)
     return sel ? { ...cut, source: sel.source } : cut
   })
-  const voiceover = job.voiceover || []
-  const broll     = job.broll     || []
-  const sfx       = job.sfx       || []
-  const titles    = job.titles    || []
-  const chapters  = job.chapters  || []
-  const clipNameA = job.clipNameA
-  const clipNameB = job.clipNameB
-  const filename  = job.filename
-  const summaryObj = job.summaryObj || {}
-  const verification = job.verification
-  const title     = job.sessionTitle || 'WhispaCuts Edit'
-
   const fps = 24
   const SRC_OFFSET_MS = 3600000
   const msToTC = (ms) => {
-    const totalFrames = Math.round(ms * fps / 1000)
-    const ff = totalFrames % fps
-    const ss = Math.floor(totalFrames / fps) % 60
-    const mm = Math.floor(totalFrames / fps / 60) % 60
-    const hh = Math.floor(totalFrames / fps / 3600)
-    return [hh, mm, ss, ff].map(n => String(n).padStart(2, '0')).join(':')
+    const f = Math.round(ms*fps/1000), ff=f%fps, ss=Math.floor(f/fps)%60, mm=Math.floor(f/fps/60)%60, hh=Math.floor(f/fps/3600)
+    return [hh,mm,ss,ff].map(n=>String(n).padStart(2,'0')).join(':')
   }
   const srcTC = (ms) => msToTC(ms + SRC_OFFSET_MS)
-  const sanitiseReel = (fn) => (fn || 'AX').replace(/\.[^.]+$/, '').replace(/[^a-zA-Z0-9_\-]/g, '_').slice(0, 32).padEnd(32)
+  const sanitiseReel = (fn) => (fn||'AX').replace(/\.[^.]+$/,'').replace(/[^a-zA-Z0-9_\-]/g,'_').slice(0,32).padEnd(32)
+
+  const title = job.sessionTitle || 'WhispaCuts Edit'
+  const clipNameA = job.clipNameA
+  const clipNameB = job.clipNameB
+  const voiceover = job.voiceover || []
+  const verification = job.verification
 
   const verifyNotes = verification ? [
-    '* STORY SCORE: Stickiness ' + (verification.overallScore?.stickiness || '?') + '/10 | Virality ' + (verification.overallScore?.virality || '?') + '/10 | Polish ' + (verification.overallScore?.polish || '?') + '/10',
-    '* PREDICTED RETENTION: ' + (verification.overallScore?.predictedAvgRetention || '?') + '%',
-    verification.priorityFixes?.[0] ? '* TOP FIX: [' + verification.priorityFixes[0].timecode + '] ' + verification.priorityFixes[0].fix : null,
+    '* STORY SCORE: Stickiness ' + (verification.overallScore?.stickiness||'?') + '/10 | Virality ' + (verification.overallScore?.virality||'?') + '/10',
+    '* PREDICTED RETENTION: ' + (verification.overallScore?.predictedAvgRetention||'?') + '%',
+    verification.priorityFixes?.[0] ? '* TOP FIX: ' + verification.priorityFixes[0].fix : null,
   ].filter(Boolean).join('\n') : ''
 
-  let edl = 'TITLE: ' + title.replace(/[^\x20-\x7E]/g, '_').slice(0, 64) + '\nFCM: NON-DROP FRAME\n\n'
+  let edl = 'TITLE: ' + title.replace(/[^\x20-\x7E]/g,'_').slice(0,64) + '\nFCM: NON-DROP FRAME\n\n'
   if (verifyNotes) edl += verifyNotes + '\n\n'
 
   let recMs = 3600000
-  cuts.forEach((cut, i) => {
-    const n        = String(i + 1).padStart(3, '0')
+  cuts.forEach((cut,i) => {
+    const n = String(i+1).padStart(3,'0')
     const clipName = cut.source === 'camera' ? clipNameB : clipNameA
-    const reel     = sanitiseReel(clipName)
-    const durMs    = cut.endMs - cut.startMs
-    edl += n + '  ' + reel + ' V   C        ' + srcTC(cut.startMs) + ' ' + srcTC(cut.endMs) + ' ' + msToTC(recMs) + ' ' + msToTC(recMs + durMs) + '\n'
-    edl += n + '  ' + reel + ' AA  C        ' + srcTC(cut.startMs) + ' ' + srcTC(cut.endMs) + ' ' + msToTC(recMs) + ' ' + msToTC(recMs + durMs) + '\n'
+    const reel = sanitiseReel(clipName)
+    const durMs = cut.endMs - cut.startMs
+    edl += n + '  ' + reel + ' V   C        ' + srcTC(cut.startMs) + ' ' + srcTC(cut.endMs) + ' ' + msToTC(recMs) + ' ' + msToTC(recMs+durMs) + '\n'
+    edl += n + '  ' + reel + ' AA  C        ' + srcTC(cut.startMs) + ' ' + srcTC(cut.endMs) + ' ' + msToTC(recMs) + ' ' + msToTC(recMs+durMs) + '\n'
     edl += '* FROM CLIP NAME: ' + clipName + '\n'
-    if (cut.reason || cut.narrativeSection) edl += '* LOC: ' + msToTC(recMs) + ' WHITE  [' + (cut.narrativeSection || '') + '] ' + (cut.reason || cut.emotionalPurpose || '') + '\n'
+    if (cut.reason) edl += '* LOC: ' + msToTC(recMs) + ' WHITE  [' + (cut.narrativeSection||'') + '] ' + cut.reason + '\n'
     edl += '\n'
     recMs += durMs
   })
 
   if (voiceover.length) {
-    edl += '\n* ─── VOICEOVER TRACK ───────────────────────────────────────────────────\n'
-    edl += '* Record these lines and name files VO_01.mp3, VO_02.mp3 etc.\n\n'
-    voiceover.forEach((vo, i) => {
-      const n      = String(cuts.length + i + 1).padStart(3, '0')
-      const durMs  = vo.durationMs || Math.round((vo.line.split(' ').length / 130) * 60000)
-      const recIn  = vo.recMs || (3600000 + Math.round((recMs - 3600000) * i / voiceover.length))
-      const recOut = recIn + durMs
-      const reel   = ('VO_' + String(i+1).padStart(2,'0') + '              ').slice(0,32)
-      edl += n + '  ' + reel + ' AA/V C        00:00:00:00 ' + msToTC(durMs) + ' ' + msToTC(recIn) + ' ' + msToTC(recOut) + '\n'
-      edl += '* FROM CLIP NAME: ' + (vo.label || ('VO_' + String(i+1).padStart(2,'0') + '.mp3')) + '\n'
-      edl += '* LOC: ' + msToTC(recIn) + ' YELLOW  ' + vo.line + '\n\n'
+    edl += '\n* ─── VOICEOVER ─────────────────────────────────────────────────────────\n'
+    edl += '* Record these lines as VO_01.mp3, VO_02.mp3 etc.\n\n'
+    voiceover.forEach((vo,i) => {
+      const n = String(cuts.length+i+1).padStart(3,'0')
+      const durMs = vo.durationMs || Math.round((vo.line.split(' ').length/130)*60000)
+      const recIn = vo.recMs || (3600000 + Math.round((recMs-3600000)*i/voiceover.length))
+      const reel = ('VO_'+String(i+1).padStart(2,'0')+'              ').slice(0,32)
+      edl += n+'  '+reel+' AA/V C        00:00:00:00 '+msToTC(durMs)+' '+msToTC(recIn)+' '+msToTC(recIn+durMs)+'\n'
+      edl += '* FROM CLIP NAME: '+(vo.label||('VO_'+String(i+1).padStart(2,'0')+'.mp3'))+'\n'
+      edl += '* LOC: '+msToTC(recIn)+' YELLOW  '+vo.line+'\n\n'
     })
   }
 
   const totalMs = recMs - 3600000
-  const finalFilename = filename || 'edit.edl'
+  const finalFilename = job.filename || 'edit.edl'
+  const summaryStr = JSON.stringify({ ...(job.summaryObj||{}), cutCount: cuts.length, totalMinutes: Math.round(totalMs/60000*10)/10, filename: finalFilename })
 
-  await edlJobStore.set(req.params.jobId, {
-    ...job,
-    status:  'done',
-    edl,
-    summary: JSON.stringify({ ...summaryObj, cutCount: cuts.length, totalMinutes: Math.round(totalMs / 60000 * 10) / 10, filename: finalFilename }),
-  })
+  await edlJobStore.set(req.params.jobId, { ...job, status: 'done', edl, summary: summaryStr })
 
-  res.setHeader('X-EDL-Summary', job.summary)
+  res.setHeader('X-EDL-Summary', summaryStr)
   res.setHeader('Content-Type', 'text/plain; charset=utf-8')
   res.setHeader('Content-Disposition', 'attachment; filename="' + finalFilename + '"')
   res.send(edl)
