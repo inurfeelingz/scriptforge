@@ -127,11 +127,16 @@ app.use('/api/categories', authMiddleware, categoryRoutes)
 app.use('/api/episodes',   authMiddleware, episodeRoutes)
 app.use('/api/vault',      authMiddleware, vaultRoutes)
 
-// YouTube OAuth — browser redirects have no Authorization header
-app.use('/api/analytics/youtube/callback', analyticsRoutes)
-app.use('/api/analytics/youtube/connect',  analyticsRoutes)
-app.use('/api/analytics/youtube/debug',    analyticsRoutes)  // public — no auth needed for env check
-app.use('/api/analytics',                  authMiddleware, analyticsRoutes)
+// YouTube OAuth routes are public (no auth header possible on browser redirects).
+// Mount the WHOLE analytics router once — but skip authMiddleware for the three
+// public OAuth paths. This avoids double-mounting the router which caused
+// req.user to be undefined when the auth-protected catch-all re-ran the same handler.
+const analyticsAuthMiddleware = (req, res, next) => {
+  const pub = ['/youtube/callback', '/youtube/connect', '/youtube/debug']
+  if (pub.some(p => req.path === p)) return next()
+  return authMiddleware(req, res, next)
+}
+app.use('/api/analytics', analyticsAuthMiddleware, analyticsRoutes)
 
 app.use('/api/billing/webhook', billingRoutes)  // PayPal webhook — no auth token
 app.use('/api/billing',         authMiddleware, billingRoutes)
