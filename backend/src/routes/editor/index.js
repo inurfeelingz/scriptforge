@@ -851,6 +851,7 @@ router.post('/build-session-edl', async (req, res) => {
     const sB     = sessionBResult?.data || null
     const assets = assetsResult || []
     if (!sA?.transcript) return res.status(404).json({ error: 'Primary transcript not found' })
+    const title = sA.title || 'WhispaCuts Session Edit'
 
 
     // Extract episode structure from chat history
@@ -1186,7 +1187,6 @@ Return the complete JSON object with all arrays: cuts, voiceover, broll, sfx, ti
       return (filename || 'AX').replace(/\.[^.]+$/, '').replace(/[^a-zA-Z0-9_\-]/g, '_').slice(0, 32).padEnd(32)
     }
 
-    const title = sA.title || 'WhispaCuts Session Edit'
     const verifyNotes = verification ? [
       '* STORY SCORE: Stickiness ' + (verification.overallScore?.stickiness || '?') + '/10 | Virality ' + (verification.overallScore?.virality || '?') + '/10 | Polish ' + (verification.overallScore?.polish || '?') + '/10',
       '* PREDICTED RETENTION: ' + (verification.overallScore?.predictedAvgRetention || '?') + '%',

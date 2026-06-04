@@ -29,7 +29,7 @@ function getClient() {
 async function analyseTrends(niche, allVideos, withTranscripts) {
   const genAI = getClient()
   const model = genAI.getGenerativeModel({
-    model: 'gemini-2.0-flash',
+    model: 'gemini-1.5-flash',
     generationConfig: { responseMimeType: 'application/json' },
   })
 
@@ -86,7 +86,7 @@ async function scoreScript(voScript, topPerformers, niche, trendingContext) {
 
   const genAI = getClient()
   const model = genAI.getGenerativeModel({
-    model: 'gemini-2.0-flash',
+    model: 'gemini-1.5-flash',
     generationConfig: { responseMimeType: 'application/json' },
   })
 
@@ -154,7 +154,7 @@ async function fetchTrendingWithGrounding(niche) {
 
   const genAI = getClient()
   const model = genAI.getGenerativeModel({
-    model: 'gemini-2.0-flash',
+    model: 'gemini-1.5-flash',
     tools: [{ googleSearch: {} }],  // enables real-time grounding
   })
 
@@ -183,7 +183,7 @@ async function synthesiseAudienceData({ fileName, rowCount, columns, dataSample 
   if (!process.env.GEMINI_API_KEY) throw new Error('GEMINI_API_KEY not set')
 
   const genAI = getClient()
-  const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' })
+  const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' })
 
   const prompt = `You are analysing audience/user data uploaded by a content creator.
 
@@ -219,12 +219,12 @@ async function researchAudience(niche, channelContext = {}) {
 
   // Use grounding model for real-time research
   const groundedModel = genAI.getGenerativeModel({
-    model: 'gemini-2.0-flash',
+    model: 'gemini-1.5-flash',
     tools: [{ googleSearch: {} }],
   })
 
   // Use standard model for synthesis (grounding + JSON don't mix well)
-  const synthModel = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' })
+  const synthModel = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' })
 
   // Step 1 — Research the niche audience with grounding
   let rawResearch = ''
@@ -322,10 +322,10 @@ async function researchCompetitors(niche, channelName = '') {
 
   const genAI       = getClient()
   const groundedModel = genAI.getGenerativeModel({
-    model: 'gemini-2.0-flash',
+    model: 'gemini-1.5-flash',
     tools: [{ googleSearch: {} }],
   })
-  const synthModel = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' })
+  const synthModel = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' })
 
   // Step 1 — Research with grounding
   let rawResearch = ''
