@@ -1050,7 +1050,7 @@ ${
     let voiceLines    = null
     try {
       if (!narrativeArchitect || !voiceEngineService) throw new Error('Narrative services not available')
-      narrativePlan = await narrativeArchitect.buildNarrativeArc(req.user.id, categoryId, sessionIdA, { targetMinutes })
+      narrativePlan = await narrativeArchitect.buildNarrativeArc(req.user.id, categoryId, sessionIdA, { targetMinutes, episodeContext })
       voiceLines    = await voiceEngineService.generateCreatorVoiceLines(narrativePlan, cat?.voice_profile || {}, cat?.name)
       console.log('[build-session-edl] narrative arc built:', narrativePlan?.episodeTitle)
       await edlJobStore.set(jobId, {
@@ -1359,8 +1359,20 @@ router.post('/edl-job/:jobId/approve-narrative', async (req, res) => {
       const cutRes = await aiClient.messages.create({
         model: process.env.CLAUDE_MODEL || 'claude-sonnet-4-5',
         max_tokens: 4000,
-        system: 'You are a documentary video editor cutting against a narrative plan. Output ONLY valid JSON: {"cuts":[{"startMs":number,"endMs":number,"source":"screen|camera","narrativeSection":"coldOpen|setup|struggle|breakthrough|resolution","reason":"string"}],"voiceover":[{"recMs":number,"label":"VO_01","line":"string","durationMs":number}],"broll":[],"sfx":[],"titles":[],"chapters":[]}. Each cut exactly 8s. screen=DAW/process, camera=reactions/emotions/talking. Keep 8% of footage.',
-        messages: [{ role: 'user', content: 'Creator: "' + (cat?.name||'') + '". Niche: ' + (cat?.niche||'') + '.\nTarget: ' + targetMinutes + ' minutes.\n\n' + narrativeContext + '\n\n' + (assetContext||'No assets.') + '\n\nTRANSCRIPT:\n' + transcriptSummary + '\n\nReturn complete JSON.' }],
+        system: `You are a documentary video editor cutting against a narrative plan. Your job is to select REAL moments from the transcript below — use the EXACT timestamps provided.
+
+RULES:
+- Every cut startMs/endMs MUST come from a real timestamp in the transcript. Do NOT invent timestamps.
+- Each cut is exactly 8 seconds (endMs = startMs + 8000)
+- screen = DAW, software, scrolling, anything process-related
+- camera = reactions, emotions, talking to camera, breakthroughs
+- The outro section should be MAX 1-2 cuts. Do NOT pad with fake end cards, social links, or YouTube mechanics.
+- Total cuts should fill the target duration using real footage, then stop.
+- If the creator agreed on a cold open at a specific timestamp (e.g. 44:20), START THERE.
+
+Output ONLY valid JSON:
+{"cuts":[{"startMs":number,"endMs":number,"source":"screen|camera","narrativeSection":"coldOpen|setup|struggle|breakthrough|resolution|outro","reason":"string"}],"voiceover":[{"recMs":number,"label":"VO_01","line":"string","durationMs":number}],"broll":[],"sfx":[],"titles":[],"chapters":[]}`,
+        messages: [{ role: 'user', content: 'Creator: "' + (cat?.name||'') + '". Niche: ' + (cat?.niche||'') + '.\nTarget: ' + targetMinutes + ' minutes (' + Math.round(targetMinutes * 60 / 8) + ' cuts max).\n\n' + narrativeContext + '\n\n' + (assetContext||'No assets.') + '\n\nTRANSCRIPT (use these exact timestamps for cuts):\n' + transcriptSummary + '\n\nReturn complete JSON.' }],
       })
 
       let result = { cuts: [], voiceover: [], broll: [], sfx: [], titles: [], chapters: [] }

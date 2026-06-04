@@ -185,23 +185,30 @@ async function synthesiseAudienceData({ fileName, rowCount, columns, dataSample 
   const genAI = getClient()
   const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' })
 
+  // Detect multi-section platform analytics exports (has _section column from parser)
+  const isMultiSection = columns.includes('_section')
+  const contextHint = isMultiSection
+    ? 'This is a multi-section analytics export from a platform or website (not a YouTube audience export). It contains sections like OVERVIEW, TOP PLUGINS, GEOGRAPHY, USER SEGMENTS etc. Extract everything useful about who the users are and what they engage with.'
+    : 'This may be a YouTube Studio export, survey, or subscriber data.'
+
   const prompt = `You are analysing audience/user data uploaded by a content creator.
 
 File: ${fileName}
 Total records: ${rowCount}
-Columns: ${columns.join(', ')}
+Columns: ${columns.filter(c => c !== '_section').join(', ')}
+Context: ${contextHint}
 
-Sample data (first 20 rows):
+Data sample:
 ${dataSample}
 
 Write a plain-English audience persona summary (150-200 words) that a content creator can use to understand who their audience is. Cover:
-- Who these people are (demographics if available)
-- What they care about or are trying to achieve
+- Who these people are (geography, segments, engagement level if available)
+- What they care about or engage with most (top content, searches, behaviours)
 - Any pain points or motivations visible in the data
 - What kind of content would resonate with them
-- Any notable patterns or segments
+- Any notable patterns or drop-off signals
 
-Write in direct, specific prose. No bullet points, no headers, no markdown. Write as if briefing a scriptwriter on who they're writing for.`
+Write in direct, specific prose. No bullet points, no headers, no markdown. Write as if briefing a scriptwriter on who they're writing for.\`
 
   const result = await model.generateContent(prompt)
   return result.response.text().trim()

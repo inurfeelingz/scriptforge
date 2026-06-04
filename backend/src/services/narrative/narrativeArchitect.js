@@ -17,7 +17,7 @@ function parseKeyMoments(keyMoments) {
 }
 
 async function buildNarrativeArc(userId, categoryId, sessionId, options = {}) {
-  const { targetMinutes = 12 } = options
+  const { targetMinutes = 12, episodeContext = null } = options
 
   const [sessionRes, chatRes, episodeRes, retentionRes] = await Promise.all([
     supabase.from('session_journals')
@@ -45,11 +45,20 @@ async function buildNarrativeArc(userId, categoryId, sessionId, options = {}) {
 
   const peaks = parseKeyMoments(session.key_moments)
 
-  // Pull recent KB instructions from chat history
+  // Pull the full KB episode planning conversation — both user intent AND assistant confirmations
+  // This is where the agreed structure (cold open timestamp, arc, VO lines) lives
+  const planningMessages = chatMessages
+    .slice(-20)  // last 20 messages
+    .map(m => {
+      const prefix = m.role === 'user' ? 'CREATOR' : 'KB'
+      return `${prefix}: ${m.content.slice(0, 800)}`
+    })
+    .join('\n\n')
+
   const recentInstructions = chatMessages
     .filter(m => m.role === 'user')
     .slice(-8)
-    .map(m => m.content.slice(0, 300))
+    .map(m => m.content.slice(0, 400))
     .join('\n')
 
   const audiencePain = retention?.audience_model?.geminiInsights?.psychographics?.corePainPoint || ''
@@ -64,15 +73,15 @@ async function buildNarrativeArc(userId, categoryId, sessionId, options = {}) {
       : null,
     `SESSION: "${session.title}" — ${Math.round((session.duration_ms || 0) / 60000)} minutes`,
     `TARGET EDIT: ${targetMinutes} minutes`,
-    recentInstructions ? `CREATOR'S RECENT DIRECTION:\n${recentInstructions}` : null,
-    `\nKEY MOMENTS FROM THIS SESSION (${peaks.length} mapped):`,
+    episodeContext ? `EPISODE CONTEXT FROM KB CHAT:\n${episodeContext}` : null,
+    planningMessages ? `FULL KB PLANNING CONVERSATION (most recent first — USE THIS to understand the agreed structure, timestamps, cold open moment, and VO lines):\n${planningMessages}` : null,
+    recentInstructions ? `CREATOR'S MOST RECENT INSTRUCTIONS:\n${recentInstructions}` : null,
+    `\nKEY MOMENTS FROM THIS SESSION (${peaks.length} mapped — reference these exact timestamps when building the arc):`,
     peaks.map((p, i) => {
       const min = Math.floor(p.ms / 60000)
       const sec = Math.floor((p.ms % 60000) / 1000)
       return `[${i + 1}] [${min}:${String(sec).padStart(2,'0')}] [${p.type.toUpperCase()}] ${p.summary}`
     }).join('\n'),
-    `\nFULL TRANSCRIPT EXCERPT (first and last 2 minutes for context):`,
-    extractTranscriptBookends(session.transcript),
   ].filter(Boolean).join('\n')
 
   const response = await ai.messages.create({
@@ -110,6 +119,8 @@ function extractTranscriptBookends(transcript) {
 }
 
 const NARRATIVE_ARCHITECT_PROMPT = `You are a documentary narrative architect. Design the emotional journey BEFORE any clips are cut.
+
+CRITICAL: If the KB planning conversation contains a pre-agreed episode structure with specific timestamps, cold open moments, or arc decisions — HONOUR THEM. Do not reinvent. Use those exact moments as anchors. The creator and KB already agreed on this structure.
 
 Think like a documentary editor who knows that:
 - The first 3 seconds decide if they stay

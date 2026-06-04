@@ -708,15 +708,46 @@ router.post('/audience-upload', upload.single('file'), async (req, res) => {
     let rows = []
 
     if (ext === 'csv' || ext === 'txt') {
-      const text    = req.file.buffer.toString('utf8')
-      const lines   = text.trim().split('\n')
-      const headers = lines[0].split(',').map(h => h.trim().replace(/"/g, ''))
-      rows = lines.slice(1).filter(l => l.trim()).map(line => {
-        const vals = line.split(',').map(v => v.trim().replace(/"/g, ''))
-        const obj  = {}
-        headers.forEach((h, i) => { obj[h] = vals[i] || '' })
-        return obj
-      })
+      const text  = req.file.buffer.toString('utf8')
+      const lines = text.trim().split('\n').map(l => l.trim()).filter(l => l)
+
+      // Detect multi-section CSVs (Plugin Gallery, YouTube Studio advanced exports, etc.)
+      // A section line: no comma, short, all-caps or known keyword, followed by a header row
+      const isSection = (l) => {
+        const s = l.replace(/"/g, '').trim()
+        if (s.includes(',')) return false
+        if (s.length > 80)   return false
+        return s === s.toUpperCase() && s.length > 2
+      }
+      const hasMultipleSections = lines.filter(isSection).length >= 2
+
+      if (hasMultipleSections) {
+        let currentSection = 'General'
+        let currentHeaders = []
+        for (const line of lines) {
+          if (isSection(line)) {
+            currentSection = line.replace(/"/g, '').trim()
+            currentHeaders = []
+            continue
+          }
+          const vals = line.split(',').map(v => v.trim().replace(/"/g, ''))
+          if (!currentHeaders.length) { currentHeaders = vals; continue }
+          if (vals.length >= 2 && vals.some(v => v)) {
+            const obj = { _section: currentSection }
+            currentHeaders.forEach((h, i) => { obj[h || `col${i}`] = vals[i] || '' })
+            rows.push(obj)
+          }
+        }
+      } else {
+        // Standard flat CSV
+        const headers = lines[0].split(',').map(h => h.trim().replace(/"/g, ''))
+        rows = lines.slice(1).filter(l => l.trim()).map(line => {
+          const vals = line.split(',').map(v => v.trim().replace(/"/g, ''))
+          const obj  = {}
+          headers.forEach((h, i) => { obj[h] = vals[i] || '' })
+          return obj
+        })
+      }
     } else if (ext === 'xlsx' || ext === 'xls') {
       const workbook = XLSX.read(req.file.buffer, { type: 'buffer' })
       const sheet    = workbook.Sheets[workbook.SheetNames[0]]
