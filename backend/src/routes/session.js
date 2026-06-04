@@ -230,7 +230,7 @@ router.post('/index-audio', express.json(), async (req, res) => {
           transcript:      fullTranscript,
           status:          'ready',
           duration_ms:     durationMs,
-          key_moments:     allSegments.slice(0, 20).map(s => `[${Math.floor(s.start/60)}:${Math.floor(s.start%60).toString().padStart(2,'0')}] ${s.text.slice(0,60)}`),
+          key_moments:     allSegments.map(s => `[${Math.floor(s.start/60)}:${(s.start%60).toFixed(3).padStart(6,'0')}] ${s.text.trim()}`),
           created_at:      new Date().toISOString(),
         })
         .select()
@@ -328,7 +328,7 @@ router.post('/:id/map-moments', async (req, res) => {
 
   setImmediate(async () => {
     const job = await momentJobStore.get(jobId)
-    const CHUNK_LINES = 120
+    const CHUNK_LINES = 80  // smaller chunks = more precise moment extraction
     const allMoments  = []
 
     try {
@@ -344,7 +344,7 @@ router.post('/:id/map-moments', async (req, res) => {
       for (let i = 0; i < chunks.length; i++) {
         const extraction = await client.messages.create({
           model:      process.env.CLAUDE_MODEL || 'claude-sonnet-4-5',
-          max_tokens: 600,
+          max_tokens: 1500,
           system: 'You are analyzing a session transcript to find compelling moments for a YouTube documentary episode.\nExtract the most interesting, emotional, or visually compelling moments from this chunk.\nFocus on: breakthroughs, frustrations, revelations, energy spikes, funny moments, vulnerable moments, strong opinions.\nReturn ONLY a valid JSON array, no preamble, no markdown:\n[{ "timecode": "[M:SS]", "type": "breakthrough|frustration|revelation|energy|funny|vulnerable|opinion|decision", "summary": "one sentence", "quote": "exact words max 20 words", "why": "why this works on camera" }]\nIf nothing interesting return [].',
           messages: [{ role: 'user', content: chunks[i] }],
         })

@@ -15,6 +15,10 @@ let storyVerifier      = null
 try { narrativeArchitect = require('../../services/narrative/narrativeArchitect') } catch (e) { console.warn('[editor] narrativeArchitect not found:', e.message) }
 try { voiceEngineService = require('../../services/narrative/voiceEngine') }       catch (e) { console.warn('[editor] voiceEngine not found:', e.message) }
 try { storyVerifier      = require('../../services/narrative/storyVerifier') }     catch (e) { console.warn('[editor] storyVerifier not found:', e.message) }
+let scriptBuilder     = null
+let transcriptAligner = null
+try { scriptBuilder     = require('../../services/narrative/scriptBuilder') }     catch (e) { console.warn('[editor] scriptBuilder not found:', e.message) }
+try { transcriptAligner = require('../../services/narrative/transcriptAligner') } catch (e) { console.warn('[editor] transcriptAligner not found:', e.message) }
 
 const { getStore }   = require('../../services/jobStore')
 const edlJobStore    = getStore('edl')
@@ -770,6 +774,13 @@ router.get('/edl-job/:jobId', async (req, res) => {
       voiceLines: job.voiceLines,
     })
   }
+  if (job.status === 'script_review') {
+    return res.json({
+      status: 'script_review',
+      episodeScript: job.episodeScript,
+      narrativePlan: job.narrativePlan,
+    })
+  }
   if (job.status === 'review') {
     return res.json({
       status: 'review',
@@ -1335,6 +1346,103 @@ Return the complete JSON object with all arrays: cuts, voiceover, broll, sfx, ti
 })
 
 
+// POST /api/editor/edl-job/:jobId/approve-script
+// Creator has reviewed and approved the episode script — now build the EDL
+router.post('/edl-job/:jobId/approve-script', async (req, res) => {
+  const job = await edlJobStore.get(req.params.jobId)
+  if (!job) return res.status(404).json({ error: 'Job not found or expired' })
+  if (job.userId !== req.user.id) return res.status(403).json({ error: 'Forbidden' })
+  if (job.status !== 'script_review') return res.status(400).json({ error: 'Job not in script review state' })
+
+  const { approvedScript } = req.body
+  const scriptToUse = approvedScript || job.episodeScript
+
+  if (!scriptToUse?.scriptLines?.length) {
+    return res.status(400).json({ error: 'No script lines provided' })
+  }
+
+  try {
+    await edlJobStore.set(req.params.jobId, {
+      ...job, status: 'processing', approvedScript: scriptToUse,
+    })
+    res.json({ status: 'processing', message: 'Script approved — aligning to transcript and building cuts' })
+  } catch (e) {
+    return res.status(500).json({ error: e.message })
+  }
+
+  setImmediate(async () => {
+    try {
+      const updatedJob = await edlJobStore.get(req.params.jobId)
+      const { approvedScript, clipNameA, clipNameB, targetMinutes, cat,
+              categoryId, narrativePlan, voiceLines, sessionIdA } = updatedJob
+
+      // Fetch raw transcript for alignment
+      const { data: sessionData } = await supabase
+        .from('session_journals')
+        .select('transcript, title')
+        .eq('id', sessionIdA)
+        .single()
+
+      const transcript = sessionData?.transcript || ''
+
+      // ── Align script lines to transcript timestamps ─────────────────────
+      let cuts = []
+      let voiceover = []
+
+      if (transcriptAligner && transcript) {
+        const dialogueLines = approvedScript.scriptLines.filter(l => l.type !== 'section_break')
+        const aligned = transcriptAligner.alignScript(dialogueLines, transcript)
+
+        // Log alignment quality
+        const matched = aligned.filter(l => l.matched).length
+        const total   = aligned.filter(l => !l.isVO).length
+        console.log('[approve-script] aligned ' + matched + '/' + total + ' lines (' + Math.round(matched/total*100) + '% match rate)')
+
+        cuts = transcriptAligner.toCuts(aligned)
+
+        // VO lines from script
+        voiceover = aligned
+          .filter(l => l.isVO)
+          .map((v, i) => ({
+            recMs:     3600000 + Math.round((targetMinutes * 60000) * i / Math.max(1, aligned.filter(l => l.isVO).length)),
+            label:     'VO_' + String(i + 1).padStart(2, '0'),
+            line:      v.text,
+            durationMs: Math.round((v.text.split(' ').length / 130) * 60000),
+            narrativeSection: v.section,
+          }))
+      } else {
+        // Fallback: use Claude to cut if aligner unavailable
+        console.warn('[approve-script] transcriptAligner not available — falling back to Claude cuts')
+        // Pull from job's existing cuts if available
+        cuts = updatedJob.cuts || []
+      }
+
+      if (!cuts.length) {
+        await edlJobStore.update(req.params.jobId, {
+          status: 'error',
+          error: 'No cuts produced from script alignment — check transcript quality',
+        })
+        return
+      }
+
+      const filename = (narrativePlan?.episodeTitle || updatedJob.title || 'Episode')
+        .replace(/[^\w\s-]/g, '').replace(/\s+/g, '_').slice(0, 50) + '_edit.edl'
+
+      await edlJobStore.set(req.params.jobId, {
+        ...updatedJob, status: 'review', cuts, voiceover,
+        broll: [], sfx: [], titles: [], chapters: [],
+        verification: null,
+        summaryObj: { cutCount: cuts.length, totalMinutes: targetMinutes, filename },
+        filename,
+      })
+      console.log('[approve-script] ready for cut review — ' + cuts.length + ' cuts')
+    } catch (err) {
+      console.error('[approve-script]', err.message)
+      await edlJobStore.update(req.params.jobId, { status: 'error', error: err.message })
+    }
+  })
+})
+
 // POST /api/editor/edl-job/:jobId/approve-narrative
 router.post('/edl-job/:jobId/approve-narrative', async (req, res) => {
   const job = await edlJobStore.get(req.params.jobId)
@@ -1355,7 +1463,44 @@ router.post('/edl-job/:jobId/approve-narrative', async (req, res) => {
     try {
       const updatedJob = await edlJobStore.get(req.params.jobId)
       const { allLines, episodeContext, assetContext, audiencePain, title,
-              clipNameA, clipNameB, targetMinutes, cat, categoryId, narrativePlan, voiceLines } = updatedJob
+              clipNameA, clipNameB, targetMinutes, cat, categoryId,
+              narrativePlan, voiceLines, sessionIdA } = updatedJob
+
+      // ── Pass 1.5: Build episode script if scriptBuilder available ────────
+      // If we have a script already approved (script_review state), use it.
+      // Otherwise build it now and pause for review.
+      if (scriptBuilder && transcriptAligner && !updatedJob.approvedScript) {
+        try {
+          // Fetch raw transcript and key_moments for alignment
+          const { data: sessionData } = await supabase
+            .from('session_journals')
+            .select('transcript, key_moments')
+            .eq('id', sessionIdA)
+            .single()
+
+          const episodeScript = await scriptBuilder.buildEpisodeScript({
+            narrativePlan,
+            voiceLines,
+            transcript:     sessionData?.transcript || '',
+            keyMoments:     sessionData?.key_moments || [],
+            episodeContext,
+            categoryName:   cat?.name || '',
+            targetMinutes,
+          })
+
+          console.log('[approve-narrative] script built — ' + episodeScript.stats.dialogue + ' dialogue lines, ' + episodeScript.stats.voiceover + ' VO lines')
+
+          await edlJobStore.set(req.params.jobId, {
+            ...updatedJob,
+            status: 'script_review',
+            episodeScript,
+          })
+          return // wait for script approval
+        } catch (scriptErr) {
+          console.warn('[approve-narrative] scriptBuilder failed, falling through to direct cut:', scriptErr.message)
+          // Fall through to Pass 2 directly
+        }
+      }
 
       // Rebuild transcript for Pass 2 using ONLY the key moments the creator mapped.
       // The full minute-block summary is too large — Claude runs out of context and
