@@ -208,7 +208,7 @@ Write a plain-English audience persona summary (150-200 words) that a content cr
 - What kind of content would resonate with them
 - Any notable patterns or drop-off signals
 
-Write in direct, specific prose. No bullet points, no headers, no markdown. Write as if briefing a scriptwriter on who they're writing for.\`
+Write in direct, specific prose. No bullet points, no headers, no markdown. Write as if briefing a scriptwriter on who they're writing for.`
 
   const result = await model.generateContent(prompt)
   return result.response.text().trim()
