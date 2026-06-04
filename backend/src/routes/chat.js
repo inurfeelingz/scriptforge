@@ -566,8 +566,8 @@ and the user cannot edit their video. Route ALL EDL requests through the action 
       ]
       await saveHistory(req.user.id, categoryId, mode, updatedHistory)
 
-      if (updatedHistory.length % 5 === 0) {
-        extractLearnings(req.user.id, categoryId, updatedHistory.slice(-10), fullResponse, message)
+      if (updatedHistory.length % 3 === 0) {
+        extractLearnings(req.user.id, categoryId, updatedHistory.slice(-15), fullResponse, message)
           .catch(err => console.warn('[extract] Failed:', err.message))
       }
 
@@ -1358,13 +1358,21 @@ router.post('/generate-episode', async (req, res) => {
 // ── POST-CONVERSATION EXTRACTION ─────────────────────────────────────────────
 async function extractLearnings(userId, categoryId, recentMessages, lastResponse, lastMessage) {
   const conversation = recentMessages
-    .map(m => `${m.role}: ${m.content.slice(0, 300)}`)
+    .map(m => `${m.role}: ${m.content.slice(0, 800)}`)
     .join('\n')
 
   const extraction = await client.messages.create({
     model:      process.env.CLAUDE_MODEL || 'claude-sonnet-4-5',
-    max_tokens: 400,
-    system:     'Extract creative learnings from this conversation. Return ONLY valid JSON, no preamble. Fields: { "insights": string[], "preferences": string[], "episodeIdeas": string[], "voiceNotes": string[] }. Max 3 items per array.',
+    max_tokens: 1200,
+    system:     `Extract deep, specific learnings from this creator conversation. Return ONLY valid JSON, no preamble.
+Fields:
+{
+  "insights": string[],      // Specific observations about how this creator thinks, works, and creates. Be precise — not generic.
+  "preferences": string[],   // Concrete preferences about format, style, pacing, workflow. Quote their actual words where relevant.
+  "episodeIdeas": string[],  // Specific episode concepts with a title and one-line hook. Based on what they actually talked about.
+  "voiceNotes": string[]     // Notes about their voice, phrases they use, things to avoid, how they talk to their audience.
+}
+Max 5 items per array. Each item must be a complete, detailed sentence — not a fragment. Reference specific things from the conversation.`,
     messages:   [{ role: 'user', content: conversation }],
   })
 

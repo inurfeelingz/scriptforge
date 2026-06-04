@@ -47,6 +47,7 @@ router.get('/youtube/debug', async (req, res) => {
 // The OAuth URL format is static and documented — no network call needed.
 
 router.get('/youtube/connect', async (req, res) => {
+  console.log('[youtube/connect] categoryId:', req.query.categoryId, 'user:', req.user?.id)
   const { categoryId, token } = req.query
   if (!categoryId) return res.status(400).json({ error: 'categoryId required' })
 
@@ -86,6 +87,7 @@ router.get('/youtube/connect', async (req, res) => {
 // ─── YOUTUBE OAUTH: CALLBACK ──────────────────────────────────────────────────
 
 router.get('/youtube/callback', async (req, res) => {
+  console.log('[youtube/callback] code:', req.query.code ? 'present' : 'missing', 'state:', req.query.state, 'error:', req.query.error || 'none')
   const { code, state, error: oauthError } = req.query
 
   if (oauthError) {
