@@ -1,12 +1,13 @@
 // frontend/src/pages/AnalyticsPage.jsx
 
-import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useState, useMemo, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import {
   Upload, TrendingUp, Zap, FileText, ChevronDown, ChevronUp,
   Youtube, RefreshCw, Unlink,
 } from 'lucide-react'
 import { useStore } from '../store'
+import { supabase } from '../lib/supabase'
 import { analytics as analyticsApi } from '../lib/api'
 
 // ── SVG line chart ────────────────────────────────────────────────────────────
@@ -105,28 +106,24 @@ export default function AnalyticsPage() {
   const [competitorIntel,        setCompetitorIntel]        = useState(null)
   const [audienceModel,     setAudienceModel]     = useState(null)
 
-  function loadData() {
+  const loadData = useCallback(() => {
     if (!activeCategoryId) return
     analyticsApi.list({ categoryId: activeCategoryId }).then(({ uploads }) => setUploads(uploads || []))
     analyticsApi.hookStats({ categoryId: activeCategoryId }).then(({ breakdown }) => setHookStats(breakdown || [])).catch(() => {})
     analyticsApi.youtubeStatus(activeCategoryId).then(s => setYtStatus(s)).catch(() => {})
-    import('../lib/supabase').then(({ supabase }) => {
-      supabase.from('categories').select('competitor_intel').eq('id', activeCategoryId).single()
-        .then(({ data }) => { if (data?.competitor_intel) setCompetitorIntel(data.competitor_intel) })
-        .catch(() => {})
-    })
-    // Load existing audience model from category
-    import('../lib/supabase').then(({ supabase }) => {
-      supabase.from('categories').select('audience_model').eq('id', activeCategoryId).single()
-        .then(({ data }) => { if (data?.audience_model?.geminiInsights) setAudienceModel(data.audience_model.geminiInsights) })
-        .catch(() => {})
-    })
+    supabase.from('categories').select('competitor_intel, audience_model').eq('id', activeCategoryId).single()
+      .then(({ data }) => {
+        if (data?.competitor_intel) setCompetitorIntel(data.competitor_intel)
+        if (data?.audience_model?.geminiInsights) setAudienceModel(data.audience_model.geminiInsights)
+      })
+      .catch(() => {})
     analyticsApi.audienceUploads(activeCategoryId).then(({ uploads: au }) => setAudienceUploads(au || [])).catch(() => {})
-  }
-  useEffect(() => { loadData() }, [activeCategoryId])
+  }, [activeCategoryId])
+  useEffect(() => { loadData() }, [loadData])
 
-  // Handle OAuth callback
+  // Handle OAuth callback + reset connecting state on remount
   useEffect(() => {
+    setYtConnecting(false)  // Always reset on mount in case of OAuth redirect
     const p = new URLSearchParams(window.location.search)
     if (p.get('youtube') === 'connected') {
       notify('YouTube connected!', 'success')
@@ -167,29 +164,42 @@ export default function AnalyticsPage() {
   async function handleCompetitorResearch() {
     if (!activeCategoryId || competitorResearching) return
     setCompetitorResearching(true)
-    notify('Running competitor research — this takes 20-30 seconds...', 'info', 5000)
+    notify('Competitor research started — results in 20-30 seconds', 'info', 5000)
     try {
-      const result = await analyticsApi.competitorResearch(activeCategoryId)
-      if (result.intel) setCompetitorIntel(result.intel)
-      notify('Competitor research complete', 'success')
+      await analyticsApi.competitorResearch(activeCategoryId)
+      // Poll DB after 30s since route returns 202 immediately
+      setTimeout(async () => {
+        const { data } = await supabase.from('categories').select('competitor_intel').eq('id', activeCategoryId).single()
+        if (data?.competitor_intel) {
+          setCompetitorIntel(data.competitor_intel)
+          notify('Competitor research complete', 'success')
+        }
+        setCompetitorResearching(false)
+      }, 30000)
     } catch (err) {
       notify('Research failed: ' + err.message, 'error')
+      setCompetitorResearching(false)
     }
-    setCompetitorResearching(false)
   }
 
   async function handleAudienceResearch() {
     if (!activeCategoryId || audienceResearching) return
     setAudienceResearching(true)
-    notify('Running audience research — this takes 20-30 seconds...', 'info', 5000)
+    notify('Audience research started — results in 30 seconds', 'info', 5000)
     try {
-      const result = await analyticsApi.audienceResearch(activeCategoryId)
-      if (result.audienceModel) setAudienceModel(result.audienceModel)
-      notify('Audience research complete', 'success')
+      await analyticsApi.audienceResearch(activeCategoryId)
+      setTimeout(async () => {
+        const { data } = await supabase.from('categories').select('audience_model').eq('id', activeCategoryId).single()
+        if (data?.audience_model?.geminiInsights) {
+          setAudienceModel(data.audience_model.geminiInsights)
+          notify('Audience research complete', 'success')
+        }
+        setAudienceResearching(false)
+      }, 30000)
     } catch (err) {
       notify('Research failed: ' + err.message, 'error')
+      setAudienceResearching(false)
     }
-    setAudienceResearching(false)
   }
 
   async function handleAudienceUpload(e) {
