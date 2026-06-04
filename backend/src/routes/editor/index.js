@@ -1364,12 +1364,33 @@ router.post('/edl-job/:jobId/approve-narrative', async (req, res) => {
       })
 
       let result = { cuts: [], voiceover: [], broll: [], sfx: [], titles: [], chapters: [] }
-      try { result = JSON.parse((cutRes.content[0]?.text||'{}').replace(/\`\`\`json|\`\`\`/g,'').trim()) } catch {}
+      const rawCutText = (cutRes.content[0]?.text || '{}').replace(/`{3}json|`{3}/g, '').trim()
+      try {
+        result = JSON.parse(rawCutText)
+      } catch (parseErr) {
+        console.warn('[approve-narrative] Pass 2 full parse failed:', parseErr.message)
+        console.warn('[approve-narrative] raw response (first 500):', rawCutText.slice(0, 500))
+        // Fallback: try to extract just the cuts array if Claude wrapped it oddly
+        const cutsMatch = rawCutText.match(/"cuts"\s*:\s*(\[[\s\S]*?\])\s*[,}]/)
+        if (cutsMatch) {
+          try {
+            result.cuts = JSON.parse(cutsMatch[1])
+            console.log('[approve-narrative] fallback cuts extraction succeeded — ' + result.cuts.length + ' cuts')
+          } catch {
+            console.warn('[approve-narrative] fallback cuts extraction also failed')
+          }
+        }
+      }
 
       let verification = null
       try { if (storyVerifier) verification = await storyVerifier.verifyAndPolish(updatedJob.userId, categoryId, narrativePlan, { cuts: result.cuts||[] }, voiceLines) } catch {}
 
       const cuts = result.cuts || []
+      if (!cuts.length) {
+        console.error('[approve-narrative] 0 cuts produced — erroring job so user sees failure clearly')
+        await edlJobStore.update(req.params.jobId, { status: 'error', error: 'No cuts returned by AI — try again or provide more audio context' })
+        return
+      }
       const voiceover = (voiceLines?.voLines || []).map((v,i) => ({
         recMs: 3600000 + Math.round((targetMinutes*60000)*i/Math.max(1,voiceLines.voLines.length)),
         label: 'VO_' + String(i+1).padStart(2,'0'), line: v.line,
