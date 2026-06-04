@@ -270,6 +270,7 @@ export default function ChatPanel() {
   const sendMessageRef = useRef(null)
   const mapMomentsActiveRef = useRef(false)
   const [cutSelections, setCutSelections] = useState({})
+  const [scriptEdits, setScriptEdits] = useState({})
   const [narrativeEdits, setNarrativeEdits] = useState({})
 
   const { listening, speaking, audioLevel: voiceLevel, supported: voiceSupported,
@@ -878,6 +879,11 @@ export default function ChatPanel() {
             resolve({ narrativeReview: true, data })
             return
           }
+          if (data.status === 'script_review') {
+            clearInterval(poll)
+            resolve({ scriptReview: true, data })
+            return
+          }
           // still processing — keep polling
         } catch (err) { clearInterval(poll); reject(err) }
       }, 4000)
@@ -1008,6 +1014,17 @@ export default function ChatPanel() {
         const result1 = await pollEdlJob(buildJobId, auth, BASE)
         setEdlState(null)
         setMessages(prev => prev.filter(m => !m.isWorking))
+        if (result1.scriptReview) {
+          setScriptEdits({})
+          setMessages(prev => [...prev, {
+            role: 'assistant', content: 'Here is the episode script I wrote from your transcript. Review each line — edit, reorder, or remove — then approve to build the EDL.',
+            isScriptReview: true, jobId: buildJobId,
+            episodeScript: result1.data.episodeScript,
+            narrativePlan: result1.data.narrativePlan,
+            auth, BASE, timestamp: new Date().toISOString(),
+          }])
+          return
+        }
         if (result1.narrativeReview) {
           setNarrativeEdits({})
           setMessages(prev => [...prev, {
@@ -1122,6 +1139,17 @@ export default function ChatPanel() {
             isNarrativeReview: true, jobId: edlJobId,
             narrativePlan: result2.data.narrativePlan,
             voiceLines: result2.data.voiceLines,
+            auth, BASE, timestamp: new Date().toISOString(),
+          }])
+          return
+        }
+        if (result2.scriptReview) {
+          setScriptEdits({})
+          setMessages(prev => [...prev, {
+            role: 'assistant', content: 'Here is the episode script I wrote from your transcript. Review each line — edit, reorder, or remove — then approve to build the EDL.',
+            isScriptReview: true, jobId: edlJobId,
+            episodeScript: result2.data.episodeScript,
+            narrativePlan: result2.data.narrativePlan,
             auth, BASE, timestamp: new Date().toISOString(),
           }])
           return
@@ -1343,7 +1371,19 @@ export default function ChatPanel() {
                             try {
                               const r = await fetch(msg.BASE + '/editor/edl-job/' + msg.jobId, { headers: msg.auth })
                               const data = await r.json()
-                              if (data.status === 'review') {
+                              if (data.status === 'script_review') {
+                                clearInterval(pollInterval)
+                                setMessages(prev => prev.filter(m => !m.isWorking))
+                                setScriptEdits({})
+                                setMessages(prev => [...prev, {
+                                  role:'assistant', content:'Here is the episode script I wrote from your transcript. Review each line — edit, reorder, or remove — then approve to build the EDL.',
+                                  isScriptReview:true, jobId:msg.jobId,
+                                  episodeScript:data.episodeScript,
+                                  narrativePlan:data.narrativePlan,
+                                  auth:msg.auth, BASE:msg.BASE,
+                                  timestamp:new Date().toISOString(),
+                                }])
+                              } else if (data.status === 'review') {
                                 clearInterval(pollInterval)
                                 setMessages(prev => prev.filter(m => !m.isWorking))
                                 setCutSelections({})
@@ -1367,6 +1407,83 @@ export default function ChatPanel() {
                         }
                       }} style={{ marginTop:10, width:'100%', padding:'10px 0', borderRadius:8, border:'none', background:'rgba(74,222,128,1)', color:'#080808', cursor:'pointer', fontSize:12, fontWeight:700, fontFamily:"'Figtree',sans-serif" }}>
                         Approve story — start cutting →
+                      </button>
+                    </div>
+                  )
+                })()}
+
+                {/* Script review */}
+                {msg.isScriptReview && (() => {
+                  const lines = msg.episodeScript?.scriptLines || []
+                  const dialogueLines = lines.filter(l => l.type === 'dialogue')
+                  const voLines = lines.filter(l => l.type === 'voiceover')
+
+                  return (
+                    <div style={{ padding:'12px', borderRadius:10, border:'1px solid rgba(74,222,128,0.15)', background:'rgba(74,222,128,0.03)', maxWidth:400 }}>
+                      <div style={{ fontSize:11, color:'rgba(74,222,128,0.6)', marginBottom:8, fontFamily:"'Figtree',sans-serif" }}>
+                        EPISODE SCRIPT — {msg.episodeScript?.episodeTitle}
+                      </div>
+                      <div style={{ fontSize:10, color:'rgba(255,255,255,0.4)', marginBottom:12, fontFamily:"'Figtree',sans-serif" }}>
+                        {dialogueLines.length} dialogue cuts · {voLines.length} VO lines · ~{msg.episodeScript?.targetMinutes}min
+                      </div>
+
+                      <div style={{ maxHeight:320, overflowY:'auto', marginBottom:12 }}>
+                        {lines.filter(l => l.type !== 'section_break').map((line, i) => (
+                          <div key={i} style={{ marginBottom:8, padding:'8px 10px', borderRadius:6, background: line.type === 'voiceover' ? 'rgba(234,179,8,0.08)' : 'rgba(255,255,255,0.03)', border: line.type === 'voiceover' ? '1px solid rgba(234,179,8,0.15)' : '1px solid rgba(255,255,255,0.06)' }}>
+                            <div style={{ fontSize:9, color: line.type === 'voiceover' ? 'rgba(234,179,8,0.6)' : 'rgba(74,222,128,0.5)', marginBottom:3, fontFamily:"'Figtree',sans-serif", textTransform:'uppercase', letterSpacing:1 }}>
+                              {line.type === 'voiceover' ? 'VO' : line.section} {line.source ? '· ' + line.source : ''}
+                            </div>
+                            <textarea
+                              defaultValue={line.text}
+                              onChange={e => setScriptEdits(prev => ({ ...prev, [i]: e.target.value }))}
+                              style={{ width:'100%', background:'transparent', border:'none', color:'rgba(255,255,255,0.85)', fontSize:11, fontFamily:"'Figtree',sans-serif", resize:'vertical', minHeight:40, outline:'none', lineHeight:1.5 }}
+                            />
+                          </div>
+                        ))}
+                      </div>
+
+                      <button onClick={async () => {
+                        // Merge edits back into script lines
+                        const editedLines = lines.filter(l => l.type !== 'section_break').map((line, i) => ({
+                          ...line,
+                          text: scriptEdits[i] !== undefined ? scriptEdits[i] : line.text,
+                        }))
+                        const approvedScript = { ...msg.episodeScript, scriptLines: editedLines }
+
+                        setMessages(prev => [...prev, { role:'assistant', content:'Script approved — aligning to transcript and building cuts…', isWorking:true, timestamp:new Date().toISOString() }])
+                        try {
+                          await fetch(msg.BASE + '/editor/edl-job/' + msg.jobId + '/approve-script', {
+                            method:'POST', headers:{ ...msg.auth, 'Content-Type':'application/json' },
+                            body: JSON.stringify({ approvedScript }),
+                          })
+                          const pollInterval = setInterval(async () => {
+                            try {
+                              const r = await fetch(msg.BASE + '/editor/edl-job/' + msg.jobId, { headers: msg.auth })
+                              const data = await r.json()
+                              if (data.status === 'review') {
+                                clearInterval(pollInterval)
+                                setMessages(prev => prev.filter(m => !m.isWorking))
+                                setCutSelections({})
+                                setMessages(prev => [...prev, {
+                                  role:'assistant', content:'Ready to review. Pick screen or face cam for each cut:',
+                                  isCutReview:true, jobId:msg.jobId, cuts:data.cuts,
+                                  clipNameA:data.clipNameA, clipNameB:data.clipNameB,
+                                  verification:data.verification, auth:msg.auth, BASE:msg.BASE,
+                                  timestamp:new Date().toISOString(),
+                                }])
+                              } else if (data.status === 'error') {
+                                clearInterval(pollInterval)
+                                setMessages(prev => prev.filter(m => !m.isWorking))
+                                setMessages(prev => [...prev, { role:'assistant', content:'Alignment failed: ' + data.error, isError:true, timestamp:new Date().toISOString() }])
+                              }
+                            } catch { clearInterval(pollInterval) }
+                          }, 3000)
+                        } catch (err) {
+                          setMessages(prev => prev.filter(m => !m.isWorking))
+                          setMessages(prev => [...prev, { role:'assistant', content:'Error: ' + err.message, isError:true, timestamp:new Date().toISOString() }])
+                        }
+                      }} style={{ width:'100%', padding:'10px 0', borderRadius:8, border:'none', background:'rgba(74,222,128,1)', color:'#080808', cursor:'pointer', fontSize:12, fontWeight:700, fontFamily:"'Figtree',sans-serif" }}>
+                        Approve script — build EDL →
                       </button>
                     </div>
                   )
